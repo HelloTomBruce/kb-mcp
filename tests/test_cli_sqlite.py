@@ -18,7 +18,6 @@ from click.testing import CliRunner
 
 from kb_mcp.cli import (
     EXIT_CONFLICT,
-    EXIT_INTERNAL,
     EXIT_NOT_FOUND,
     EXIT_OK,
     EXIT_USAGE,
@@ -528,16 +527,26 @@ class TestCrossInvocation:
 # ---------------------------------------------------------------------------
 
 
-class TestImportExportStubs:
-    """kb import and export are stubs that exit with code 5."""
+class TestImportExportRoundTrip:
+    """kb import and export wired to real md_io (Wave 1B+2B)."""
 
-    def test_import_not_implemented(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(runner, store, ["import", "/tmp"])
-        assert result.exit_code == EXIT_INTERNAL
+    def test_import_empty(self, runner: CliRunner, store: SqliteStore, tmp_path: Path) -> None:
+        """Importing an empty directory succeeds."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        result = _invoke(runner, store, ["import", str(vault), "--json"])
+        assert result.exit_code == EXIT_OK
+        data = json.loads(result.output)
+        assert data["inserted"] == 0
 
-    def test_export_not_implemented(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(runner, store, ["export", "/tmp"])
-        assert result.exit_code == EXIT_INTERNAL
+    def test_export_empty(self, runner: CliRunner, store: SqliteStore, tmp_path: Path) -> None:
+        """Exporting an empty DB writes zero files."""
+        out = tmp_path / "out"
+        result = _invoke(runner, store, ["export", str(out), "--json"])
+        assert result.exit_code == EXIT_OK
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["written"] == 0
 
 
 # ---------------------------------------------------------------------------

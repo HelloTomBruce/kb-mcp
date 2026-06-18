@@ -9,10 +9,10 @@ This module implements the full command surface described in
 - ``kb search QUERY [--type] [--tag]... [--limit] [--json]``
 - ``kb list [--type] [--tag]... [--limit] [--offset] [--json]``
 - ``kb link --from ID --to ID [--rel] [--json]``
-- ``kb import DIR [--json] [--dry-run]``     *(deferred to Wave 1B)*
-- ``kb export DIR [--json] [--force]``        *(deferred to Wave 1B)*
+- ``kb import DIR [--json] [--dry-run]``
+- ``kb export DIR [--json] [--force]``
 - ``kb doctor [--json]``
-- ``kb serve [--log-level LEVEL]``            *(deferred to Wave 2A)*
+- ``kb serve [--log-level LEVEL]``
 
 Exit codes follow ``cli-reference.md``:
 
@@ -34,15 +34,14 @@ For v0.1 the CLI uses :class:`~kb_mcp.store.sqlite.SqliteStore`
 
     runner.invoke(cli, ["add", ...], obj={"store": my_store})
 
-Import / export stubs
----------------------
+Import / export
+----------------
 
-``kb import`` and ``kb export`` call :func:`_import_dir_stub` and
-:func:`_export_dir_stub` respectively. These are inline shims that
-raise :class:`NotImplementedError` with a "Wave 1B" message, so the
-CLI surface is complete and the commands exit with code 5 until the
-real Markdown I/O module (``kb_mcp.md_io``) lands. See the
-:mod:`kb_mcp.md_io` contract in ``docs/architecture.md`` § 4.3.
+``kb import`` walks a directory of ``.md`` files, parses YAML frontmatter,
+and upserts each into the store via :func:`kb_mcp.md_io.import_dir`.
+``kb export`` writes one Markdown file per document via
+:func:`kb_mcp.md_io.export_dir`. See ``docs/architecture.md`` § 4.3 for
+the contract.
 """
 
 from __future__ import annotations
@@ -55,11 +54,11 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import click
+from pydantic import ValidationError as PydanticValidationError
 
 from kb_mcp.schema import (
     Document,
     DuplicateError,
-    ImportReport,
     KbMcpError,
     NotFoundError,
     ValidationError,
@@ -163,9 +162,11 @@ def _handle_errors(func: F) -> F:
             _emit_error(ctx, as_json, "validation", str(e))
             ctx.exit(EXIT_VALIDATION)
         except NotImplementedError as e:
-            # Import / export / serve stubs land here.
             _emit_error(ctx, as_json, "not_implemented", str(e))
             ctx.exit(EXIT_INTERNAL)
+        except PydanticValidationError as e:
+            _emit_error(ctx, as_json, "validation", str(e))
+            ctx.exit(EXIT_VALIDATION)
         except KbMcpError as e:
             _emit_error(ctx, as_json, "error", str(e))
             ctx.exit(EXIT_INTERNAL)
@@ -221,28 +222,7 @@ def _resolve_body(body: str | None, body_file: str | None) -> str:
     return click.get_text_stream("stdin").read()
 
 
-# Markdown I/O stubs (deferred to Wave 1B) ------------------------------------
-
-
-def _import_dir_stub(store: Any, directory: Path, *, dry_run: bool = False) -> ImportReport:
-    """Inline stub for ``kb_mcp.md_io.import_dir``.
-
-    The real implementation lands in Wave 1B. Until then, every
-    invocation raises :class:`NotImplementedError`, which the CLI
-    surfaces as exit code 5.
-    """
-    raise NotImplementedError("kb import: deferred to Wave 1B (kb_mcp.md_io.import_dir)")
-
-
-def _export_dir_stub(store: Any, directory: Path, *, force: bool = False) -> int:
-    """Inline stub for ``kb_mcp.md_io.export_dir``.
-
-    See :func:`_import_dir_stub` for the Wave 1B deferral rationale.
-    """
-    raise NotImplementedError("kb export: deferred to Wave 1B (kb_mcp.md_io.export_dir)")
-
-
-# Tag parsing -----------------------------------------------------------------
+# Markdown I/O -----------------------------------------------------------------
 
 
 def _parse_tags(raw: str | None) -> list[str]:
@@ -561,14 +541,11 @@ def import_cmd(
     dry_run: bool,
     as_json: bool,
 ) -> None:
-    """Import a directory of Markdown files into the DB.
+    """Import a directory of Markdown files into the DB."""
+    from kb_mcp.md_io import import_dir as _import_dir
 
-    Implementation deferred to Wave 1B (``kb_mcp.md_io``). The CLI
-    surface is fully wired so the command is discoverable and testable;
-    invoking it exits with code 5 until the real module lands.
-    """
     store = _get_store(ctx)
-    report = _import_dir_stub(store, directory, dry_run=dry_run)
+    report = _import_dir(store, directory, dry_run=dry_run)
     if as_json:
         _emit_json(report.model_dump())
 
@@ -595,13 +572,11 @@ def export_cmd(
     force: bool,
     as_json: bool,
 ) -> None:
-    """Export the DB to a directory of Markdown files.
+    """Export the DB to a directory of Markdown files."""
+    from kb_mcp.md_io import export_dir as _export_dir
 
-    Implementation deferred to Wave 1B (``kb_mcp.md_io``). See
-    :func:`_import_dir_stub` for the deferral rationale.
-    """
     store = _get_store(ctx)
-    n = _export_dir_stub(store, directory, force=force)
+    n = _export_dir(store, directory, force=force)
     if as_json:
         _emit_json({"ok": True, "written": n})
 

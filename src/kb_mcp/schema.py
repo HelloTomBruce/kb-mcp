@@ -103,19 +103,28 @@ _TYPE_PREFIX = {
 
 
 def slugify(title: str) -> str:
-    """Convert ``title`` to a URL-safe slug.
+    """Convert ``title`` to a URL-safe ASCII slug.
 
-    Lowercase, replace runs of non-alphanumeric with ``-``, strip leading/
-    trailing dashes. Non-ASCII characters are preserved (unicode-aware).
+    Lowercase, replace runs of non-alphanumeric with ``-``, strip
+    non-ASCII characters, and trim leading/trailing dashes. Non-ASCII
+    characters that cannot be represented in ASCII are dropped (e.g.
+    CJK characters), which keeps IDs compatible with the
+    ``^[a-z0-9][a-z0-9/_-]*$`` validation regex.
 
     >>> slugify("Use SQLite FTS5!")
     'use-sqlite-fts5'
+    >>> slugify("kb-mcp 项目")
+    'kb-mcp'
     """
     import re
+    import unicodedata
 
     s = title.strip().lower()
-    # Replace any run of non-alphanumeric (unicode-aware) with a single dash.
-    s = re.sub(r"[^\w]+", "-", s, flags=re.UNICODE)
+    # Normalize (decomposes accented chars), then drop non-ASCII.
+    s = unicodedata.normalize("NFKD", s)
+    s = s.encode("ascii", "ignore").decode("ascii")
+    # Replace any run of non-alphanumeric with a single dash.
+    s = re.sub(r"[^a-z0-9]+", "-", s)
     return s.strip("-")
 
 

@@ -27,7 +27,6 @@ from click.testing import CliRunner
 
 from kb_mcp.cli import (
     EXIT_CONFLICT,
-    EXIT_INTERNAL,
     EXIT_NOT_FOUND,
     EXIT_OK,
     EXIT_USAGE,
@@ -624,56 +623,45 @@ class TestLink:
 class TestImport:
     """kb import is a stub that exits 5 until Wave 1B."""
 
-    def test_import_stub_exits_5(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """Any invocation exits 5 (internal / not implemented)."""
-        vault = tmp_path / "vault"
-        vault.mkdir()
-        result = _invoke(runner, store, ["import", str(vault)])
-        assert result.exit_code == EXIT_INTERNAL
-        assert "not yet implemented" in result.output or "deferred" in result.output
-
-    def test_import_stub_json(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """Stub with ``--json`` still exits 5."""
+    def test_import_empty_vault(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
+        """Importing an empty directory succeeds and writes 0 docs."""
         vault = tmp_path / "vault"
         vault.mkdir()
         result = _invoke(runner, store, ["import", str(vault), "--json"])
-        # The stub raises NotImplementedError which _handle_errors catches
-        # and exits 5; JSON error payload is emitted.
-        assert result.exit_code == EXIT_INTERNAL
+        assert result.exit_code == EXIT_OK
+        data = json.loads(result.output)
+        assert data["inserted"] == 0
 
-    def test_import_dry_run_stub(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """ "--dry-run`` does not change the stub behaviour."""
+    def test_import_dry_run_does_not_write(
+        self, runner: CliRunner, store: StubStore, tmp_path: Path
+    ) -> None:
+        """``--dry-run`` parses but does not insert."""
         vault = tmp_path / "vault"
         vault.mkdir()
-        result = _invoke(runner, store, ["import", str(vault), "--dry-run"])
-        assert result.exit_code == EXIT_INTERNAL
+        (vault / "doc.md").write_text("---\ntype: project\ntitle: T\n---\nbody")
+        result = _invoke(runner, store, ["import", str(vault), "--dry-run", "--json"])
+        assert result.exit_code == EXIT_OK
+        assert store.list() == []
 
 
 # ---------------------------------------------------------------------------
-# kb export (stub  -  deferred to Wave 1B)
+# kb export
 # ---------------------------------------------------------------------------
 
 
 class TestExport:
-    """ "kb export`` is a stub that exits 5 until Wave 1B."""
+    """``kb export`` writes Markdown files (Wave 1B wiring)."""
 
-    def test_export_stub_exits_5(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """Any invocation exits 5."""
-        out = tmp_path / "out"
-        result = _invoke(runner, store, ["export", str(out)])
-        assert result.exit_code == EXIT_INTERNAL
-
-    def test_export_stub_json(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """Stub with ``--json`` still exits 5."""
+    def test_export_empty_db_writes_zero(
+        self, runner: CliRunner, store: StubStore, tmp_path: Path
+    ) -> None:
+        """Exporting an empty DB succeeds with written=0."""
         out = tmp_path / "out"
         result = _invoke(runner, store, ["export", str(out), "--json"])
-        assert result.exit_code == EXIT_INTERNAL
-
-    def test_export_force_stub(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """ "--force`` does not change the stub behaviour."""
-        out = tmp_path / "out"
-        result = _invoke(runner, store, ["export", str(out), "--force"])
-        assert result.exit_code == EXIT_INTERNAL
+        assert result.exit_code == EXIT_OK
+        data = _assert_json_ok(result)
+        assert data["ok"] is True
+        assert data["written"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -803,13 +791,10 @@ class TestExitCodes:
         result = _invoke(runner, store, args)
         assert result.exit_code == EXIT_CONFLICT
 
-    def test_exit_internal_not_implemented(
-        self, runner: CliRunner, store: StubStore, tmp_path: Path
-    ) -> None:
-        vault = tmp_path / "v"
-        vault.mkdir()
-        result = _invoke(runner, store, ["import", str(vault)])
-        assert result.exit_code == EXIT_INTERNAL
+    def test_exit_internal_validation(self, runner: CliRunner, store: StubStore) -> None:
+        """Empty type triggers pydantic ValidationError → exit 2."""
+        result = _invoke(runner, store, ["add", "--type", "", "--title", "T"])
+        assert result.exit_code == EXIT_VALIDATION
 
     def test_exit_usage(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(runner, store, ["add"])  # missing required options
