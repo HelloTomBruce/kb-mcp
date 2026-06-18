@@ -32,7 +32,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,6 @@ from kb_mcp.schema import (
     DuplicateError,
     IntegrityError,
     NotFoundError,
-    SearchHit,
     ValidationError,
     make_id,
 )

@@ -9,7 +9,8 @@ build/
 *.db-journal
 *.db-wal
 *.db-shm
+.coverage
+.coverage.*
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-

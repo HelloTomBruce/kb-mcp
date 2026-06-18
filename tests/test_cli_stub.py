@@ -34,7 +34,7 @@ from kb_mcp.cli import (
     EXIT_VALIDATION,
     cli,
 )
-from kb_mcp.schema import Document, DuplicateError, NotFoundError, ValidationError
+from kb_mcp.schema import Document
 from kb_mcp.stub_store import StubStore
 
 

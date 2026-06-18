@@ -335,7 +335,7 @@ def test_unlink_specific_rel(store: SqliteStore) -> None:
     n = store.unlink("a", "b", rel="blocks")
     assert n == 1
     remaining = store.outlinks("a")
-    assert [l.rel for l in remaining] == ["supersedes"]
+    assert [link.rel for link in remaining] == ["supersedes"]
 
 
 def test_unlink_all(store: SqliteStore) -> None:

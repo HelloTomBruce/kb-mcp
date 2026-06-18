@@ -17,11 +17,10 @@ Plus NFR-S-3 (path-traversal guard) for both ``import_dir`` and
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from typing import TYPE_CHECKING, Iterator
+from typing import Iterator
 
 import pytest
 
@@ -36,7 +35,6 @@ from kb_mcp.md_io import (
 from kb_mcp.schema import (
     Document,
     ImportReport,
-    NotFoundError,
     ValidationError,
     make_id,
 )

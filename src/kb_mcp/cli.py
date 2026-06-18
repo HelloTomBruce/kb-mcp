@@ -61,9 +61,7 @@ from kb_mcp.schema import (
     DuplicateError,
     ImportReport,
     KbMcpError,
-    Link,
     NotFoundError,
-    SearchHit,
     ValidationError,
     make_id,
 )

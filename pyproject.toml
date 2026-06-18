@@ -25,6 +25,7 @@ dependencies = [
   "click>=8.1",
   "pydantic>=2.5",
   "mcp>=1.0",
+  "python-frontmatter>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -39,5 +40,15 @@ dev = [
 kb = "kb_mcp.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/kb-mcp"
-Issues = "https://github.com/your-org/kb-mcp/issues"
+Homepage = "https://github.com/zhangbei/kb-mcp"
+Source = "https://github.com/zhangbei/kb-mcp"
+Issues = "https://github.com/zhangbei/kb-mcp/issues"
+Changelog = "https://github.com/zhangbei/kb-mcp/releases"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
