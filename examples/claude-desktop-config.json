@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/specification/main/schemas/2024-11-05/server-config.schema.json",
+  "mcpServers": {
+    "kb": {
+      "command": "kb",
+      "args": ["serve"]
+    }
+  }
+}
