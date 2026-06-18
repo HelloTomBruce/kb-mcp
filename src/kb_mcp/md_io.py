@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import frontmatter
 
@@ -35,7 +35,17 @@ from kb_mcp.schema import (
     ValidationError,
     make_id,
 )
-from kb_mcp.store import Store
+
+if TYPE_CHECKING:
+    # The Store Protocol lives in ``kb_mcp.store`` (the Protocol
+    # module). The Wave 0 directory layout puts both ``store.py`` (the
+    # Protocol) and ``store/`` (the implementation package) at the same
+    # level; Python's import machinery picks the package, shadowing the
+    # Protocol module. We only need the Protocol for static type
+    # checking — runtime code duck-types against the Protocol — so the
+    # import is guarded with TYPE_CHECKING and annotations stay as
+    # strings (PEP 563). See deviations_from_architecture.md.
+    from kb_mcp.store import Store
 
 
 # ---------------------------------------------------------------------------

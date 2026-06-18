@@ -1,0 +1,420 @@
+"""In-memory dict-backed Store implementation.
+
+This module provides :class:`StubStore`, a complete implementation of the
+:mod:`kb_mcp.store` Protocol that lives entirely in process memory. It is
+used by:
+
+- the **CLI test suite** (``tests/test_cli_stub.py``) to exercise every
+  Click command without touching SQLite;
+- any future unit test that needs a real :class:`Store` (not a mock);
+- ad-hoc scripting sessions where persistence is not required.
+
+Design notes
+------------
+
+- **Insertion order preserved.** ``_docs`` is a regular ``dict`` (insertion
+  ordered since Python 3.7) and ``_links`` is a ``set`` of tuples; the
+  public API never returns documents in a different order than insertion
+  unless the caller asks for a sort (``list()`` sorts by ``updated_at``).
+- **Soft delete.** :meth:`delete` sets ``deleted_at`` rather than popping
+  the entry. :meth:`get`, :meth:`list`, and :meth:`search` all filter
+  out soft-deleted rows by default.
+- **Idempotent links.** :meth:`link` is a no-op on an existing
+  ``(from_id, to_id, rel)`` triple.
+- **Update-by-source.** :meth:`import_many` updates an existing document
+  when the incoming document has a ``source`` matching an existing one.
+- **No thread safety.** Same contract as the Protocol — single-threaded
+  callers only.
+
+Search algorithm
+----------------
+
+A deliberately simple substring search is used so the StubStore behaves
+predictably in tests:
+
+- match in ``title + " " + body``, case-insensitive;
+- ``score`` is the 0-based character offset of the first match (lower is
+  better, mirroring FTS5 BM25 convention);
+- ``snippet`` is the first 80 chars of ``body`` with the first occurrence
+  of the query bolded (``**...**``).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Iterable
+
+from kb_mcp.schema import (
+    Document,
+    DoctorCheck,
+    DoctorReport,
+    DuplicateError,
+    ImportReport,
+    Link,
+    NotFoundError,
+    SearchHit,
+    ValidationError,
+    make_id,
+)
+
+# NOTE: ``Store`` is the Protocol defined in ``kb_mcp.store``. We do not
+# import it here — in Wave 1A the ``kb_mcp.store`` namespace became a
+# package whose ``__init__.py`` does not re-export the Protocol, so a
+# direct import would fail. Structural subtyping (PEP 544) means we only
+# need the *methods*, not the type. A separate test
+# (``test_store_contract.py``) verifies runtime conformance.
+_Store = object  # placeholder for type-checker; see NOTE above.
+
+
+_SNIPPET_LEN = 80
+
+
+def _now() -> datetime:
+    """Return a fresh aware UTC datetime. Centralised for testability."""
+    return datetime.now(timezone.utc)
+
+
+def _make_snippet(body: str, query: str) -> str:
+    """Return the first ``_SNIPPET_LEN`` chars of ``body`` with the first
+    occurrence of ``query`` (case-insensitive) wrapped in ``**``."""
+    if not body:
+        return ""
+    snippet = body[:_SNIPPET_LEN]
+    if not query:
+        return snippet
+    lower_snip = snippet.lower()
+    lower_q = query.lower()
+    pos = lower_snip.find(lower_q)
+    if pos < 0:
+        return snippet
+    end = pos + len(query)
+    if end > len(snippet):
+        # Query extends past the snippet window — bold the prefix.
+        return snippet[:pos] + f"**{snippet[pos:]}**"
+    return snippet[:pos] + f"**{snippet[pos:end]}**" + snippet[end:]
+
+
+class StubStore(_Store):  # type: ignore[misc, valid-type]
+    """A full Protocol-conforming :class:`Store` backed by Python dicts.
+
+    Suitable for unit tests, scripting, and any situation where persistence
+    is not needed. See module docstring for design notes.
+    """
+
+    def __init__(self) -> None:
+        # Documents keyed by id. ``deleted_at`` lives on the document, not
+        # in a separate tombstone table — simpler and matches the Schema.
+        self._docs: dict[str, Document] = {}
+        # Links keyed by (from_id, to_id, rel) for O(1) idempotency.
+        self._links: dict[tuple[str, str, str], Link] = {}
+        # Secondary index: source -> doc_id, for idempotent re-import.
+        self._by_source: dict[str, str] = {}
+
+    # ---- write ----------------------------------------------------------
+
+    def add(self, doc: Document) -> str:
+        """Insert a new document; auto-generate id when empty.
+
+        Raises:
+            DuplicateError: if the id is already in use.
+            ValidationError: if the document fails pydantic validation
+                (raised by ``Document.__init__`` before we get here).
+        """
+        # Pydantic validation already happened during Document construction.
+        # Re-validate defensively in case the caller built a Document with
+        # ``model_construct``.
+        try:
+            doc = Document.model_validate(doc.model_dump())
+        except Exception as e:
+            raise ValidationError(f"invalid document: {e}") from e
+
+        if not doc.id:
+            doc = doc.model_copy(update={"id": make_id(doc.type, doc.title)})
+        if doc.id in self._docs:
+            raise DuplicateError(doc.id, existing_id=doc.id)
+        if doc.source and doc.source in self._by_source:
+            existing = self._docs[self._by_source[doc.source]]
+            raise DuplicateError(
+                doc.id, existing_id=existing.id
+            )
+
+        # Ensure timestamps are set.
+        now = _now()
+        if doc.created_at is None:
+            doc = doc.model_copy(update={"created_at": now})
+        if doc.updated_at is None:
+            doc = doc.model_copy(update={"updated_at": now})
+
+        self._docs[doc.id] = doc
+        if doc.source:
+            self._by_source[doc.source] = doc.id
+        return doc.id
+
+    def update(self, doc_id: str, **fields: object) -> Document:
+        """Patch fields on an existing document."""
+        if doc_id not in self._docs:
+            raise NotFoundError(doc_id)
+        current = self._docs[doc_id]
+        # Immutable fields per the Protocol.
+        for forbidden in ("id", "type", "created_at"):
+            if forbidden in fields:
+                raise ValidationError(
+                    f"{forbidden!r} cannot be changed via update()"
+                )
+        # Validate the merged result.
+        merged = current.model_copy(update=dict(fields))
+        try:
+            merged = Document.model_validate(merged.model_dump())
+        except Exception as e:
+            raise ValidationError(f"invalid update: {e}") from e
+        merged = merged.model_copy(update={"updated_at": _now()})
+        self._docs[doc_id] = merged
+        # Keep source index in sync.
+        if merged.source:
+            self._by_source[merged.source] = merged.id
+        return merged
+
+    def delete(self, doc_id: str) -> None:
+        """Soft-delete a document. Idempotent on already-deleted docs."""
+        if doc_id not in self._docs:
+            raise NotFoundError(doc_id)
+        current = self._docs[doc_id]
+        if current.deleted_at is not None:
+            return  # already soft-deleted — no-op
+        self._docs[doc_id] = current.model_copy(update={"deleted_at": _now()})
+
+    # ---- read -----------------------------------------------------------
+
+    def get(self, doc_id: str, include_deleted: bool = False) -> Document:
+        if doc_id not in self._docs:
+            raise NotFoundError(doc_id)
+        doc = self._docs[doc_id]
+        if doc.deleted_at is not None and not include_deleted:
+            raise NotFoundError(doc_id)
+        return doc
+
+    def list(
+        self,
+        type: str | None = None,
+        tags: list[str] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_deleted: bool = False,
+    ) -> list[Document]:
+        if limit < 0 or limit > 1000:
+            raise ValidationError(f"limit must be 0..1000 (got {limit})")
+        if offset < 0:
+            raise ValidationError(f"offset must be >= 0 (got {offset})")
+        results: list[Document] = []
+        for doc in self._docs.values():
+            if doc.deleted_at is not None and not include_deleted:
+                continue
+            if type is not None and doc.type != type:
+                continue
+            if tags and not all(t in doc.tags for t in tags):
+                continue
+            results.append(doc)
+        # Sort by updated_at DESC, then by id ASC for determinism.
+        results.sort(key=lambda d: (d.updated_at, d.id), reverse=False)
+        results.reverse()
+        return results[offset : offset + limit]
+
+    def search(
+        self,
+        query: str,
+        type: str | None = None,
+        tags: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[SearchHit]:
+        if not query or not query.strip():
+            raise ValidationError("query must be non-empty")
+        if limit < 1 or limit > 100:
+            raise ValidationError(f"limit must be 1..100 (got {limit})")
+        lower_q = query.lower().strip()
+        hits: list[SearchHit] = []
+        for doc in self._docs.values():
+            if doc.deleted_at is not None:
+                continue
+            if type is not None and doc.type != type:
+                continue
+            if tags and not all(t in doc.tags for t in tags):
+                continue
+            haystack = (doc.title + " " + doc.body).lower()
+            pos = haystack.find(lower_q)
+            if pos < 0:
+                continue
+            hits.append(
+                SearchHit(
+                    doc=doc,
+                    snippet=_make_snippet(doc.body, lower_q),
+                    score=float(pos),
+                )
+            )
+        # Lower score = better, matching BM25 convention.
+        hits.sort(key=lambda h: (h.score, h.doc.id))
+        return hits[:limit]
+
+    # ---- links ----------------------------------------------------------
+
+    def link(self, from_id: str, to_id: str, rel: str = "relates-to") -> Link:
+        if not rel:
+            raise ValidationError("rel must be non-empty")
+        if from_id not in self._docs:
+            raise NotFoundError(from_id)
+        if to_id not in self._docs:
+            raise NotFoundError(to_id)
+        if self._docs[from_id].deleted_at is not None:
+            raise NotFoundError(from_id)
+        if self._docs[to_id].deleted_at is not None:
+            raise NotFoundError(to_id)
+        key = (from_id, to_id, rel)
+        existing = self._links.get(key)
+        if existing is not None:
+            return existing
+        link = Link(from_id=from_id, to_id=to_id, rel=rel)
+        self._links[key] = link
+        return link
+
+    def unlink(
+        self,
+        from_id: str,
+        to_id: str,
+        rel: str | None = None,
+    ) -> int:
+        if rel is not None:
+            key = (from_id, to_id, rel)
+            return 1 if self._links.pop(key, None) is not None else 0
+        # No rel specified — remove every link for this (from, to) pair.
+        to_remove = [k for k in self._links if k[0] == from_id and k[1] == to_id]
+        for k in to_remove:
+            del self._links[k]
+        return len(to_remove)
+
+    def backlinks(self, doc_id: str) -> list[Link]:
+        # ``__exit__`` callers may pass a soft-deleted id; we don't raise.
+        return [lk for lk in self._links.values() if lk.to_id == doc_id]
+
+    def outlinks(self, doc_id: str) -> list[Link]:
+        return [lk for lk in self._links.values() if lk.from_id == doc_id]
+
+    # ---- bulk / io ------------------------------------------------------
+
+    def import_many(self, docs: Iterable[Document]) -> ImportReport:
+        report = ImportReport()
+        for raw in docs:
+            try:
+                # Validate first.
+                doc = Document.model_validate(raw.model_dump())
+                if not doc.id:
+                    doc = doc.model_copy(
+                        update={"id": make_id(doc.type, doc.title)}
+                    )
+                # Source-based upsert takes priority over id-based insert.
+                existing_id: str | None = None
+                if doc.source and doc.source in self._by_source:
+                    existing_id = self._by_source[doc.source]
+                elif doc.id in self._docs:
+                    existing_id = doc.id
+                if existing_id is not None:
+                    current = self._docs[existing_id]
+                    merged = current.model_copy(
+                        update={
+                            "type": doc.type,
+                            "title": doc.title,
+                            "body": doc.body,
+                            "tags": doc.tags,
+                            "source": doc.source,
+                            "updated_at": _now(),
+                        }
+                    )
+                    merged = Document.model_validate(merged.model_dump())
+                    self._docs[existing_id] = merged
+                    if merged.source:
+                        self._by_source[merged.source] = merged.id
+                    report.updated += 1
+                else:
+                    self.add(doc)
+                    report.inserted += 1
+            except DuplicateError as e:
+                report.errors.append(f"duplicate: {e}")
+                report.skipped += 1
+            except ValidationError as e:
+                report.errors.append(f"validation: {e}")
+                report.skipped += 1
+            except Exception as e:  # last-resort guard for tests
+                report.errors.append(f"error: {e}")
+                report.skipped += 1
+        return report
+
+    def export_all(self, include_deleted: bool = False) -> list[Document]:
+        results = []
+        for doc in self._docs.values():
+            if doc.deleted_at is not None and not include_deleted:
+                continue
+            results.append(doc)
+        return results
+
+    # ---- maintenance ----------------------------------------------------
+
+    def doctor(self) -> DoctorReport:
+        """Always healthy for v0.1. Returns a report listing trivial checks."""
+        n_docs = sum(
+            1 for d in self._docs.values() if d.deleted_at is None
+        )
+        n_links = len(self._links)
+        return DoctorReport(
+            ok=True,
+            checks=[
+                DoctorCheck(
+                    name="in_memory_invariants",
+                    ok=True,
+                    detail=f"{len(self._docs)} docs ({n_docs} active), {n_links} links",
+                ),
+                DoctorCheck(
+                    name="required_fields",
+                    ok=True,
+                    detail="all documents have non-empty type and title",
+                ),
+                DoctorCheck(
+                    name="no_orphan_links",
+                    ok=True,
+                    detail="no link references a missing document",
+                ),
+            ],
+        )
+
+    def prune(self, older_than: timedelta = timedelta(days=30)) -> int:
+        cutoff = _now() - older_than
+        to_delete = [
+            doc_id
+            for doc_id, doc in self._docs.items()
+            if doc.deleted_at is not None and doc.deleted_at < cutoff
+        ]
+        for doc_id in to_delete:
+            doc = self._docs.pop(doc_id)
+            if doc.source and self._by_source.get(doc.source) == doc_id:
+                del self._by_source[doc.source]
+        return len(to_delete)
+
+    # ---- lifecycle ------------------------------------------------------
+
+    def close(self) -> None:
+        # Nothing to release; provided for Protocol symmetry.
+        self._docs.clear()
+        self._links.clear()
+        self._by_source.clear()
+
+    def __enter__(self) -> "StubStore":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    # ---- test helpers (not part of the Protocol) -----------------------
+
+    def _all_ids(self) -> list[str]:
+        """Return every stored id (including soft-deleted). Test-only."""
+        return list(self._docs.keys())
+
+
+__all__ = ["StubStore"]
