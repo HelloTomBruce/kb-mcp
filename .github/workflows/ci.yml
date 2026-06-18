@@ -37,10 +37,8 @@ jobs:
       - name: Check formatting with ruff
         run: uv run ruff format --check .
 
-      # mypy is configured but not yet enforced — 22 pre-existing type errors
-      # (mainly `list` method shadowing builtin). Tracked as a follow-up.
-      - name: Type check with mypy (informational)
-        run: uv run mypy src/ || true
+      - name: Type check with mypy
+        run: uv run mypy src/
 
       - name: Test with pytest
         run: uv run pytest -q --cov=kb_mcp --cov-report=term-missing --cov-fail-under=70

@@ -389,41 +389,41 @@ class Project(Document):
     stack, status, owners. Tag convention: ``<lang>``, ``<framework>``,
     ``<domain>``."""
 
-    type: Literal["project"] = "project"  # type: ignore[override]
+    type: Literal["project"] = "project"
 
 
 class Decision(Document):
     """An Architecture Decision Record (ADR). Body should follow the
     MADR-style structure: context → decision → consequences."""
 
-    type: Literal["decision"] = "decision"  # type: ignore[override]
+    type: Literal["decision"] = "decision"
 
 
 class Lesson(Document):
     """A post-mortem or lessons-learned entry. Body should describe the
     incident, the root cause, and the prevention rule."""
 
-    type: Literal["lesson"] = "lesson"  # type: ignore[override]
+    type: Literal["lesson"] = "lesson"
 
 
 class Glossary(Document):
     """A term definition. Body is the definition; canonical form."""
 
-    type: Literal["glossary"] = "glossary"  # type: ignore[override]
+    type: Literal["glossary"] = "glossary"
 
 
 class Person(Document):
     """A person the agent should recognise. Body is bio + context.
     Tag convention: ``<role>``, ``<team>``."""
 
-    type: Literal["person"] = "person"  # type: ignore[override]
+    type: Literal["person"] = "person"
 
 
 class Faq(Document):
     """A frequently asked question. Title is the question; body is the
     answer."""
 
-    type: Literal["faq"] = "faq"  # type: ignore[override]  # noqa: F821
+    type: Literal["faq"] = "faq"  # noqa: F821
 
 
 # Module-level singleton for convenience

@@ -41,6 +41,7 @@ from kb_mcp.schema import (
     DuplicateError,
     IntegrityError,
     NotFoundError,
+    SearchHit,
     ValidationError,
     make_id,
 )
@@ -54,7 +55,7 @@ from kb_mcp.store.sqlite import SqliteStore
 class KbSearchInput(BaseModel):
     query: str = Field(min_length=1)
     type: str | None = None
-    tags: list[str] | None = None
+    tags: List[str] | None = None
     limit: int = Field(default=10, ge=1, le=100)
 
 
@@ -66,7 +67,7 @@ class KbAddInput(BaseModel):
     type: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=512)
     body: str = Field(default="", max_length=1_000_000)
-    tags: list[str] | None = None
+    tags: List[str] | None = None
     source: str | None = None
 
 
@@ -202,7 +203,7 @@ def _make_server() -> Any:
             inp.limit,
         )
         try:
-            hits = store.search(
+            hits: List[SearchHit] = store.search(
                 query=inp.query,
                 type=inp.type,
                 tags=inp.tags,

@@ -19,7 +19,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import List, Iterable, Iterator
 
 from kb_mcp.migrations import apply_migrations
 from kb_mcp.schema import (
@@ -171,7 +171,7 @@ class SqliteStore:
                     merged["tags"] = list(v)
                 else:
                     raise ValidationError(
-                        f"tags must be list[str] or comma string (got {type(v).__name__})"
+                        f"tags must be List[str] or comma string (got {type(v).__name__})"
                     )
             else:
                 merged[k] = v
@@ -230,19 +230,19 @@ class SqliteStore:
 
     def list(
         self,
-        type: str | None = None,  # noqa: A002  (keep Store signature)
-        tags: list[str] | None = None,
+        type: str | None = None,  # noqa: A002
+        tags: List[str] | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
-    ) -> list[Document]:
+    ) -> List[Document]:
         if limit < 1 or limit > 1000:
             raise ValidationError("limit must be in 1..1000")
         if offset < 0:
             raise ValidationError("offset must be >= 0")
 
         sql = "SELECT * FROM documents WHERE 1=1"
-        params: list[object] = []
+        params: List[object] = []
         if not include_deleted:
             sql += " AND deleted_at IS NULL"
         if type:
@@ -262,9 +262,9 @@ class SqliteStore:
         self,
         query: str,
         type: str | None = None,  # noqa: A002
-        tags: list[str] | None = None,
+        tags: List[str] | None = None,
         limit: int = 10,
-    ) -> list[SearchHit]:
+    ) -> List[SearchHit]:
         query = (query or "").strip()
         if not query:
             raise ValidationError("query must not be empty")
@@ -281,7 +281,7 @@ class SqliteStore:
             WHERE docs_fts MATCH ?
               AND d.deleted_at IS NULL
         """
-        params: list[object] = [fts_q]
+        params: List[object] = [fts_q]
         if type:
             sql += " AND d.type = ?"
             params.append(type)
@@ -293,7 +293,7 @@ class SqliteStore:
         except sqlite3.OperationalError as e:
             raise ValidationError(f"invalid FTS query {query!r}: {e}") from e
 
-        hits: list[SearchHit] = []
+        hits: List[SearchHit] = []
         for r in rows:
             d = dict(r)
             snippet_text = d.pop("snip", "") or ""
@@ -302,7 +302,7 @@ class SqliteStore:
             hits.append(SearchHit(doc=doc, snippet=snippet_text, score=score))
 
         if tags:
-            wanted = set(tags)
+            wanted: set[str] = set(tags)
             hits = [h for h in hits if wanted.issubset(set(h.doc.tags))]
         return hits
 
@@ -324,7 +324,7 @@ class SqliteStore:
     def _escape_fts(query: str) -> str:
         """Wrap each whitespace-separated token in double quotes so that
         FTS5 special characters are treated literally. ``"`` is doubled."""
-        tokens: list[str] = []
+        tokens: List[str] = []
         for tok in query.split():
             tok = tok.replace('"', '""')
             if tok:
@@ -366,21 +366,21 @@ class SqliteStore:
         rel: str | None = None,
     ) -> int:
         sql = "DELETE FROM links WHERE from_id = ? AND to_id = ?"
-        params: list[object] = [from_id, to_id]
+        params: List[object] = [from_id, to_id]
         if rel is not None:
             sql += " AND rel = ?"
             params.append(rel)
         cur = self._conn.execute(sql, params)
         return cur.rowcount
 
-    def backlinks(self, doc_id: str) -> list[Link]:
+    def backlinks(self, doc_id: str) -> List[Link]:
         rows = self._conn.execute(
             "SELECT from_id, to_id, rel, created_at FROM links WHERE to_id = ? ORDER BY created_at",
             (doc_id,),
         ).fetchall()
         return [self._row_to_link(r) for r in rows]
 
-    def outlinks(self, doc_id: str) -> list[Link]:
+    def outlinks(self, doc_id: str) -> List[Link]:
         rows = self._conn.execute(
             "SELECT from_id, to_id, rel, created_at FROM links WHERE from_id = ? ORDER BY created_at",
             (doc_id,),
@@ -416,7 +416,7 @@ class SqliteStore:
                 report.skipped += 1
         return report
 
-    def export_all(self, include_deleted: bool = False) -> list[Document]:
+    def export_all(self, include_deleted: bool = False) -> List[Document]:
         sql = "SELECT * FROM documents"
         if not include_deleted:
             sql += " WHERE deleted_at IS NULL"
@@ -427,7 +427,7 @@ class SqliteStore:
     # ---- maintenance ----------------------------------------------------
 
     def doctor(self) -> DoctorReport:
-        checks: list[DoctorCheck] = []
+        checks: List[DoctorCheck] = []
 
         # 1. PRAGMA integrity_check
         row = self._conn.execute("PRAGMA integrity_check").fetchone()
@@ -474,8 +474,7 @@ class SqliteStore:
     def prune(self, older_than: timedelta = timedelta(days=30)) -> int:
         cutoff = (datetime.now(timezone.utc) - older_than).isoformat()
         cur = self._conn.execute(
-            "DELETE FROM documents WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-            (cutoff,),
+            "DELETE FROM documents WHERE deleted_at IS NOT NULL AND deleted_at < ?", (cutoff,)
         )
         return cur.rowcount
 

@@ -120,14 +120,7 @@ Before opening a PR, all of these should pass:
 uv run pytest                     # 0 failures
 uv run ruff check .               # no lint errors
 uv run ruff format --check .      # no formatting diffs
-```
-
-Mypy is configured but not yet enforced in CI (pre-existing type errors
-from the `list` method shadowing the builtin). Run it locally and aim
-for zero new errors:
-
-```bash
-uv run mypy src/                  # informational — not yet gating
+uv run mypy src/                  # 0 type errors
 ```
 
 ---

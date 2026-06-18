@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import List, TYPE_CHECKING, Any, TypedDict
 
 import frontmatter
 
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     # checking — runtime code duck-types against the Protocol — so the
     # import is guarded with TYPE_CHECKING and annotations stay as
     # strings (PEP 563). See deviations_from_architecture.md.
-    from kb_mcp.store import Store
+    from kb_mcp.store import Store  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ class Frontmatter(TypedDict, total=False):
 
     type: str
     title: str
-    tags: list[str]
+    tags: List[str]
     source: str
     created_at: str
     updated_at: str
@@ -140,8 +140,8 @@ def render_document(doc: Document) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_tags(value: Any) -> list[str]:
-    """Best-effort coercion of the ``tags`` frontmatter value to ``list[str]``.
+def _coerce_tags(value: Any) -> List[str]:
+    """Best-effort coercion of the ``tags`` frontmatter value to ``List[str]``.
 
     Accepts a list (returned as-is with non-string entries stringified)
     or a single string (wrapped in a one-element list). Anything else
@@ -274,8 +274,8 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
     if not base.is_dir():
         raise ValidationError(f"not a directory: {dir!r}")
 
-    docs: list[Document] = []
-    errors: list[str] = []
+    docs: List[Document] = []
+    errors: List[str] = []
 
     for root, dirs, files in os.walk(base):
         # Skip hidden directories in-place so walk doesn't descend into them.

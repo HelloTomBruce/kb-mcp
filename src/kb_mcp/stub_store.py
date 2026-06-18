@@ -42,7 +42,7 @@ predictably in tests:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Iterable
+from typing import List, Iterable
 
 from kb_mcp.schema import (
     Document,
@@ -94,7 +94,7 @@ def _make_snippet(body: str, query: str) -> str:
     return snippet[:pos] + f"**{snippet[pos:end]}**" + snippet[end:]
 
 
-class StubStore(_Store):  # type: ignore[misc, valid-type]
+class StubStore(_Store):
     """A full Protocol-conforming :class:`Store` backed by Python dicts.
 
     Suitable for unit tests, scripting, and any situation where persistence
@@ -191,17 +191,17 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
 
     def list(
         self,
-        type: str | None = None,
-        tags: list[str] | None = None,
+        type: str | None = None,  # noqa: A002
+        tags: List[str] | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
-    ) -> list[Document]:
+    ) -> List[Document]:
         if limit < 0 or limit > 1000:
             raise ValidationError(f"limit must be 0..1000 (got {limit})")
         if offset < 0:
             raise ValidationError(f"offset must be >= 0 (got {offset})")
-        results: list[Document] = []
+        results: List[Document] = []
         for doc in self._docs.values():
             if doc.deleted_at is not None and not include_deleted:
                 continue
@@ -218,16 +218,16 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
     def search(
         self,
         query: str,
-        type: str | None = None,
-        tags: list[str] | None = None,
+        type: str | None = None,  # noqa: A002
+        tags: List[str] | None = None,
         limit: int = 10,
-    ) -> list[SearchHit]:
+    ) -> List[SearchHit]:
         if not query or not query.strip():
             raise ValidationError("query must be non-empty")
         if limit < 1 or limit > 100:
             raise ValidationError(f"limit must be 1..100 (got {limit})")
         lower_q = query.lower().strip()
-        hits: list[SearchHit] = []
+        hits: List[SearchHit] = []
         for doc in self._docs.values():
             if doc.deleted_at is not None:
                 continue
@@ -286,11 +286,11 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
             del self._links[k]
         return len(to_remove)
 
-    def backlinks(self, doc_id: str) -> list[Link]:
+    def backlinks(self, doc_id: str) -> List[Link]:
         # ``__exit__`` callers may pass a soft-deleted id; we don't raise.
         return [lk for lk in self._links.values() if lk.to_id == doc_id]
 
-    def outlinks(self, doc_id: str) -> list[Link]:
+    def outlinks(self, doc_id: str) -> List[Link]:
         return [lk for lk in self._links.values() if lk.from_id == doc_id]
 
     # ---- bulk / io ------------------------------------------------------
@@ -340,7 +340,7 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
                 report.skipped += 1
         return report
 
-    def export_all(self, include_deleted: bool = False) -> list[Document]:
+    def export_all(self, include_deleted: bool = False) -> List[Document]:
         results = []
         for doc in self._docs.values():
             if doc.deleted_at is not None and not include_deleted:
@@ -404,7 +404,7 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
 
     # ---- test helpers (not part of the Protocol) -----------------------
 
-    def _all_ids(self) -> list[str]:
+    def _all_ids(self) -> List[str]:
         """Return every stored id (including soft-deleted). Test-only."""
         return list(self._docs.keys())
 
