@@ -762,20 +762,11 @@ class TestDoctor:
 
 
 class TestServe:
-    """"kb serve`` is a stub that exits 5 until Wave 2A."""
+    """``kb serve`` starts the MCP server (Wave 2A).
 
-    def test_serve_stub_exits_5(self, runner: CliRunner, store: StubStore) -> None:
-        """Any invocation exits 5."""
-        result = _invoke(runner, store, ["serve"])
-        assert result.exit_code == EXIT_INTERNAL
-        assert "not yet implemented" in result.output
-
-    def test_serve_log_level_accepted(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
-        """"--log-level`` is accepted but still exits 5."""
-        result = _invoke(runner, store, ["serve", "--log-level", "DEBUG"])
-        assert result.exit_code == EXIT_INTERNAL
+    The actual server behaviour is tested in ``tests/test_mcp_e2e.py``
+    via subprocess. Here we only test CLI-level validation.
+    """
 
     def test_serve_invalid_log_level(
         self, runner: CliRunner, store: StubStore

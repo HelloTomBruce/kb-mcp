@@ -666,8 +666,9 @@ def doctor(ctx: click.Context, as_json: bool) -> None:
 @_handle_errors
 def serve(ctx: click.Context, log_level: str) -> None:
     """Start the MCP server on stdio (Wave 2A)."""
-    click.echo("kb serve: not yet implemented (Wave 2A)", err=True)
-    ctx.exit(EXIT_INTERNAL)
+    from kb_mcp.mcp_server import run as _run_mcp_server
+
+    _run_mcp_server()
 
 
 # Entry point -----------------------------------------------------------------

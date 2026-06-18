@@ -554,7 +554,7 @@ class TestImportExportStubs:
 class TestServeStub:
     """kb serve is a stub that exits with code 5."""
 
-    def test_serve_not_implemented(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(runner, store, ["serve"])
-        assert result.exit_code == EXIT_INTERNAL
-        assert "not yet implemented" in (result.output + result.stderr).lower()
+    def test_serve_invalid_log_level(self, runner: CliRunner, store: SqliteStore) -> None:
+        """Invalid log level rejected by Click (exit 64)."""
+        result = _invoke(runner, store, ["serve", "--log-level", "INVALID"])
+        assert result.exit_code == EXIT_USAGE
