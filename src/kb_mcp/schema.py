@@ -175,9 +175,14 @@ class Document(BaseModel):
     @field_validator("id")
     @classmethod
     def _check_id(cls, v: str) -> str:
-        import re
-
-        if not re.match(r"^[a-z0-9][a-z0-9/_-]*$", v):
+        # Empty id is allowed at the model layer; the store layer is
+        # responsible for filling it in via ``make_id(type, title)``.
+        # This split lets callers build a Document with just type+title
+        # and let the store assign the slug.
+        if v == "":
+            return v
+        import re as _re
+        if not _re.match(r"^[a-z0-9][a-z0-9/_-]*$", v):
             raise ValueError(
                 f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {v!r})"
             )
