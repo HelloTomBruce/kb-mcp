@@ -36,9 +36,9 @@ from kb_mcp.schema import (
 )
 
 # Fields that ``update`` is allowed to mutate. Anything else raises
-# ``ValidationError``. ``id``, ``created_at``, ``updated_at``, and
-# ``deleted_at`` are managed by the store.
-_UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source", "type"})
+# ``ValidationError``. ``id``, ``type``, ``created_at``, ``updated_at``,
+# and ``deleted_at`` are managed by the store and cannot be changed.
+_UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source"})
 
 
 class SqliteStore:

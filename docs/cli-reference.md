@@ -156,7 +156,7 @@ Checks:
 3. No `Link` row references a missing document
 4. All documents have a non-empty `type` and `title`
 
-Exits 1 on any failure (with a per-check summary in human mode).
+Exits 5 (`EXIT_INTERNAL`) on any failure (with a per-check summary in human mode).
 
 ---
 

@@ -302,7 +302,8 @@ def init(ctx: click.Context, force: bool, skip_confirm: bool, as_json: bool) -> 
     """Initialize a kb-mcp database.
 
     Creates the DB file and runs migrations if it doesn't exist.
-    ``--force`` drops and recreates the DB.
+    If the DB already exists, this is a no-op. ``--force`` re-runs
+    migrations (idempotent) but does **not** drop existing data.
     """
     if force and not skip_confirm and sys.stdin.isatty():
         # Only prompt when running interactively; non-interactive callers

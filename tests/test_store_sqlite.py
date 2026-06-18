@@ -134,11 +134,9 @@ def test_add_duplicate_raises(store: SqliteStore) -> None:
 
 
 def test_add_invalid_id_raises(store: SqliteStore) -> None:
-    """Pydantic rejects invalid ids before the store sees them. We do
-    not pin the exact exception class (pydantic raises ``ValidationError``
-    from ``pydantic_core``); we only require that adding fails."""
+    """Pydantic rejects invalid ids before the store sees them."""
     bad = _doc(id="Has Spaces", title="X")
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         store.add(bad)
 
 
