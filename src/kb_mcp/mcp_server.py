@@ -173,7 +173,7 @@ def _make_server() -> Any:
     @mcp.tool()
     def kb_search(
         query: str,
-        type: Optional[str] = None,  # noqa: A002  (matches MCP schema in architecture.md § 4.4)
+        type: Optional[str] = None,  # matches MCP schema in architecture.md § 4.4
         tags: Optional[List[str]] = None,
         limit: int = 10,
     ) -> Any:
@@ -223,7 +223,7 @@ def _make_server() -> Any:
             }
         except Exception as e:
             code, msg = _mcp_error(e)
-            logger.error("kb_search failed: %s", msg)
+            logger.exception("kb_search failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
     # ---- kb_get -----------------------------------------------------------
@@ -250,14 +250,14 @@ def _make_server() -> Any:
             return doc.model_dump(mode="json")
         except Exception as e:
             code, msg = _mcp_error(e)
-            logger.error("kb_get failed: %s", msg)
+            logger.exception("kb_get failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
     # ---- kb_add -----------------------------------------------------------
 
     @mcp.tool()
     def kb_add(
-        type: str,  # noqa: A002  (matches MCP schema in architecture.md § 4.4)
+        type: str,  # matches MCP schema in architecture.md § 4.4
         title: str,
         body: str = "",
         tags: Optional[List[str]] = None,
@@ -276,9 +276,7 @@ def _make_server() -> Any:
             {id: new_document_id}.
         """
         try:
-            inp = KbAddInput(
-                type=type, title=title, body=body, tags=tags, source=source
-            )
+            inp = KbAddInput(type=type, title=title, body=body, tags=tags, source=source)
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -303,7 +301,7 @@ def _make_server() -> Any:
             return {"id": stored_id}
         except Exception as e:
             code, msg = _mcp_error(e)
-            logger.error("kb_add failed: %s", msg)
+            logger.exception("kb_add failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
     # ---- kb_link ----------------------------------------------------------
@@ -330,9 +328,7 @@ def _make_server() -> Any:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
-        logger.info(
-            "kb_link from=%r to=%r rel=%r", inp.from_id, inp.to_id, inp.rel
-        )
+        logger.info("kb_link from=%r to=%r rel=%r", inp.from_id, inp.to_id, inp.rel)
         try:
             link = store.link(inp.from_id, inp.to_id, rel=inp.rel)
             return {
@@ -343,7 +339,7 @@ def _make_server() -> Any:
             }
         except Exception as e:
             code, msg = _mcp_error(e)
-            logger.error("kb_link failed: %s", msg)
+            logger.exception("kb_link failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
     return mcp

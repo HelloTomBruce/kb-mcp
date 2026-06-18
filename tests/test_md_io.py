@@ -109,15 +109,7 @@ class TestParseFrontmatter:
 
     def test_unknown_keys_preserved(self) -> None:
         """Unknown frontmatter keys survive the parse intact."""
-        text = (
-            "---\n"
-            "title: Known\n"
-            "custom_key: some-value\n"
-            "another: 42\n"
-            "tags: [a, b]\n"
-            "---\n"
-            "Body.\n"
-        )
+        text = "---\ntitle: Known\ncustom_key: some-value\nanother: 42\ntags: [a, b]\n---\nBody.\n"
         fm, body = parse_frontmatter(text)
         # Known keys are present.
         assert fm["title"] == "Known"
@@ -274,9 +266,7 @@ class TestDocFromFrontmatter:
 
     def test_tags_preserved(self) -> None:
         """Tags list is forwarded."""
-        doc = doc_from_frontmatter(
-            {"type": "project", "title": "X", "tags": ["a", "b"]}, ""
-        )
+        doc = doc_from_frontmatter({"type": "project", "title": "X", "tags": ["a", "b"]}, "")
         assert doc.tags == ["a", "b"]
 
     def test_source_argument_overrides_frontmatter(self) -> None:
@@ -298,9 +288,7 @@ class TestDocFromFrontmatter:
 class TestImportDir:
     """import_dir walks a directory, parses .md, inserts/updates by source."""
 
-    def test_round_trip_import_export_import(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_round_trip_import_export_import(self, tmp_path: Path, store: SqliteStore) -> None:
         """import_dir → export_dir → import_dir must be a no-op (no diff)."""
         vault = tmp_path / "src"
         vault.mkdir()
@@ -316,8 +304,7 @@ class TestImportDir:
         )
         _write(
             vault / "sub" / "nested.md",
-            "---\ntype: lesson\ntitle: Watch Your Paths\n---\n"
-            "Lesson body with *emphasis*.\n",
+            "---\ntype: lesson\ntitle: Watch Your Paths\n---\nLesson body with *emphasis*.\n",
         )
 
         # Step 1: import vault.
@@ -328,8 +315,7 @@ class TestImportDir:
         docs_before = sorted(store.export_all(), key=lambda d: d.id)
         assert len(docs_before) == 3
         snapshot_before = [
-            (d.id, d.title, d.type, d.body, d.tags, tuple(sorted(d.tags)))
-            for d in docs_before
+            (d.id, d.title, d.type, d.body, d.tags, tuple(sorted(d.tags))) for d in docs_before
         ]
 
         # Step 2: export to a separate directory.
@@ -349,15 +335,12 @@ class TestImportDir:
 
         docs_after = sorted(store.export_all(), key=lambda d: d.id)
         snapshot_after = [
-            (d.id, d.title, d.type, d.body, d.tags, tuple(sorted(d.tags)))
-            for d in docs_after
+            (d.id, d.title, d.type, d.body, d.tags, tuple(sorted(d.tags))) for d in docs_after
         ]
 
         # Same logical content (id, title, type, body, tags).
         assert snapshot_before == snapshot_after, (
-            f"round-trip changed data:\n"
-            f"  before: {snapshot_before}\n"
-            f"  after:  {snapshot_after}"
+            f"round-trip changed data:\n  before: {snapshot_before}\n  after:  {snapshot_after}"
         )
 
     def test_skip_hidden_files(self, tmp_path: Path, store: SqliteStore) -> None:
@@ -370,9 +353,7 @@ class TestImportDir:
         assert r.inserted == 1
         assert store.list()[0].title == "V"
 
-    def test_skip_hidden_directories(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_skip_hidden_directories(self, tmp_path: Path, store: SqliteStore) -> None:
         """Hidden directories are not descended into."""
         vault = tmp_path / "v"
         vault.mkdir()
@@ -384,9 +365,7 @@ class TestImportDir:
         assert r.inserted == 1
         assert all(d.title == "OK" for d in store.export_all())
 
-    def test_skip_non_md_files(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_skip_non_md_files(self, tmp_path: Path, store: SqliteStore) -> None:
         """Files without ``.md`` extension are skipped."""
         vault = tmp_path / "v"
         vault.mkdir()
@@ -421,9 +400,7 @@ class TestImportDir:
         assert len(store.export_all()) == 1
         assert store.export_all()[0].body == "v2 updated"
 
-    def test_path_traversal_blocked_via_symlink(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_path_traversal_blocked_via_symlink(self, tmp_path: Path, store: SqliteStore) -> None:
         """A symlink escaping the import dir is rejected (NFR-S-3)."""
         # Create an outside file (its contents must NOT appear in the store).
         outside = tmp_path / "outside.md"
@@ -446,9 +423,7 @@ class TestImportDir:
         # Nothing must have been imported.
         assert store.export_all() == []
 
-    def test_dry_run_does_not_write(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_dry_run_does_not_write(self, tmp_path: Path, store: SqliteStore) -> None:
         """dry_run=True parses but does not touch the store."""
         vault = tmp_path / "v"
         vault.mkdir()
@@ -478,9 +453,7 @@ class TestImportDir:
         assert any("no-title.md" in e for e in r.errors)
         assert len(store.export_all()) == 1
 
-    def test_empty_directory(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_empty_directory(self, tmp_path: Path, store: SqliteStore) -> None:
         """An empty directory imports nothing and reports nothing."""
         vault = tmp_path / "v"
         vault.mkdir()
@@ -488,9 +461,7 @@ class TestImportDir:
         assert r.inserted == 0
         assert r.errors == []
 
-    def test_returns_import_report_instance(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_returns_import_report_instance(self, tmp_path: Path, store: SqliteStore) -> None:
         """The return value is an ImportReport (not a tuple, dict, etc)."""
         vault = tmp_path / "v"
         vault.mkdir()
@@ -506,16 +477,10 @@ class TestImportDir:
 class TestExportDir:
     """export_dir writes one .md per document, named <slug>.md."""
 
-    def test_basic_export(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_basic_export(self, tmp_path: Path, store: SqliteStore) -> None:
         """Two docs in the store produce two files on disk."""
-        store.add(
-            Document(id="proj/a", type="project", title="Alpha", body="A body")
-        )
-        store.add(
-            Document(id="proj/b", type="project", title="Beta", body="B body")
-        )
+        store.add(Document(id="proj/a", type="project", title="Alpha", body="A body"))
+        store.add(Document(id="proj/b", type="project", title="Beta", body="B body"))
         out = tmp_path / "out"
         n = export_dir(store, out)
         assert n == 2
@@ -527,25 +492,17 @@ class TestExportDir:
         assert fm["title"] == "Alpha"
         assert body == "A body"
 
-    def test_numeric_suffix_on_collision(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_numeric_suffix_on_collision(self, tmp_path: Path, store: SqliteStore) -> None:
         """Two docs with the same slug get -2, -3 suffixes."""
-        store.add(
-            Document(id="proj/x", type="project", title="X", body="first")
-        )
-        store.add(
-            Document(id="dec/x", type="decision", title="X", body="second")
-        )
+        store.add(Document(id="proj/x", type="project", title="X", body="first"))
+        store.add(Document(id="dec/x", type="decision", title="X", body="second"))
         out = tmp_path / "out"
         n = export_dir(store, out)
         assert n == 2
         names = sorted(p.name for p in out.glob("*.md"))
         assert names == ["x-2.md", "x.md"]
 
-    def test_refuses_overwrite_without_force(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_refuses_overwrite_without_force(self, tmp_path: Path, store: SqliteStore) -> None:
         """Pre-existing files are not clobbered unless force=True."""
         store.add(Document(id="proj/x", type="project", title="X", body="x"))
         out = tmp_path / "out"
@@ -556,9 +513,7 @@ class TestExportDir:
         # Original file untouched.
         assert (out / "x.md").read_text(encoding="utf-8") == "UNRELATED"
 
-    def test_force_overwrites(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_force_overwrites(self, tmp_path: Path, store: SqliteStore) -> None:
         """force=True overwrites existing files."""
         store.add(Document(id="proj/x", type="project", title="X", body="X body"))
         out = tmp_path / "out"
@@ -568,9 +523,7 @@ class TestExportDir:
         assert n == 1
         assert "X body" in (out / "x.md").read_text(encoding="utf-8")
 
-    def test_creates_destination(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_creates_destination(self, tmp_path: Path, store: SqliteStore) -> None:
         """Missing destination directory is created (with parents)."""
         store.add(Document(id="proj/x", type="project", title="X", body="X"))
         out = tmp_path / "deep" / "nested" / "out"
@@ -580,9 +533,7 @@ class TestExportDir:
         assert out.is_dir()
         assert (out / "x.md").exists()
 
-    def test_path_traversal_via_source_rejected(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_path_traversal_via_source_rejected(self, tmp_path: Path, store: SqliteStore) -> None:
         """NFR-S-3: a doc.source that escapes the export dir is rejected."""
         store.add(
             Document(
@@ -597,9 +548,7 @@ class TestExportDir:
         with pytest.raises(ValidationError, match="source"):
             export_dir(store, out)
 
-    def test_absolute_source_rejected(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_absolute_source_rejected(self, tmp_path: Path, store: SqliteStore) -> None:
         """Absolute doc.source paths are rejected outright."""
         store.add(
             Document(
@@ -614,23 +563,17 @@ class TestExportDir:
         with pytest.raises(ValidationError, match="absolute"):
             export_dir(store, out)
 
-    def test_empty_store_writes_nothing(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_empty_store_writes_nothing(self, tmp_path: Path, store: SqliteStore) -> None:
         """An empty store writes zero files."""
         out = tmp_path / "out"
         n = export_dir(store, out)
         assert n == 0
         assert list(out.glob("*.md")) == []
 
-    def test_body_verbatim(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_body_verbatim(self, tmp_path: Path, store: SqliteStore) -> None:
         """Exported body is the original Markdown, not HTML."""
         md_body = "# H\n\n- a\n- b\n\n```\ncode\n```\n"
-        store.add(
-            Document(id="lesson/x", type="lesson", title="X", body=md_body)
-        )
+        store.add(Document(id="lesson/x", type="lesson", title="X", body=md_body))
         out = tmp_path / "out"
         export_dir(store, out)
         text = (out / "x.md").read_text(encoding="utf-8")

@@ -71,7 +71,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Then:
 
 ```bash
-git clone https://github.com/your-org/kb-mcp
+git clone https://github.com/zhangbei/kb-mcp
 cd kb-mcp
 uv sync --extra dev      # create .venv + install all dev deps
 ```
@@ -108,8 +108,8 @@ uv run pytest --cov=kb_mcp        # with coverage
 ```
 
 The test suite uses **real SQLite temp files** — no mocks of the database
-layer. E2E tests (`tests/test_mcp_e2e.py`) spin up the FastMCP server in
--process and exercise all four tools. Tests never touch your real
+layer. E2E tests (`tests/test_mcp_e2e.py`) spawn the FastMCP server as a
+real subprocess and exercise all four tools. Tests never touch your real
 `~/.local/share/kb-mcp/kb.db`; each test creates an isolated temp DB.
 
 ### Expected state
@@ -120,7 +120,14 @@ Before opening a PR, all of these should pass:
 uv run pytest                     # 0 failures
 uv run ruff check .               # no lint errors
 uv run ruff format --check .      # no formatting diffs
-uv run mypy src/                  # no type errors
+```
+
+Mypy is configured but not yet enforced in CI (pre-existing type errors
+from the `list` method shadowing the builtin). Run it locally and aim
+for zero new errors:
+
+```bash
+uv run mypy src/                  # informational — not yet gating
 ```
 
 ---
@@ -245,13 +252,18 @@ Maintainers look for:
 
 ## Releasing
 
-Releases are cut by maintainers. The process (for reference):
+Releases are automated via GitHub Actions. The process:
 
 1. Update `version` in `pyproject.toml`.
 2. Update the `## Changelog` section in `README.md` (if present).
 3. Tag: `git tag v0.X.Y && git push --tags`.
-4. Build: `uv build` → `dist/`.
-5. Publish to PyPI: `uv publish`.
+4. The `publish.yml` workflow builds the distribution and publishes
+   automatically. Prerelease tags (`v0.1.0a1`, `v0.1.0b1`, `v0.1.0rc1`)
+   go to **TestPyPI**; stable tags (`v0.1.0`) go to **PyPI**.
+
+> **Note:** Before the first release, create `pypi` and `testpypi`
+> environments in the GitHub repo settings and configure OIDC trusted
+> publishing on PyPI/TestPyPI to match those environment names.
 
 ---
 

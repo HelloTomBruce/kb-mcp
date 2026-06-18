@@ -32,21 +32,12 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  publish:
-    name: Publish (${{ steps.target.outputs.repository }})
-    needs: build
+  determine-target:
+    name: Determine target
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write  # required for trusted publishing (OIDC)
-    environment:
-      name: ${{ steps.target.outputs.repository }}
+    outputs:
+      repository: ${{ steps.target.outputs.repository }}
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
       - name: Determine target repository
         id: target
         run: |
@@ -60,15 +51,32 @@ jobs:
             echo "Target: PyPI (stable tag ${GITHUB_REF_NAME})"
           fi
 
+  publish:
+    name: Publish (${{ needs.determine-target.outputs.repository }})
+    needs: [build, determine-target]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for trusted publishing (OIDC)
+      actions: read     # required to download artifacts
+      contents: read    # safety
+    environment:
+      name: ${{ needs.determine-target.outputs.repository }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
       - name: Publish to TestPyPI
-        if: steps.target.outputs.repository == 'testpypi'
+        if: needs.determine-target.outputs.repository == 'testpypi'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
 
       - name: Publish to PyPI
-        if: steps.target.outputs.repository == 'pypi'
+        if: needs.determine-target.outputs.repository == 'pypi'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true

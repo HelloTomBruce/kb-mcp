@@ -60,8 +60,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         """
     )
     applied = {
-        row["version"]
-        for row in conn.execute("SELECT version FROM schema_version").fetchall()
+        row["version"] for row in conn.execute("SELECT version FROM schema_version").fetchall()
     }
     for version, sql_text in _migration_files():
         if version in applied:

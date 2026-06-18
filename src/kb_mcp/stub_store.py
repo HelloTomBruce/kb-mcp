@@ -134,9 +134,7 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
             raise DuplicateError(doc.id, existing_id=doc.id)
         if doc.source and doc.source in self._by_source:
             existing = self._docs[self._by_source[doc.source]]
-            raise DuplicateError(
-                doc.id, existing_id=existing.id
-            )
+            raise DuplicateError(doc.id, existing_id=existing.id)
 
         # Ensure timestamps are set.
         now = _now()
@@ -158,9 +156,7 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
         # Immutable fields per the Protocol.
         for forbidden in ("id", "type", "created_at"):
             if forbidden in fields:
-                raise ValidationError(
-                    f"{forbidden!r} cannot be changed via update()"
-                )
+                raise ValidationError(f"{forbidden!r} cannot be changed via update()")
         # Validate the merged result.
         merged = current.model_copy(update=dict(fields))
         try:
@@ -306,9 +302,7 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
                 # Validate first.
                 doc = Document.model_validate(raw.model_dump())
                 if not doc.id:
-                    doc = doc.model_copy(
-                        update={"id": make_id(doc.type, doc.title)}
-                    )
+                    doc = doc.model_copy(update={"id": make_id(doc.type, doc.title)})
                 # Source-based upsert takes priority over id-based insert.
                 existing_id: str | None = None
                 if doc.source and doc.source in self._by_source:
@@ -358,9 +352,7 @@ class StubStore(_Store):  # type: ignore[misc, valid-type]
 
     def doctor(self) -> DoctorReport:
         """Always healthy for v0.1. Returns a report listing trivial checks."""
-        n_docs = sum(
-            1 for d in self._docs.values() if d.deleted_at is None
-        )
+        n_docs = sum(1 for d in self._docs.values() if d.deleted_at is None)
         n_links = len(self._links)
         return DoctorReport(
             ok=True,

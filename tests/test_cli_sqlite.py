@@ -130,15 +130,14 @@ class TestAdd:
     """``kb add`` creates documents persisted to SQLite."""
 
     def test_add_happy_path(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(
-            runner, store, ["add", "--type", "project", "--title", "Hello World"]
-        )
+        result = _invoke(runner, store, ["add", "--type", "project", "--title", "Hello World"])
         assert result.exit_code == EXIT_OK
         assert "proj/hello-world" in result.output.strip()
 
     def test_add_with_body(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "lesson", "--title", "Body Test", "--body", "Some content here."],
         )
         assert result.exit_code == EXIT_OK
@@ -148,7 +147,8 @@ class TestAdd:
 
     def test_add_with_tags(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "faq", "--title", "Tag Test", "--tags", "a,b,c"],
         )
         assert result.exit_code == EXIT_OK
@@ -158,7 +158,8 @@ class TestAdd:
 
     def test_add_json(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "decision", "--title", "JSON Test", "--json"],
         )
         data = _assert_json_ok(result)
@@ -166,9 +167,7 @@ class TestAdd:
         assert data["title"] == "JSON Test"
         assert "id" in data
 
-    def test_add_duplicate_raises_conflict(
-        self, runner: CliRunner, store: SqliteStore
-    ) -> None:
+    def test_add_duplicate_raises_conflict(self, runner: CliRunner, store: SqliteStore) -> None:
         args = ["add", "--type", "project", "--title", "Dup"]
         r1 = _invoke(runner, store, args)
         assert r1.exit_code == EXIT_OK
@@ -185,7 +184,8 @@ class TestAdd:
 
     def test_add_body_from_stdin(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "project", "--title", "Stdin Test"],
             input_text="stdin body here\n",
         )
@@ -194,13 +194,12 @@ class TestAdd:
         doc = store.get(doc_id)
         assert doc.body == "stdin body here"
 
-    def test_add_body_file(
-        self, runner: CliRunner, store: SqliteStore, tmp_path: Path
-    ) -> None:
+    def test_add_body_file(self, runner: CliRunner, store: SqliteStore, tmp_path: Path) -> None:
         path = tmp_path / "body.md"
         path.write_text("file body content", encoding="utf-8")
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "project", "--title", "File Test", "--body-file", str(path)],
         )
         assert result.exit_code == EXIT_OK
@@ -212,13 +211,18 @@ class TestAdd:
         self, runner: CliRunner, store: SqliteStore
     ) -> None:
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             [
                 "add",
-                "--type", "project",
-                "--title", "Conflict",
-                "--body", "x",
-                "--body-file", "/dev/null",
+                "--type",
+                "project",
+                "--title",
+                "Conflict",
+                "--body",
+                "x",
+                "--body-file",
+                "/dev/null",
             ],
         )
         assert result.exit_code == EXIT_USAGE
@@ -232,12 +236,19 @@ class TestAdd:
         result = _invoke(runner, store, ["add", "--type", "project"])
         assert result.exit_code == EXIT_USAGE
 
-    def test_add_body_file_not_found(
-        self, runner: CliRunner, store: SqliteStore
-    ) -> None:
+    def test_add_body_file_not_found(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(
-            runner, store,
-            ["add", "--type", "project", "--title", "Missing", "--body-file", "/nonexistent/path.md"],
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "Missing",
+                "--body-file",
+                "/nonexistent/path.md",
+            ],
         )
         assert result.exit_code == EXIT_USAGE
         assert "not found" in result.output
@@ -259,9 +270,8 @@ class TestGet:
         assert sample_doc.title in result.output
         assert sample_doc.id in result.output
         assert sample_doc.body in result.output
-    def test_get_json(
-        self, runner: CliRunner, store: SqliteStore, sample_doc: Document
-    ) -> None:
+
+    def test_get_json(self, runner: CliRunner, store: SqliteStore, sample_doc: Document) -> None:
         """``--json`` returns the full document as JSON (not an ok wrapper)."""
         result = _invoke(runner, store, ["get", sample_doc.id, "--json"])
         assert result.exit_code == EXIT_OK, f"exit={result.exit_code}\n{result.output}"
@@ -301,9 +311,7 @@ class TestSearch:
         assert result.exit_code == EXIT_OK
         assert "no results" in result.output
 
-    def test_search_json(
-        self, runner: CliRunner, store: SqliteStore, sample_doc: Document
-    ) -> None:
+    def test_search_json(self, runner: CliRunner, store: SqliteStore, sample_doc: Document) -> None:
         result = _invoke(runner, store, ["search", "Test", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, list)
@@ -322,9 +330,7 @@ class TestSearch:
     def test_search_by_tag(
         self, runner: CliRunner, store: SqliteStore, sample_doc: Document
     ) -> None:
-        result = _invoke(
-            runner, store, ["search", "Test", "--tag", "test", "--tag", "cli"]
-        )
+        result = _invoke(runner, store, ["search", "Test", "--tag", "test", "--tag", "cli"])
         assert result.exit_code == EXIT_OK
         assert sample_doc.id in result.output
 
@@ -337,9 +343,7 @@ class TestSearch:
         data = json.loads(result.output)
         assert len(data) == 2
 
-    def test_search_empty_query_validation(
-        self, runner: CliRunner, store: SqliteStore
-    ) -> None:
+    def test_search_empty_query_validation(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(runner, store, ["search", ""])
         assert result.exit_code == EXIT_VALIDATION
 
@@ -366,9 +370,7 @@ class TestList:
         assert sample_doc.type in result.output
         assert sample_doc.title in result.output
 
-    def test_list_json(
-        self, runner: CliRunner, store: SqliteStore, sample_doc: Document
-    ) -> None:
+    def test_list_json(self, runner: CliRunner, store: SqliteStore, sample_doc: Document) -> None:
         result = _invoke(runner, store, ["list", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, list)
@@ -386,18 +388,14 @@ class TestList:
     def test_list_by_tag(self, runner: CliRunner, store: SqliteStore) -> None:
         store.add(Document(id="proj/t1", type="project", title="T1", body="x", tags=["a"]))
         store.add(Document(id="proj/t2", type="project", title="T2", body="x", tags=["a", "b"]))
-        result = _invoke(
-            runner, store, ["list", "--tag", "a", "--tag", "b", "--json"]
-        )
+        result = _invoke(runner, store, ["list", "--tag", "a", "--tag", "b", "--json"])
         data = json.loads(result.output)
         assert len(data) == 1
         assert data[0]["id"] == "proj/t2"
 
     def test_list_limit_offset(self, runner: CliRunner, store: SqliteStore) -> None:
         for i in range(5):
-            store.add(
-                Document(id=f"proj/item-{i}", type="project", title=f"Item {i}", body="x")
-            )
+            store.add(Document(id=f"proj/item-{i}", type="project", title=f"Item {i}", body="x"))
         result = _invoke(runner, store, ["list", "--limit", "2", "--offset", "1", "--json"])
         data = json.loads(result.output)
         assert len(data) == 2
@@ -419,15 +417,11 @@ class TestLink:
         self, runner: CliRunner, store: SqliteStore, sample_doc: Document
     ) -> None:
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
-        result = _invoke(
-            runner, store, ["link", "--from", sample_doc.id, "--to", "dec/target"]
-        )
+        result = _invoke(runner, store, ["link", "--from", sample_doc.id, "--to", "dec/target"])
         assert result.exit_code == EXIT_OK
         assert "relates-to" in result.output
 
-    def test_link_json(
-        self, runner: CliRunner, store: SqliteStore, sample_doc: Document
-    ) -> None:
+    def test_link_json(self, runner: CliRunner, store: SqliteStore, sample_doc: Document) -> None:
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
         result = _invoke(
             runner, store, ["link", "--from", sample_doc.id, "--to", "dec/target", "--json"]
@@ -442,16 +436,15 @@ class TestLink:
     ) -> None:
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
         result = _invoke(
-            runner, store,
+            runner,
+            store,
             ["link", "--from", sample_doc.id, "--to", "dec/target", "--rel", "depends-on"],
         )
         assert result.exit_code == EXIT_OK
         assert "depends-on" in result.output
 
     def test_link_not_found(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(
-            runner, store, ["link", "--from", "does/not-exist", "--to", "also/nope"]
-        )
+        result = _invoke(runner, store, ["link", "--from", "does/not-exist", "--to", "also/nope"])
         assert result.exit_code == EXIT_NOT_FOUND
 
 
@@ -489,7 +482,8 @@ class TestCrossInvocation:
         """Add a doc in one invocation, get it in another — same store instance."""
         # First invocation: add
         r1 = _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "project", "--title", "Persist Test", "--body", "persistent body"],
         )
         assert r1.exit_code == EXIT_OK
@@ -505,7 +499,8 @@ class TestCrossInvocation:
     ) -> None:
         """Add a doc, then search for it in a separate invoke."""
         _invoke(
-            runner, store,
+            runner,
+            store,
             ["add", "--type", "lesson", "--title", "Search Me", "--body", "searchable content"],
         )
         result = _invoke(runner, store, ["search", "searchable", "--json"])
@@ -514,13 +509,12 @@ class TestCrossInvocation:
         assert len(data) >= 1
         assert data[0]["title"] == "Search Me"
 
-    def test_list_persists_across_invocations(
-        self, runner: CliRunner, store: SqliteStore
-    ) -> None:
+    def test_list_persists_across_invocations(self, runner: CliRunner, store: SqliteStore) -> None:
         """Add 3 docs across 3 invocations, list all in a 4th."""
         for i in range(3):
             _invoke(
-                runner, store,
+                runner,
+                store,
                 ["add", "--type", "project", "--title", f"Doc {i}"],
             )
         result = _invoke(runner, store, ["list", "--json"])

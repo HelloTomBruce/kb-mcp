@@ -96,13 +96,11 @@ def _assert_json_ok(result: click.testing.Result) -> dict:
     return data
 
 
-def _assert_json_error(
-    result: click.testing.Result, expected_exit: int
-) -> dict:
+def _assert_json_error(result: click.testing.Result, expected_exit: int) -> dict:
     """Assert the result exited with expected code and parsed JSON has ok=False."""
-    assert (
-        result.exit_code == expected_exit
-    ), f"expected exit {expected_exit}, got {result.exit_code}\n{result.output}"
+    assert result.exit_code == expected_exit, (
+        f"expected exit {expected_exit}, got {result.exit_code}\n{result.output}"
+    )
     data = json.loads(result.output)
     assert data.get("ok") is False
     return data
@@ -114,7 +112,7 @@ def _assert_json_error(
 
 
 class TestInit:
-    """"kb init`` is a no-op with StubStore but accepts all flags."""
+    """ "kb init`` is a no-op with StubStore but accepts all flags."""
 
     def test_init_happy_path(self, runner: CliRunner, store: StubStore) -> None:
         """Default init succeeds and prints a confirmation."""
@@ -128,17 +126,15 @@ class TestInit:
         data = _assert_json_ok(result)
         assert data["force"] is False
 
-    def test_init_force_no_confirm_in_runner(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
-        """"--force`` without ``--yes`` in CliRunner skips the interactive
+    def test_init_force_no_confirm_in_runner(self, runner: CliRunner, store: StubStore) -> None:
+        """ "--force`` without ``--yes`` in CliRunner skips the interactive
         prompt (stdin is not a tty) and succeeds."""
         result = _invoke(runner, store, ["init", "--force"])
         assert result.exit_code == EXIT_OK
         assert "(force)" in result.output
 
     def test_init_force_with_yes(self, runner: CliRunner, store: StubStore) -> None:
-        """"--force --yes`` succeeds without prompting."""
+        """ "--force --yes`` succeeds without prompting."""
         result = _invoke(runner, store, ["init", "--force", "--yes"])
         assert result.exit_code == EXIT_OK
         assert "(force)" in result.output
@@ -150,7 +146,7 @@ class TestInit:
 
 
 class TestAdd:
-    """"kb add`` creates documents and returns the generated id."""
+    """ "kb add`` creates documents and returns the generated id."""
 
     def test_add_happy_path(self, runner: CliRunner, store: StubStore) -> None:
         """Minimal add prints the generated id."""
@@ -163,7 +159,7 @@ class TestAdd:
         assert result.output.strip() == "proj/hello-world"
 
     def test_add_with_body(self, runner: CliRunner, store: StubStore) -> None:
-        """"--body`` is stored and reflected in get."""
+        """ "--body`` is stored and reflected in get."""
         result = _invoke(
             runner,
             store,
@@ -183,7 +179,7 @@ class TestAdd:
         assert doc.body == "Some content here."
 
     def test_add_with_tags(self, runner: CliRunner, store: StubStore) -> None:
-        """"--tags`` comma list is parsed."""
+        """ "--tags`` comma list is parsed."""
         result = _invoke(
             runner,
             store,
@@ -203,7 +199,7 @@ class TestAdd:
         assert doc.tags == ["a", "b", "c"]
 
     def test_add_with_source(self, runner: CliRunner, store: StubStore) -> None:
-        """"--source`` enables idempotent re-import."""
+        """ "--source`` enables idempotent re-import."""
         result = _invoke(
             runner,
             store,
@@ -220,7 +216,7 @@ class TestAdd:
         assert result.exit_code == EXIT_OK
 
     def test_add_json(self, runner: CliRunner, store: StubStore) -> None:
-        """"--json`` returns structured output."""
+        """ "--json`` returns structured output."""
         result = _invoke(
             runner,
             store,
@@ -238,9 +234,7 @@ class TestAdd:
         assert data["title"] == "JSON Test"
         assert "id" in data
 
-    def test_add_duplicate_raises_conflict(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
+    def test_add_duplicate_raises_conflict(self, runner: CliRunner, store: StubStore) -> None:
         """Adding the same (type, title) twice exits 4."""
         args = ["add", "--type", "project", "--title", "Dup"]
         r1 = _invoke(runner, store, args)
@@ -271,7 +265,7 @@ class TestAdd:
         assert doc.body == "stdin body here"
 
     def test_add_body_file(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """"--body-file`` reads UTF-8 content."""
+        """ "--body-file`` reads UTF-8 content."""
         path = tmp_path / "body.md"
         path.write_text("file body content", encoding="utf-8")
         result = _invoke(
@@ -324,9 +318,7 @@ class TestAdd:
         result = _invoke(runner, store, ["add", "--type", "project"])
         assert result.exit_code == EXIT_USAGE
 
-    def test_add_body_file_not_found(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
+    def test_add_body_file_not_found(self, runner: CliRunner, store: StubStore) -> None:
         """A missing ``--body-file`` exits 64 (usage error)."""
         result = _invoke(
             runner,
@@ -351,7 +343,7 @@ class TestAdd:
 
 
 class TestGet:
-    """"kb get`` fetches a single document by id."""
+    """ "kb get`` fetches a single document by id."""
 
     def test_get_happy_path(
         self, runner: CliRunner, store: StubStore, sample_doc: Document
@@ -363,9 +355,7 @@ class TestGet:
         assert sample_doc.id in result.output
         assert sample_doc.body in result.output
 
-    def test_get_json(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
+    def test_get_json(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
         """--json returns the full document as JSON."""
         result = _invoke(runner, store, ["get", sample_doc.id, "--json"])
         assert result.exit_code == EXIT_OK
@@ -393,7 +383,7 @@ class TestGet:
 
 
 class TestSearch:
-    """"kb search`` performs substring search over title + body."""
+    """ "kb search`` performs substring search over title + body."""
 
     def test_search_happy_path(
         self, runner: CliRunner, store: StubStore, sample_doc: Document
@@ -409,10 +399,8 @@ class TestSearch:
         assert result.exit_code == EXIT_OK
         assert "no results" in result.output
 
-    def test_search_json(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
-        """"--json`` returns a list of hit objects."""
+    def test_search_json(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+        """ "--json`` returns a list of hit objects."""
         result = _invoke(runner, store, ["search", "Test", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, list)
@@ -422,7 +410,7 @@ class TestSearch:
     def test_search_by_type(
         self, runner: CliRunner, store: StubStore, sample_doc: Document
     ) -> None:
-        """"--type`` restricts results."""
+        """ "--type`` restricts results."""
         # Add a second doc of different type
         store.add(Document(id="dec/other", type="decision", title="Other", body="x"))
         result = _invoke(runner, store, ["search", "Other", "--type", "decision"])
@@ -430,18 +418,14 @@ class TestSearch:
         assert "dec/other" in result.output
         assert sample_doc.id not in result.output
 
-    def test_search_by_tag(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
-        """"--tag`` (repeatable) filters by AND semantics."""
-        result = _invoke(
-            runner, store, ["search", "Test", "--tag", "test", "--tag", "cli"]
-        )
+    def test_search_by_tag(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+        """ "--tag`` (repeatable) filters by AND semantics."""
+        result = _invoke(runner, store, ["search", "Test", "--tag", "test", "--tag", "cli"])
         assert result.exit_code == EXIT_OK
         assert sample_doc.id in result.output
 
     def test_search_limit(self, runner: CliRunner, store: StubStore) -> None:
-        """"--limit`` caps the number of results."""
+        """ "--limit`` caps the number of results."""
         for i in range(5):
             store.add(
                 Document(
@@ -455,9 +439,7 @@ class TestSearch:
         data = json.loads(result.output)
         assert len(data) == 2
 
-    def test_search_empty_query_validation(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
+    def test_search_empty_query_validation(self, runner: CliRunner, store: StubStore) -> None:
         """Empty query raises ValidationError -> exit 2."""
         result = _invoke(runner, store, ["search", ""])
         assert result.exit_code == EXIT_VALIDATION
@@ -465,12 +447,8 @@ class TestSearch:
     def test_search_sort_by_score(self, runner: CliRunner, store: StubStore) -> None:
         """Results are sorted by score (lower offset = better)."""
         # "alpha" appears early in title for first doc, later for second
-        store.add(
-            Document(id="proj/early", type="project", title="alpha start", body="z")
-        )
-        store.add(
-            Document(id="proj/late", type="project", title="z end alpha", body="z")
-        )
+        store.add(Document(id="proj/early", type="project", title="alpha start", body="z"))
+        store.add(Document(id="proj/late", type="project", title="z end alpha", body="z"))
         result = _invoke(runner, store, ["search", "alpha", "--json"])
         data = json.loads(result.output)
         assert len(data) == 2
@@ -485,7 +463,7 @@ class TestSearch:
 
 
 class TestList:
-    """"kb list`` returns documents sorted by updated_at DESC."""
+    """ "kb list`` returns documents sorted by updated_at DESC."""
 
     def test_list_empty(self, runner: CliRunner, store: StubStore) -> None:
         """Empty store prints a friendly message."""
@@ -503,10 +481,8 @@ class TestList:
         assert sample_doc.type in result.output
         assert sample_doc.title in result.output
 
-    def test_list_json(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
-        """"--json`` returns a list of document dicts."""
+    def test_list_json(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+        """ "--json`` returns a list of document dicts."""
         result = _invoke(runner, store, ["list", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, list)
@@ -514,7 +490,7 @@ class TestList:
         assert data[0]["id"] == sample_doc.id
 
     def test_list_by_type(self, runner: CliRunner, store: StubStore) -> None:
-        """"--type`` filters."""
+        """ "--type`` filters."""
         store.add(Document(id="proj/a", type="project", title="A", body="x"))
         store.add(Document(id="dec/b", type="decision", title="B", body="x"))
         result = _invoke(runner, store, ["list", "--type", "decision", "--json"])
@@ -523,24 +499,16 @@ class TestList:
         assert data[0]["id"] == "dec/b"
 
     def test_list_by_tag(self, runner: CliRunner, store: StubStore) -> None:
-        """"--tag`` filters by AND semantics."""
-        store.add(
-            Document(id="proj/t1", type="project", title="T1", body="x", tags=["a"])
-        )
-        store.add(
-            Document(
-                id="proj/t2", type="project", title="T2", body="x", tags=["a", "b"]
-            )
-        )
-        result = _invoke(
-            runner, store, ["list", "--tag", "a", "--tag", "b", "--json"]
-        )
+        """ "--tag`` filters by AND semantics."""
+        store.add(Document(id="proj/t1", type="project", title="T1", body="x", tags=["a"]))
+        store.add(Document(id="proj/t2", type="project", title="T2", body="x", tags=["a", "b"]))
+        result = _invoke(runner, store, ["list", "--tag", "a", "--tag", "b", "--json"])
         data = json.loads(result.output)
         assert len(data) == 1
         assert data[0]["id"] == "proj/t2"
 
     def test_list_limit_offset(self, runner: CliRunner, store: StubStore) -> None:
-        """"--limit`` and ``--offset`` paginate."""
+        """ "--limit`` and ``--offset`` paginate."""
         for i in range(5):
             store.add(
                 Document(
@@ -566,25 +534,21 @@ class TestList:
 
 
 class TestLink:
-    """"kb link`` creates typed edges between documents."""
+    """ "kb link`` creates typed edges between documents."""
 
     def test_link_happy_path(
         self, runner: CliRunner, store: StubStore, sample_doc: Document
     ) -> None:
         """Default link prints a human-readable edge."""
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
-        result = _invoke(
-            runner, store, ["link", "--from", sample_doc.id, "--to", "dec/target"]
-        )
+        result = _invoke(runner, store, ["link", "--from", sample_doc.id, "--to", "dec/target"])
         assert result.exit_code == EXIT_OK
         assert "relates-to" in result.output
         assert sample_doc.id in result.output
         assert "dec/target" in result.output
 
-    def test_link_json(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
-        """"--json`` returns the edge details."""
+    def test_link_json(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+        """ "--json`` returns the edge details."""
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
         result = _invoke(
             runner,
@@ -599,7 +563,7 @@ class TestLink:
     def test_link_custom_rel(
         self, runner: CliRunner, store: StubStore, sample_doc: Document
     ) -> None:
-        """"--rel`` overrides the default."""
+        """ "--rel`` overrides the default."""
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
         result = _invoke(
             runner,
@@ -628,23 +592,17 @@ class TestLink:
         r2 = _invoke(runner, store, args)
         assert r2.exit_code == EXIT_OK
 
-    def test_link_from_not_found(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
+    def test_link_from_not_found(self, runner: CliRunner, store: StubStore) -> None:
         """Missing ``--from`` id exits 3."""
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
-        result = _invoke(
-            runner, store, ["link", "--from", "missing", "--to", "dec/target"]
-        )
+        result = _invoke(runner, store, ["link", "--from", "missing", "--to", "dec/target"])
         assert result.exit_code == EXIT_NOT_FOUND
 
     def test_link_to_not_found(
         self, runner: CliRunner, store: StubStore, sample_doc: Document
     ) -> None:
         """Missing ``--to`` id exits 3."""
-        result = _invoke(
-            runner, store, ["link", "--from", sample_doc.id, "--to", "missing"]
-        )
+        result = _invoke(runner, store, ["link", "--from", sample_doc.id, "--to", "missing"])
         assert result.exit_code == EXIT_NOT_FOUND
 
     def test_link_missing_from(self, runner: CliRunner, store: StubStore) -> None:
@@ -684,7 +642,7 @@ class TestImport:
         assert result.exit_code == EXIT_INTERNAL
 
     def test_import_dry_run_stub(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
-        """"--dry-run`` does not change the stub behaviour."""
+        """ "--dry-run`` does not change the stub behaviour."""
         vault = tmp_path / "vault"
         vault.mkdir()
         result = _invoke(runner, store, ["import", str(vault), "--dry-run"])
@@ -697,28 +655,22 @@ class TestImport:
 
 
 class TestExport:
-    """"kb export`` is a stub that exits 5 until Wave 1B."""
+    """ "kb export`` is a stub that exits 5 until Wave 1B."""
 
-    def test_export_stub_exits_5(
-        self, runner: CliRunner, store: StubStore, tmp_path: Path
-    ) -> None:
+    def test_export_stub_exits_5(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
         """Any invocation exits 5."""
         out = tmp_path / "out"
         result = _invoke(runner, store, ["export", str(out)])
         assert result.exit_code == EXIT_INTERNAL
 
-    def test_export_stub_json(
-        self, runner: CliRunner, store: StubStore, tmp_path: Path
-    ) -> None:
+    def test_export_stub_json(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
         """Stub with ``--json`` still exits 5."""
         out = tmp_path / "out"
         result = _invoke(runner, store, ["export", str(out), "--json"])
         assert result.exit_code == EXIT_INTERNAL
 
-    def test_export_force_stub(
-        self, runner: CliRunner, store: StubStore, tmp_path: Path
-    ) -> None:
-        """"--force`` does not change the stub behaviour."""
+    def test_export_force_stub(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
+        """ "--force`` does not change the stub behaviour."""
         out = tmp_path / "out"
         result = _invoke(runner, store, ["export", str(out), "--force"])
         assert result.exit_code == EXIT_INTERNAL
@@ -730,7 +682,7 @@ class TestExport:
 
 
 class TestDoctor:
-    """"kb doctor`` runs health checks."""
+    """ "kb doctor`` runs health checks."""
 
     def test_doctor_happy_path(self, runner: CliRunner, store: StubStore) -> None:
         """Healthy store prints OK."""
@@ -739,7 +691,7 @@ class TestDoctor:
         assert "OK" in result.output
 
     def test_doctor_json(self, runner: CliRunner, store: StubStore) -> None:
-        """"--json`` returns a structured report."""
+        """ "--json`` returns a structured report."""
         result = _invoke(runner, store, ["doctor", "--json"])
         data = _assert_json_ok(result)
         assert data["ok"] is True
@@ -768,9 +720,7 @@ class TestServe:
     via subprocess. Here we only test CLI-level validation.
     """
 
-    def test_serve_invalid_log_level(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
+    def test_serve_invalid_log_level(self, runner: CliRunner, store: StubStore) -> None:
         """Invalid ``--log-level`` is rejected by Click (usage error, exit 64)."""
         result = _invoke(runner, store, ["serve", "--log-level", "INVALID"])
         assert result.exit_code == EXIT_USAGE
@@ -782,7 +732,7 @@ class TestServe:
 
 
 class TestJsonFlag:
-    """"--json`` produces valid JSON on every supported command."""
+    """ "--json`` produces valid JSON on every supported command."""
 
     def test_json_on_init(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(runner, store, ["init", "--json"])
@@ -798,9 +748,7 @@ class TestJsonFlag:
         data = _assert_json_ok(result)
         assert "id" in data
 
-    def test_json_on_get(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
+    def test_json_on_get(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
         result = _invoke(runner, store, ["get", sample_doc.id, "--json"])
         assert result.exit_code == EXIT_OK
         data = json.loads(result.output)
@@ -813,16 +761,12 @@ class TestJsonFlag:
         data = json.loads(result.output)
         assert isinstance(data, list)
 
-    def test_json_on_list(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
+    def test_json_on_list(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
         result = _invoke(runner, store, ["list", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, list)
 
-    def test_json_on_link(
-        self, runner: CliRunner, store: StubStore, sample_doc: Document
-    ) -> None:
+    def test_json_on_link(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
         store.add(Document(id="dec/target", type="decision", title="Target", body="x"))
         result = _invoke(
             runner,
@@ -875,12 +819,9 @@ class TestExitCodes:
 class TestStoreInjection:
     """Tests prove that the injected store is actually used."""
 
-    def test_injected_store_is_used(
-        self, runner: CliRunner, store: StubStore
-    ) -> None:
+    def test_injected_store_is_used(self, runner: CliRunner, store: StubStore) -> None:
         """A doc added via the store directly appears in CLI list."""
         store.add(Document(id="proj/injected", type="project", title="Injected", body="x"))
         result = _invoke(runner, store, ["list", "--json"])
         data = json.loads(result.output)
         assert any(d["id"] == "proj/injected" for d in data)
-

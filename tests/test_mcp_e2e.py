@@ -56,9 +56,7 @@ def _recv(proc: subprocess.Popen, timeout: float = 10.0) -> dict[str, Any]:
             stderr = proc.stderr.read()
         except Exception:
             pass
-        raise RuntimeError(
-            f"MCP server closed stdout (no response). stderr: {stderr[:500]}"
-        )
+        raise RuntimeError(f"MCP server closed stdout (no response). stderr: {stderr[:500]}")
     return json.loads(line)
 
 
@@ -75,9 +73,7 @@ def _recv_until_id(
     raise RuntimeError(f"Timeout waiting for response id={expected_id}")
 
 
-def _call_tool(
-    proc: subprocess.Popen, name: str, arguments: dict[str, Any]
-) -> dict[str, Any]:
+def _call_tool(proc: subprocess.Popen, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Send a tools/call request and return the response."""
     rid = _next_id()
     _send(
@@ -290,9 +286,7 @@ class TestKbGet:
     def test_get_happy_path(self, mcp_proc: subprocess.Popen) -> None:
         """Get an existing doc returns full document."""
         # First add a doc
-        add_resp = _call_tool(
-            mcp_proc, "kb_add", {"type": "project", "title": "Get Me"}
-        )
+        add_resp = _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "Get Me"})
         doc_id = _extract_result(add_resp)["id"]
 
         # Now get it

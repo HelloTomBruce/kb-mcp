@@ -173,9 +173,7 @@ def _parse_iso_dt(value: Any) -> datetime:
     return dt
 
 
-def doc_from_frontmatter(
-    fm: Frontmatter, body: str, source: str | None = None
-) -> Document:
+def doc_from_frontmatter(fm: Frontmatter, body: str, source: str | None = None) -> Document:
     """Build a :class:`Document` from parsed frontmatter + body.
 
     Public helper so callers (e.g. tests) can reuse the conversion
@@ -246,9 +244,7 @@ def _ensure_within(base: Path, candidate: Path, *, what: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def import_dir(
-    store: Store, dir: Path, *, dry_run: bool = False
-) -> ImportReport:
+def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportReport:
     """Walk ``dir`` recursively, parse ``.md`` files, insert/update by source.
 
     Hidden files, hidden directories, and non-``.md`` files are
@@ -337,9 +333,7 @@ def import_dir(
 # ---------------------------------------------------------------------------
 
 
-def export_dir(
-    store: Store, dir: Path, *, force: bool = False
-) -> int:
+def export_dir(store: Store, dir: Path, *, force: bool = False) -> int:
     """Write one ``.md`` per document under ``dir``.
 
     Filename is the last segment of the document's id (``proj/kb-mcp``
@@ -376,15 +370,13 @@ def export_dir(
         if doc.source:
             if os.path.isabs(doc.source):
                 raise ValidationError(
-                    f"doc {doc.id!r} has absolute source path "
-                    f"{doc.source!r} (refusing to export)"
+                    f"doc {doc.id!r} has absolute source path {doc.source!r} (refusing to export)"
                 )
             try:
                 (base / doc.source).resolve().relative_to(base)
             except ValueError:
                 raise ValidationError(
-                    f"doc {doc.id!r} source {doc.source!r} escapes "
-                    f"destination {base!r}"
+                    f"doc {doc.id!r} source {doc.source!r} escapes destination {base!r}"
                 )
 
     used_slugs: set[str] = set()
@@ -402,16 +394,13 @@ def export_dir(
             candidate = base / f"{slug}-{n}.md"
             n += 1
             if n > 10_000:
-                raise ValidationError(
-                    f"too many filename collisions for slug {slug!r}"
-                )
+                raise ValidationError(f"too many filename collisions for slug {slug!r}")
         used_slugs.add(candidate.name)
 
         # Refuse to clobber a pre-existing file unless force=True.
         if candidate.exists() and not force:
             raise ValidationError(
-                f"refusing to overwrite existing file {candidate} "
-                f"(use force=True to overwrite)"
+                f"refusing to overwrite existing file {candidate} (use force=True to overwrite)"
             )
 
         candidate.write_text(render_document(doc), encoding="utf-8")
@@ -429,6 +418,7 @@ def export_dir(
             # We surface this through a custom side-channel rather
             # than changing the return type.
             import warnings
+
             warnings.warn(f"could not update source for {doc.id!r}: {e}")
 
     return written

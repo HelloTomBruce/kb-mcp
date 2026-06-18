@@ -216,9 +216,7 @@ def _resolve_body(body: str | None, body_file: str | None) -> str:
         except FileNotFoundError as e:
             raise click.UsageError(f"body file not found: {body_file}") from e
         except OSError as e:
-            raise click.UsageError(
-                f"cannot read body file {body_file}: {e}"
-            ) from e
+            raise click.UsageError(f"cannot read body file {body_file}: {e}") from e
     # Fall back to stdin — read until EOF.
     return click.get_text_stream("stdin").read()
 
@@ -226,30 +224,22 @@ def _resolve_body(body: str | None, body_file: str | None) -> str:
 # Markdown I/O stubs (deferred to Wave 1B) ------------------------------------
 
 
-def _import_dir_stub(
-    store: Any, directory: Path, *, dry_run: bool = False
-) -> ImportReport:
+def _import_dir_stub(store: Any, directory: Path, *, dry_run: bool = False) -> ImportReport:
     """Inline stub for ``kb_mcp.md_io.import_dir``.
 
     The real implementation lands in Wave 1B. Until then, every
     invocation raises :class:`NotImplementedError`, which the CLI
     surfaces as exit code 5.
     """
-    raise NotImplementedError(
-        "kb import: deferred to Wave 1B (kb_mcp.md_io.import_dir)"
-    )
+    raise NotImplementedError("kb import: deferred to Wave 1B (kb_mcp.md_io.import_dir)")
 
 
-def _export_dir_stub(
-    store: Any, directory: Path, *, force: bool = False
-) -> int:
+def _export_dir_stub(store: Any, directory: Path, *, force: bool = False) -> int:
     """Inline stub for ``kb_mcp.md_io.export_dir``.
 
     See :func:`_import_dir_stub` for the Wave 1B deferral rationale.
     """
-    raise NotImplementedError(
-        "kb export: deferred to Wave 1B (kb_mcp.md_io.export_dir)"
-    )
+    raise NotImplementedError("kb export: deferred to Wave 1B (kb_mcp.md_io.export_dir)")
 
 
 # Tag parsing -----------------------------------------------------------------
@@ -306,9 +296,7 @@ def init(ctx: click.Context, force: bool, skip_confirm: bool, as_json: bool) -> 
     if force and not skip_confirm and sys.stdin.isatty():
         # Only prompt when running interactively; non-interactive callers
         # (e.g. CliRunner) and explicit --yes skip the check.
-        if not click.confirm(
-            "--force will recreate the KB. Continue?", default=False
-        ):
+        if not click.confirm("--force will recreate the KB. Continue?", default=False):
             raise click.Abort()
     store = _get_store(ctx)
     # Touching the store proves the protocol works end-to-end.
@@ -502,9 +490,7 @@ def list_cmd(
     """List documents, sorted by ``updated_at`` DESC."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    docs = store.list(
-        type=doc_type, tags=tag_list, limit=limit, offset=offset
-    )
+    docs = store.list(type=doc_type, tags=tag_list, limit=limit, offset=offset)
     if as_json:
         _emit_json([d.model_dump(mode="json") for d in docs])
     else:
@@ -512,10 +498,7 @@ def list_cmd(
             click.echo("(no documents)")
             return
         for d in docs:
-            click.echo(
-                f"{d.id}  [{d.type}]  {d.title}  "
-                f"({d.updated_at.isoformat()})"
-            )
+            click.echo(f"{d.id}  [{d.type}]  {d.title}  ({d.updated_at.isoformat()})")
 
 
 # ---- kb link -----------------------------------------------------------------
@@ -667,6 +650,7 @@ def serve(ctx: click.Context, log_level: str) -> None:
     """Start the MCP server on stdio (Wave 2A)."""
     from kb_mcp.mcp_server import run as _run_mcp_server
 
+    os.environ["KB_MCP_LOG_LEVEL"] = log_level
     _run_mcp_server()
 
 

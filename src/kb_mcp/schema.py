@@ -161,7 +161,9 @@ class Document(BaseModel):
 
     model_config = ConfigDict(frozen=False, str_strip_whitespace=True)
 
-    id: str = Field(..., description="Slug-style id; auto-generated from type+title if omitted on add")
+    id: str = Field(
+        ..., description="Slug-style id; auto-generated from type+title if omitted on add"
+    )
     type: str = Field(..., min_length=1, max_length=64)
     title: str = Field(..., min_length=1, max_length=512)
     body: str = Field(default="", max_length=1_000_000)  # 1 MB cap
@@ -181,10 +183,9 @@ class Document(BaseModel):
         if v == "":
             return v
         import re as _re
+
         if not _re.match(r"^[a-z0-9][a-z0-9/_-]*$", v):
-            raise ValueError(
-                f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {v!r})"
-            )
+            raise ValueError(f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {v!r})")
         return v
 
     @field_validator("tags")
@@ -194,9 +195,7 @@ class Document(BaseModel):
 
         for t in v:
             if not re.match(r"^[a-z0-9][a-z0-9_-]*$", t):
-                raise ValueError(
-                    f"tag {t!r} must match ^[a-z0-9][a-z0-9_-]*$"
-                )
+                raise ValueError(f"tag {t!r} must match ^[a-z0-9][a-z0-9_-]*$")
         return v
 
     @field_validator("created_at", "updated_at", "deleted_at", mode="before")
@@ -353,9 +352,7 @@ class TypeRegistry:
 
     def register(self, type_name: str, model: type[Document]) -> None:
         if not type_name or not type_name.replace("-", "").replace("_", "").isalnum():
-            raise ValueError(
-                f"type_name must be alphanumeric/dash/underscore (got {type_name!r})"
-            )
+            raise ValueError(f"type_name must be alphanumeric/dash/underscore (got {type_name!r})")
         if type_name in self._types:
             raise ValueError(f"type {type_name!r} already registered")
         self._types[type_name] = model

@@ -44,8 +44,12 @@ def _doc(
     (no validation) so the test fixture itself never raises — the test
     asserts on whatever validator/store raises downstream."""
     return Document.model_construct(
-        id=id, type=type, title=title, body=body,
-        tags=tags or [], source=source,
+        id=id,
+        type=type,
+        title=title,
+        body=body,
+        tags=tags or [],
+        source=source,
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         deleted_at=None,
@@ -376,8 +380,13 @@ def test_import_many_inserts_and_updates(store: SqliteStore) -> None:
     assert store.get("a").title == "Test"
     # re-import with updated title
     d1_updated = Document(
-        id="a", type="project", title="Renamed", body="x", source="dir/a.md",
-        created_at=d1.created_at, updated_at=d1.updated_at,
+        id="a",
+        type="project",
+        title="Renamed",
+        body="x",
+        source="dir/a.md",
+        created_at=d1.created_at,
+        updated_at=d1.updated_at,
     )
     report = store.import_many([d1_updated])
     assert report.updated == 1

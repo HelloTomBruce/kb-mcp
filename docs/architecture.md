@@ -306,7 +306,13 @@ class KbLinkInput(BaseModel):
     rel: str = Field(default="relates-to", min_length=1, max_length=64)
 ```
 
-Error → MCP JSON-RPC error code mapping:
+Error handling — tool errors use MCP's `isError` content convention (not
+JSON-RPC-level `error` objects). The server raises `RuntimeError(f"MCP error
+{code}: {msg}")`, which FastMCP converts to a tool result with `isError: true`
+and the error text embedded in the content. The code is included as a prefix
+for programmatic extraction by clients.
+
+Error code mapping (embedded in the error text):
 
 | kb-mcp exception | MCP code | Notes |
 |---|---|---|

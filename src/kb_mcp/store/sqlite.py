@@ -128,9 +128,7 @@ class SqliteStore:
 
             doc = doc.model_copy(update={"id": make_id(doc.type, doc.title)})
         elif not re.match(r"^[a-z0-9][a-z0-9/_-]*$", doc.id):
-            raise ValidationError(
-                f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {doc.id!r})"
-            )
+            raise ValidationError(f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {doc.id!r})")
 
         row = doc.to_row()
         try:
@@ -172,7 +170,9 @@ class SqliteStore:
                 elif isinstance(v, list):
                     merged["tags"] = list(v)
                 else:
-                    raise ValidationError(f"tags must be list[str] or comma string (got {type(v).__name__})")
+                    raise ValidationError(
+                        f"tags must be list[str] or comma string (got {type(v).__name__})"
+                    )
             else:
                 merged[k] = v
         merged["updated_at"] = datetime.now(timezone.utc)
@@ -338,9 +338,7 @@ class SqliteStore:
         if not rel:
             raise ValidationError("rel must be non-empty")
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]*$", rel):
-            raise ValidationError(
-                f"rel must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ (got {rel!r})"
-            )
+            raise ValidationError(f"rel must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ (got {rel!r})")
         # Verify both endpoints exist (active).
         self.get(from_id)
         self.get(to_id)
@@ -405,8 +403,9 @@ class SqliteStore:
                         # Update mutable fields; keep id/created_at.
                         self.update(
                             existing_id,
-                            **{k: v for k, v in doc.model_dump().items()
-                               if k in _UPDATEABLE_FIELDS},
+                            **{
+                                k: v for k, v in doc.model_dump().items() if k in _UPDATEABLE_FIELDS
+                            },
                         )
                         report.updated += 1
                         continue
@@ -433,7 +432,9 @@ class SqliteStore:
         # 1. PRAGMA integrity_check
         row = self._conn.execute("PRAGMA integrity_check").fetchone()
         ok = bool(row) and row[0] == "ok"
-        checks.append(DoctorCheck(name="integrity_check", ok=ok, detail=str(row[0]) if row else "no result"))
+        checks.append(
+            DoctorCheck(name="integrity_check", ok=ok, detail=str(row[0]) if row else "no result")
+        )
 
         # 2. FTS row count == active document count
         n_docs = self._conn.execute(
