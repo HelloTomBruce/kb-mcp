@@ -85,7 +85,9 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     s = SqliteStore(db)
     conn = sqlite3.connect(str(db))
     rows = conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-    assert [r[0] for r in rows] == [1]
+    # v0.2 added migration 0002 (trigram FTS). v0.1-only test sites that
+    # instantiate a fresh DB will see [1, 2]; v0.2+ will see the same.
+    assert [r[0] for r in rows] == [1, 2]
     conn.close()
     s.close()
 

@@ -224,7 +224,10 @@ class TestDiscovery:
         assert "result" in resp, f"tools/list failed: {resp}"
         tools = resp["result"]["tools"]
         names = {t["name"] for t in tools}
-        assert names == {"kb_search", "kb_get", "kb_add", "kb_link"}
+        assert names == {
+            "kb_search", "kb_get", "kb_add", "kb_link",
+            "kb_list", "kb_update", "kb_delete", "kb_unlink",
+        }
 
 
 # ---------------------------------------------------------------------------

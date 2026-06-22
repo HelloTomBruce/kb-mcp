@@ -221,12 +221,25 @@ class StubStore(_Store):
         type: str | None = None,  # noqa: A002
         tags: List[str] | None = None,
         limit: int = 10,
+        mode: str = "lexical",
     ) -> List[SearchHit]:
         if not query or not query.strip():
             raise ValidationError("query must be non-empty")
         if limit < 1 or limit > 100:
             raise ValidationError(f"limit must be 1..100 (got {limit})")
+        if mode not in ("lexical", "fuzzy", "hybrid"):
+            raise ValidationError(
+                f"mode must be 'lexical', 'fuzzy', or 'hybrid' (got {mode!r})"
+            )
         lower_q = query.lower().strip()
+        # fuzzy/hybrid: also match any token substring of length >= 3.
+        # This is a rough approximation of the trigram FTS; good enough
+        # for unit tests against the in-memory stub.
+        fuzzy_tokens: list[str] = []
+        if mode in ("fuzzy", "hybrid"):
+            for tok in lower_q.split():
+                if len(tok) >= 3:
+                    fuzzy_tokens.append(tok)
         hits: List[SearchHit] = []
         for doc in self._docs.values():
             if doc.deleted_at is not None:
@@ -237,7 +250,16 @@ class StubStore(_Store):
                 continue
             haystack = (doc.title + " " + doc.body).lower()
             pos = haystack.find(lower_q)
-            if pos < 0:
+            matched = pos >= 0
+            if not matched and fuzzy_tokens:
+                # In fuzzy mode we accept any of the trigram tokens as a hit.
+                for ft in fuzzy_tokens:
+                    p = haystack.find(ft)
+                    if p >= 0:
+                        matched = True
+                        pos = p
+                        break
+            if not matched:
                 continue
             hits.append(
                 SearchHit(

@@ -50,6 +50,7 @@ import functools
 import json
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -395,6 +396,13 @@ def get(ctx: click.Context, doc_id: str, as_json: bool) -> None:
     show_default=True,
     help="Max results (capped at 100).",
 )
+@click.option(
+    "--mode",
+    default="hybrid",
+    show_default=True,
+    type=click.Choice(["lexical", "fuzzy", "hybrid"], case_sensitive=False),
+    help="Scoring mode: lexical (exact BM25), fuzzy (trigram), or hybrid (default).",
+)
 @_json_option
 @click.pass_context
 @_handle_errors
@@ -404,12 +412,13 @@ def search(
     doc_type: str | None,
     tags: tuple[str, ...],
     limit: int,
+    mode: str,
     as_json: bool,
 ) -> None:
     """Full-text search."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    hits = store.search(query, type=doc_type, tags=tag_list, limit=limit)
+    hits = store.search(query, type=doc_type, tags=tag_list, limit=limit, mode=mode)
     if as_json:
         _emit_json(
             [
@@ -456,6 +465,11 @@ def search(
     show_default=True,
     help="Skip this many results before returning (pagination).",
 )
+@click.option(
+    "--include-deleted",
+    is_flag=True,
+    help="Include soft-deleted documents (default: hide them).",
+)
 @_json_option
 @click.pass_context
 @_handle_errors
@@ -465,12 +479,19 @@ def list_cmd(
     tags: tuple[str, ...],
     limit: int,
     offset: int,
+    include_deleted: bool,
     as_json: bool,
 ) -> None:
     """List documents, sorted by ``updated_at`` DESC."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    docs = store.list(type=doc_type, tags=tag_list, limit=limit, offset=offset)
+    docs = store.list(
+        type=doc_type,
+        tags=tag_list,
+        limit=limit,
+        offset=offset,
+        include_deleted=include_deleted,
+    )
     if as_json:
         _emit_json([d.model_dump(mode="json") for d in docs])
     else:
@@ -517,6 +538,219 @@ def link(
         )
     else:
         click.echo(f"{edge.from_id} --{edge.rel}--> {edge.to_id}")
+
+
+# ---- kb unlink ---------------------------------------------------------------
+
+# Click would treat "unlink" as a builtin (it isn't one in Python, but the
+# convention still suggests we be explicit). The command name is
+# ``unlink`` to mirror ``link``.
+
+_UNLINK_HELP = "Remove typed edges between two documents (inverse of ``link``)."
+
+
+@cli.command(name="unlink")
+@click.option("--from", "from_id", required=True, help="Source document id.")
+@click.option("--to", "to_id", required=True, help="Target document id.")
+@click.option(
+    "--rel",
+    default=None,
+    help="Relation type to remove (default: remove all relations).",
+)
+@_json_option
+@click.pass_context
+@_handle_errors
+def unlink_cmd(
+    ctx: click.Context,
+    from_id: str,
+    to_id: str,
+    rel: str | None,
+    as_json: bool,
+) -> None:
+    """Remove typed edges between two documents.
+
+    With ``--rel``, only that specific relation is removed. Without it,
+    all relations between ``--from`` and ``--to`` are removed.
+    """
+    store = _get_store(ctx)
+    n = store.unlink(from_id, to_id, rel=rel)
+    if as_json:
+        _emit_json({"ok": True, "removed": n, "from": from_id, "to": to_id, "rel": rel})
+    else:
+        click.echo(f"removed {n} edge(s)")
+
+
+# ---- kb update ---------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@click.option("--title", default=None, help="New title.")
+@click.option("--body", default=None, help="New inline Markdown body.")
+@click.option(
+    "--body-file",
+    "body_file",
+    default=None,
+    type=click.Path(),
+    help="Read new body from this file (mutually exclusive with --body).",
+)
+@click.option(
+    "--tags",
+    "tags_raw",
+    default=None,
+    help="New comma-separated tag list. Use '-' to clear all tags.",
+)
+@click.option("--source", default=None, help="New source path.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def update(
+    ctx: click.Context,
+    doc_id: str,
+    title: str | None,
+    body: str | None,
+    body_file: str | None,
+    tags_raw: str | None,
+    source: str | None,
+    as_json: bool,
+) -> None:
+    """Patch fields on an existing document.
+
+    Only ``--title``, ``--body``, ``--tags``, ``--source`` are accepted.
+    The document's ``id``, ``type``, and ``created_at`` cannot be changed.
+    """
+    store = _get_store(ctx)
+    fields: dict[str, object] = {}
+    if title is not None:
+        fields["title"] = title
+    body_text = _resolve_body(body, body_file) if (body is not None or body_file is not None) else None
+    if body is not None or body_file is not None:
+        fields["body"] = body_text
+    if tags_raw is not None:
+        if tags_raw == "-":
+            fields["tags"] = []
+        else:
+            fields["tags"] = _parse_tags(tags_raw)
+    if source is not None:
+        fields["source"] = source
+    if not fields:
+        raise click.UsageError("update requires at least one of --title/--body/--tags/--source")
+    doc = store.update(doc_id, **fields)
+    if as_json:
+        _emit_json({"ok": True, "id": doc.id, "updated_at": doc.updated_at.isoformat()})
+    else:
+        click.echo(f"updated {doc.id}")
+
+
+# ---- kb delete ---------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@_json_option
+@click.pass_context
+@_handle_errors
+def delete(ctx: click.Context, doc_id: str, as_json: bool) -> None:
+    """Soft-delete a document by id.
+
+    Idempotent: deleting an already-deleted document is a no-op.
+    Use ``kb doctor`` + ``kb prune`` (when added) to hard-delete.
+    """
+    store = _get_store(ctx)
+    store.delete(doc_id)
+    if as_json:
+        _emit_json({"ok": True, "id": doc_id})
+    else:
+        click.echo(f"deleted {doc_id}")
+
+
+# ---- kb prune -----------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "--older-than",
+    default="30d",
+    show_default=True,
+    help="Hard-delete soft-deleted docs older than this (e.g. 30d, 7d, 24h).",
+)
+@_json_option
+@click.pass_context
+@_handle_errors
+def prune(ctx: click.Context, older_than: str, as_json: bool) -> None:
+    """Hard-delete soft-deleted documents past the grace period."""
+    import re
+    m = re.match(r"^(\d+)([dh])$", older_than)
+    if not m:
+        raise click.UsageError(f"invalid --older-than {older_than!r} (expected like 30d or 24h)")
+    n_units, unit = int(m.group(1)), m.group(2)
+    delta = timedelta(days=n_units) if unit == "d" else timedelta(hours=n_units)
+    store = _get_store(ctx)
+    n = store.prune(delta)
+    if as_json:
+        _emit_json({"ok": True, "pruned": n})
+    else:
+        click.echo(f"pruned {n} document(s)")
+
+
+# ---- kb embed -----------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "--rebuild",
+    is_flag=True,
+    help="Recompute embeddings for all active documents (use after changing models).",
+)
+@_json_option
+@click.pass_context
+@_handle_errors
+def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
+    """Manage semantic-search embeddings.
+
+    With ``--rebuild``, recomputes the embedding for every active
+    document (the embedder configured in
+    ``~/.hermes/config.yaml``'s ``auxiliary.embedding`` block is
+    used). Without ``--rebuild``, this command prints the embedder
+    status and number of indexed documents.
+    """
+    store = _get_store(ctx)
+    emb = getattr(store, "_embedder", None)
+    enabled = bool(emb and getattr(emb, "enabled", False))
+    dim = getattr(emb, "dim", 0) if emb else 0
+
+    if rebuild:
+        if not enabled:
+            raise click.UsageError(
+                "no embedder configured; set auxiliary.embedding in "
+                "~/.hermes/config.yaml"
+            )
+        n = store.reindex_embeddings()
+        if as_json:
+            _emit_json({"ok": True, "reindexed": n, "dim": dim})
+        else:
+            click.echo(f"re-embedded {n} document(s) (dim={dim})")
+        return
+
+    # Status mode
+    try:
+        n_vec = store._conn.execute(
+            "SELECT COUNT(*) FROM docs_vec"
+        ).fetchone()[0] if enabled else 0
+    except Exception:  # noqa: BLE001 — vec0 not available
+        n_vec = 0
+    status = {
+        "embedder_enabled": enabled,
+        "dim": dim,
+        "indexed_documents": n_vec,
+    }
+    if as_json:
+        _emit_json({"ok": True, **status})
+    else:
+        click.echo(
+            f"embedder={'enabled' if enabled else 'disabled'} "
+            f"dim={dim} indexed={n_vec}"
+        )
 
 
 # ---- kb import ---------------------------------------------------------------

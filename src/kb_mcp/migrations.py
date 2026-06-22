@@ -84,6 +84,15 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
                 (version, f"v{version:04d}"),
             )
         except sqlite3.Error as e:
+            # Migration 0003 (vec0) is best-effort: if vec0 is not
+            # available on this connection, log and skip so lexical
+            # features still work. Any other failure is fatal.
+            if version == 3:
+                import logging
+                logging.getLogger("kb_mcp").debug(
+                    "vec0 migration skipped: %s (semantic search disabled)", e
+                )
+                return
             raise IntegrityError(f"migration v{version:04d} failed: {e}") from e
         applied.add(version)
 

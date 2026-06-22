@@ -1,3 +1,114 @@
+# kb-mcp v0.2.0 Release Notes
+
+## Overview
+
+kb-mcp v0.2.0 expands the **agent-native knowledge base** with three
+new search modes (fuzzy, semantic, and hybrid) and completes the CRUD
+surface so agents no longer need to drop into raw SQL to update or
+delete a document. The whole release ships in two extras (`pip install
+'kb-mcp[vec]'` for semantic search) and remains a single-file SQLite
+database.
+
+## What's new in v0.2.0
+
+### Tools (was 4, now 8)
+
+Four new MCP tools, also wired to the CLI:
+
+| Tool | Purpose |
+|---|---|
+| `kb_list(type?, tags?, limit?, offset?)` | Browse / paginate |
+| `kb_update(id, title?, body?, tags?, source?)` | Patch a document |
+| `kb_delete(id)` | Soft-delete (idempotent) |
+| `kb_unlink(from, to, rel?)` | Remove a typed edge |
+
+The `kb_search` tool gains a `mode` parameter (`lexical` / `fuzzy` /
+`semantic` / `hybrid`).
+
+### Fuzzy search (migration 0002)
+
+A second FTS5 index with the `trigram` tokenizer. With `mode=fuzzy`
+the agent can match by 3-gram overlap, which catches:
+
+* **Prefix matches** — `faste` finds `fastech-energy`
+* **Token-boundary errors** — `fastech energy` finds `fastech-energy`
+
+It does **not** fix edit-distance typos (FTS5 trigrams are
+substring-based, not Levenshtein). For that, use the `hybrid` mode
+which also surfaces semantic hits.
+
+### Semantic search (migration 0003)
+
+`sqlite-vec` (vec0 virtual table) plus an OpenAI-compatible
+`HttpEmbedder` that reads the same `auxiliary.embedding` block
+Hermes' vision config already uses. Configure once in
+`~/.hermes/config.yaml`:
+
+```yaml
+auxiliary:
+  embedding:
+    base_url: https://api.example.com/v1
+    model: text-embedding-3-small
+    api_key: sk-...
+```
+
+Then `kb search --mode semantic "what is the LLM-friendly API
+convention?"` finds semantically related docs even when no exact
+token matches. Hybrid mode combines lexical + fuzzy + semantic,
+preferring exact matches.
+
+### CLI additions
+
+* `kb update ID --title/--body/--tags/--source`
+* `kb delete ID`
+* `kb unlink --from ID --to ID [--rel REL]`
+* `kb list --include-deleted`
+* `kb search --mode {lexical,fuzzy,semantic,hybrid}`
+* `kb embed` (status) / `kb embed --rebuild` (re-embed everything)
+* `kb prune --older-than 30d` (hard-delete past grace period)
+
+### Internal
+
+* `SqliteStore` now accepts an `embedder=` parameter (defaults to
+  `make_embedder()` which auto-detects from `auxiliary.embedding`).
+* Soft-delete no longer drifts the FTS index (the
+  external-content projection can't represent deletion; the
+  search layer filters `deleted_at IS NULL` instead).
+* `kb doctor` reports `active_fts_rows` (FTS rows joined to
+  non-deleted docs) rather than the misleading raw count.
+
+## Installation
+
+```bash
+pip install kb-mcp            # core (lexical + fuzzy)
+pip install 'kb-mcp[vec]'     # adds semantic search (sqlite-vec + pysqlite3)
+```
+
+## Compatibility
+
+* **Backwards compatible** with v0.1.0 databases. The two new
+  migrations (`0002_trgm`, `0003_vec`) are applied on first connect.
+  `0003_vec` is best-effort: it skips silently if `pysqlite3` /
+  `sqlite-vec` aren't installed, and the rest of kb-mcp keeps
+  working.
+* The Store Protocol is unchanged. `mode` is a new keyword
+  argument on `search()`; existing callers default to
+  `mode="lexical"`, which is identical to v0.1 behaviour.
+
+## Known limitations
+
+* FTS5 trigrams can't fix insert-letter typos (`sqlitte` vs
+  `sqlite`). This is a fundamental property of the tokenizer, not
+  a bug. For real edit-distance fuzzy matching, use the `hybrid`
+  mode (which also calls the embedding API).
+* `mode='semantic'` requires the embedder to be configured. If
+  not, the call raises `ValidationError` with a clear message
+  pointing to `auxiliary.embedding`.
+* macOS arm64 requires `pysqlite3` (no `pysqlite3-binary` wheel
+  for that platform). The `vec` extra pulls it in automatically.
+
+---
+
 # kb-mcp v0.1.0 Release Notes
 
 ## Overview

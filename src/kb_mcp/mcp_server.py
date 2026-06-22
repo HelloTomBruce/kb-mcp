@@ -57,6 +57,7 @@ class KbSearchInput(BaseModel):
     type: str | None = None
     tags: List[str] | None = None
     limit: int = Field(default=10, ge=1, le=100)
+    mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|hybrid)$")
 
 
 class KbGetInput(BaseModel):
@@ -75,6 +76,32 @@ class KbLinkInput(BaseModel):
     from_id: str = Field(min_length=1)
     to_id: str = Field(min_length=1)
     rel: str = Field(default="relates-to", min_length=1, max_length=64)
+
+
+class KbListInput(BaseModel):
+    type: str | None = None
+    tags: List[str] | None = None
+    limit: int = Field(default=100, ge=1, le=1000)
+    offset: int = Field(default=0, ge=0)
+    include_deleted: bool = False
+
+
+class KbUpdateInput(BaseModel):
+    id: str = Field(min_length=1)
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    body: str | None = Field(default=None, max_length=1_000_000)
+    tags: List[str] | None = None
+    source: str | None = None
+
+
+class KbDeleteInput(BaseModel):
+    id: str = Field(min_length=1)
+
+
+class KbUnlinkInput(BaseModel):
+    from_id: str = Field(min_length=1)
+    to_id: str = Field(min_length=1)
+    rel: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +204,7 @@ def _make_server() -> Any:
         type: Optional[str] = None,  # matches MCP schema in architecture.md § 4.4
         tags: Optional[List[str]] = None,
         limit: int = 10,
+        mode: str = "hybrid",
     ) -> Any:
         """Full-text search the knowledge base.
 
@@ -185,22 +213,22 @@ def _make_server() -> Any:
             type: Restrict to a document type (optional).
             tags: Restrict to documents carrying all listed tags (AND, optional).
             limit: Max results 1..100 (default 10).
+            mode: Scoring mode — 'lexical' (exact BM25), 'fuzzy'
+                (trigram BM25, tolerates typos), or 'hybrid' (union,
+                exact wins ties; default).
 
         Returns:
             List of hit dicts: {id, title, type, snippet, score}.
         """
         try:
-            inp = KbSearchInput(query=query, type=type, tags=tags, limit=limit)
+            inp = KbSearchInput(query=query, type=type, tags=tags, limit=limit, mode=mode)
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_search query=%r type=%r tags=%r limit=%d",
-            inp.query,
-            inp.type,
-            inp.tags,
-            inp.limit,
+            "kb_search query=%r type=%r tags=%r limit=%d mode=%r",
+            inp.query, inp.type, inp.tags, inp.limit, inp.mode,
         )
         try:
             hits: List[SearchHit] = store.search(
@@ -208,6 +236,7 @@ def _make_server() -> Any:
                 type=inp.type,
                 tags=inp.tags,
                 limit=inp.limit,
+                mode=inp.mode,
             )
             return {
                 "hits": [
@@ -343,6 +372,191 @@ def _make_server() -> Any:
             logger.exception("kb_link failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
+    # ---- kb_list ----------------------------------------------------------
+
+    @mcp.tool()
+    def kb_list(
+        type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_deleted: bool = False,
+    ) -> Any:
+        """List documents, sorted by ``updated_at`` DESC.
+
+        Args:
+            type: Restrict to a document type (optional).
+            tags: Restrict to documents carrying all listed tags (AND, optional).
+            limit: Max results 1..1000 (default 100).
+            offset: Skip this many results before returning (pagination).
+            include_deleted: Include soft-deleted documents (default false).
+
+        Returns:
+            List of document summaries: {id, title, type, tags, updated_at}.
+        """
+        try:
+            inp = KbListInput(type=type, tags=tags, limit=limit, offset=offset,
+                              include_deleted=include_deleted)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info(
+            "kb_list type=%r tags=%r limit=%d offset=%d include_deleted=%s",
+            inp.type, inp.tags, inp.limit, inp.offset, inp.include_deleted,
+        )
+        try:
+            docs = store.list(
+                type=inp.type,
+                tags=inp.tags,
+                limit=inp.limit,
+                offset=inp.offset,
+                include_deleted=inp.include_deleted,
+            )
+            return {
+                "documents": [
+                    {
+                        "id": d.id,
+                        "type": d.type,
+                        "title": d.title,
+                        "tags": d.tags,
+                        "updated_at": d.updated_at.isoformat(),
+                    }
+                    for d in docs
+                ],
+                "count": len(docs),
+            }
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_list failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_update --------------------------------------------------------
+
+    @mcp.tool()
+    def kb_update(
+        id: str,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        source: Optional[str] = None,
+    ) -> Any:
+        """Patch fields on an existing document.
+
+        Only ``title``, ``body``, ``tags``, ``source`` may be changed.
+        ``id``, ``type``, ``created_at`` are immutable.
+
+        Args:
+            id: Document id to update.
+            title: New title (optional).
+            body: New Markdown body (optional).
+            tags: New tag list (optional; empty list clears tags).
+            source: New source path (optional).
+
+        Returns:
+            {ok: True, id, updated_at}.
+        """
+        try:
+            inp = KbUpdateInput(id=id, title=title, body=body, tags=tags, source=source)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        fields: dict[str, object] = {}
+        if inp.title is not None:
+            fields["title"] = inp.title
+        if inp.body is not None:
+            fields["body"] = inp.body
+        if inp.tags is not None:
+            fields["tags"] = inp.tags
+        if inp.source is not None:
+            fields["source"] = inp.source
+
+        if not fields:
+            code, msg = _mcp_error(ValidationError("update requires at least one field"))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_update id=%r fields=%s", inp.id, sorted(fields.keys()))
+        try:
+            doc = store.update(inp.id, **fields)
+            return {"ok": True, "id": doc.id, "updated_at": doc.updated_at.isoformat()}
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_update failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_delete --------------------------------------------------------
+
+    @mcp.tool()
+    def kb_delete(id: str) -> Any:
+        """Soft-delete a document by id.
+
+        Idempotent: deleting an already-deleted document is a no-op.
+        Use ``kb doctor`` and ``kb prune`` (CLI) for hard deletion.
+
+        Args:
+            id: Document id to delete.
+
+        Returns:
+            {ok: True, id}.
+        """
+        try:
+            inp = KbDeleteInput(id=id)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_delete id=%r", inp.id)
+        try:
+            store.delete(inp.id)
+            return {"ok": True, "id": inp.id}
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_delete failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_unlink --------------------------------------------------------
+
+    @mcp.tool()
+    def kb_unlink(
+        from_id: str,
+        to_id: str,
+        rel: Optional[str] = None,
+    ) -> Any:
+        """Remove typed edges between two documents.
+
+        If ``rel`` is None, all edges between ``from_id`` and ``to_id`` are
+        removed. Returns the count of edges removed.
+
+        Args:
+            from_id: Source document id.
+            to_id: Target document id.
+            rel: Relation type (default: remove all relations).
+
+        Returns:
+            {ok: True, removed: N, from_id, to_id, rel}.
+        """
+        try:
+            inp = KbUnlinkInput(from_id=from_id, to_id=to_id, rel=rel)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_unlink from=%r to=%r rel=%r", inp.from_id, inp.to_id, inp.rel)
+        try:
+            n = store.unlink(inp.from_id, inp.to_id, rel=inp.rel)
+            return {
+                "ok": True,
+                "removed": n,
+                "from_id": inp.from_id,
+                "to_id": inp.to_id,
+                "rel": inp.rel,
+            }
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_unlink failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
     return mcp
 
 
@@ -366,7 +580,8 @@ def run() -> None:
     mcp.run(transport="stdio")
 
 
-__all__ = ["run", "KbSearchInput", "KbGetInput", "KbAddInput", "KbLinkInput"]
+__all__ = ["run", "KbSearchInput", "KbGetInput", "KbAddInput", "KbLinkInput",
+          "KbListInput", "KbUpdateInput", "KbDeleteInput", "KbUnlinkInput"]
 
 
 # Allow ``python -m kb_mcp.mcp_server`` to start the server directly
