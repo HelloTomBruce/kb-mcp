@@ -400,7 +400,7 @@ def get(ctx: click.Context, doc_id: str, as_json: bool) -> None:
     "--mode",
     default="hybrid",
     show_default=True,
-    type=click.Choice(["lexical", "fuzzy", "hybrid"], case_sensitive=False),
+    type=click.Choice(["lexical", "fuzzy", "semantic", "hybrid"], case_sensitive=False),
     help="Scoring mode: lexical (exact BM25), fuzzy (trigram), or hybrid (default).",
 )
 @_json_option

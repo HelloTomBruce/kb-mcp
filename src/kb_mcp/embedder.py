@@ -115,6 +115,55 @@ def _extract_embedding_block(d: dict) -> Optional[dict]:
     return None
 
 
+def _expand_env(value: str) -> str:
+    """Expand ``${VAR}`` and ``$VAR`` references in ``value``.
+
+    Matches Hermes' own config convention for credential indirection
+    (keeps secrets out of config.yaml, in .env instead). Unknown
+    variables are left as-is so misconfigurations are visible.
+    """
+    import re
+    def _sub(m: "re.Match[str]") -> str:
+        name = m.group(1) or m.group(2)
+        return os.environ.get(name, m.group(0))
+    return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", _sub, value)
+
+
+def _load_dotenv() -> None:
+    """Load ``~/.hermes/profiles/default/.env`` into ``os.environ``.
+
+    Hermes stores API keys here; the MCP server process inherits them
+    via Hermes' own env injection, but when kb-mcp is invoked as a
+    standalone CLI (``kb search ...``) the .env is not auto-loaded.
+    This function bridges that gap for the standalone case.
+    """
+    for path in (
+        Path.home() / ".hermes" / "profiles" / "default" / ".env",
+        Path.home() / ".hermes" / ".env",
+    ):
+        if not path.exists():
+            continue
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key:
+                    # Always overwrite: Hermes may have injected a
+                    # redacted "***" placeholder into os.environ for
+                    # security; the .env file has the real value.
+                    os.environ[key] = val
+        except Exception as e:
+            logger.debug("failed to load %s: %s", path, e)
+        # First file that exists wins (default profile takes priority).
+        break
+
+
 def load_embedding_config() -> Optional[EmbeddingConfig]:
     """Resolve the embedding config in priority order.
 
@@ -124,7 +173,13 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
     3. ``~/.hermes/config.yaml`` (Hermes main config; the
        ``auxiliary.embedding`` block the user has already set up for
        vision-style tasks).
+
+    ``api_key`` values of the form ``${VAR}`` are expanded against
+    environment variables so secrets can live in ``.env`` rather than
+    config.yaml.
     """
+    # Ensure Hermes' .env is loaded so ${VAR} references resolve.
+    _load_dotenv()
     candidates: list[Path] = []
     env = os.environ.get("KB_MCP_EMBEDDING_CONFIG")
     if env:
@@ -139,7 +194,7 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
         block = _extract_embedding_block(d)
         if not block:
             continue
-        base_url = (block.get("base_url") or "").strip()
+        base_url = _expand_env((block.get("base_url") or "").strip())
         model = (block.get("model") or "").strip()
         if not base_url or not model:
             logger.debug("%s: embedding block present but missing base_url/model", path)
@@ -147,7 +202,7 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
         return EmbeddingConfig(
             base_url=base_url,
             model=model,
-            api_key=(block.get("api_key") or "").strip(),
+            api_key=_expand_env((block.get("api_key") or "").strip()),
             timeout=float(block.get("timeout") or 30.0),
         )
     return None
