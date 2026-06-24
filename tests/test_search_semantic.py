@@ -15,9 +15,9 @@ from typing import List
 
 import pytest
 
-from kb_mcp.embedder import Embedder
-from kb_mcp.schema import Document
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.embedder import Embedder
+from kb_mcp_lite.schema import Document
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 
 class _HashingEmbedder(Embedder):
@@ -162,7 +162,7 @@ def test_hybrid_preserves_exact_first(store: SqliteStore) -> None:
 
 def test_semantic_without_embedder_raises(tmp_path: Path) -> None:
     """No embedder + no config => NullEmbedder => ValidationError."""
-    from kb_mcp.embedder import NullEmbedder
+    from kb_mcp_lite.embedder import NullEmbedder
     db = tmp_path / "no_emb.db"
     s = SqliteStore(db, embedder=NullEmbedder())
     s.add(Document(id="a", type="x", title="A", body=""))

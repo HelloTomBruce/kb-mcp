@@ -19,7 +19,7 @@ Design goals
   semantic mode degrades to lexical.
 * **Configurable override path.** ``KB_MCP_EMBEDDING_CONFIG`` env var
   points to a YAML file; falls back to
-  ``~/.hermes/shared/kb_mcp.yaml`` then ``~/.hermes/config.yaml``.
+  ``~/.hermes/shared/kb_mcp_lite.yaml`` then ``~/.hermes/config.yaml``.
 
 Failure modes
 -------------
@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Protocol
 
-logger = logging.getLogger("kb_mcp.embedder")
+logger = logging.getLogger("kb_mcp_lite.embedder")
 
 
 class EmbeddingError(Exception):
@@ -104,12 +104,12 @@ def _extract_embedding_block(d: dict) -> Optional[dict]:
     Looks in two places, in order:
 
     1. ``auxiliary.embedding.*``  — matches Hermes' main config layout.
-    2. ``kb_mcp.embedding.*``      — flat top-level override.
+    2. ``kb_mcp_lite.embedding.*``      — flat top-level override.
     """
     aux = d.get("auxiliary") or {}
     if isinstance(aux, dict) and isinstance(aux.get("embedding"), dict):
         return aux["embedding"]
-    kb = d.get("kb_mcp") or {}
+    kb = d.get("kb_mcp_lite") or {}
     if isinstance(kb, dict) and isinstance(kb.get("embedding"), dict):
         return kb["embedding"]
     return None
@@ -168,7 +168,7 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
     """Resolve the embedding config in priority order.
 
     1. ``KB_MCP_EMBEDDING_CONFIG`` env var (path to a YAML file).
-    2. ``~/.hermes/shared/kb_mcp.yaml`` (shared override; multiple
+    2. ``~/.hermes/shared/kb_mcp_lite.yaml`` (shared override; multiple
        kb-mcp-using apps can co-locate their overrides here).
     3. ``~/.hermes/config.yaml`` (Hermes main config; the
        ``auxiliary.embedding`` block the user has already set up for
@@ -184,7 +184,7 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
     env = os.environ.get("KB_MCP_EMBEDDING_CONFIG")
     if env:
         candidates.append(Path(env))
-    candidates.append(Path.home() / ".hermes" / "shared" / "kb_mcp.yaml")
+    candidates.append(Path.home() / ".hermes" / "shared" / "kb_mcp_lite.yaml")
     candidates.append(Path.home() / ".hermes" / "config.yaml")
 
     for path in candidates:

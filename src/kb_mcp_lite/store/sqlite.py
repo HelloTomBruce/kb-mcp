@@ -1,4 +1,4 @@
-"""SQLite implementation of the :class:`~kb_mcp.store.Store` Protocol.
+"""SQLite implementation of the :class:`~kb_mcp_lite.store.Store` Protocol.
 
 Threading: a single ``SqliteStore`` instance is **not** thread-safe; use
 one per thread or serialise calls. Multi-process access to the same
@@ -8,7 +8,7 @@ Soft delete: :meth:`delete` sets ``deleted_at``. Reads filter
 ``deleted_at IS NULL``. :meth:`prune` hard-deletes after a grace period.
 
 Failure modes: every method either returns the documented value or
-raises one of the documented exceptions from :mod:`kb_mcp.schema`.
+raises one of the documented exceptions from :mod:`kb_mcp_lite.schema`.
 
 v0.2 (Phase D): the connection is created with the ``pysqlite3``
 module when available (so ``sqlite-vec`` can load the vec0 extension).
@@ -29,8 +29,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Iterable, Iterator, Optional
 
-from kb_mcp.migrations import apply_migrations
-from kb_mcp.schema import (
+from kb_mcp_lite.migrations import apply_migrations
+from kb_mcp_lite.schema import (
     Document,
     DoctorCheck,
     DoctorReport,
@@ -76,7 +76,7 @@ def _make_sqlite_connection(path: str):  # type: ignore[no-untyped-def]
 def _try_load_vec0(conn) -> None:
     """Best-effort load of the vec0 SQLite extension. No-op on failure."""
     import logging
-    log = logging.getLogger("kb_mcp")
+    log = logging.getLogger("kb_mcp_lite")
     try:
         import sqlite_vec  # type: ignore[import-untyped]
         sqlite_vec.load(conn)
@@ -90,7 +90,7 @@ _UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source"})
 
 
 class SqliteStore:
-    """SQLite-backed :class:`~kb_mcp.store.Store` implementation."""
+    """SQLite-backed :class:`~kb_mcp_lite.store.Store` implementation."""
 
     def __init__(
         self,
@@ -113,7 +113,7 @@ class SqliteStore:
         # Embedder is optional; lazy-make one if not supplied so existing
         # callers (``SqliteStore(path)``) keep working unchanged.
         if embedder is None:
-            from kb_mcp.embedder import make_embedder
+            from kb_mcp_lite.embedder import make_embedder
             embedder = make_embedder()
         self._embedder = embedder
         # Track whether vec0 is available on this connection. Set on
@@ -191,7 +191,7 @@ class SqliteStore:
     def add(self, doc: Document) -> str:
         # If the caller left id blank, generate one from type+title.
         if not doc.id:
-            from kb_mcp.schema import make_id
+            from kb_mcp_lite.schema import make_id
 
             doc = doc.model_copy(update={"id": make_id(doc.type, doc.title)})
         elif not re.match(r"^[a-z0-9][a-z0-9/_-]*$", doc.id):
@@ -840,7 +840,7 @@ class SqliteStore:
             vector = emb.embed(text)
         except Exception as e:  # noqa: BLE001 — best-effort
             import logging
-            logging.getLogger("kb_mcp").warning(
+            logging.getLogger("kb_mcp_lite").warning(
                 "embedding failed for %s: %s", doc.id, e
             )
             return
@@ -864,7 +864,7 @@ class SqliteStore:
             )
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger("kb_mcp").debug(
+            logging.getLogger("kb_mcp_lite").debug(
                 "docs_vec write skipped for %s: %s", doc.id, e
             )
 
@@ -903,7 +903,7 @@ class SqliteStore:
             conn = _make_sqlite_connection(str(self._path))
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger("kb_mcp").debug("vec0 connection not available: %s", e)
+            logging.getLogger("kb_mcp_lite").debug("vec0 connection not available: %s", e)
             self._vec_conn = False  # sentinel: tried, failed; don't retry
             return None
 
@@ -919,7 +919,7 @@ class SqliteStore:
             )
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger("kb_mcp").debug("docs_vec table unavailable: %s", e)
+            logging.getLogger("kb_mcp_lite").debug("docs_vec table unavailable: %s", e)
             try:
                 conn.close()
             except Exception:  # noqa: BLE001

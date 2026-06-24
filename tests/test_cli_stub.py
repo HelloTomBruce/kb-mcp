@@ -1,4 +1,4 @@
-"""Tests for kb_mcp.cli with StubStore (Wave 1C).
+"""Tests for kb_mcp_lite.cli with StubStore (Wave 1C).
 
 Every test uses Click's CliRunner in-process (no subprocess, no mocks).
 The store is injected via ``runner.invoke(..., obj={"store": store})``.
@@ -25,7 +25,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from kb_mcp.cli import (
+from kb_mcp_lite.cli import (
     EXIT_CONFLICT,
     EXIT_NOT_FOUND,
     EXIT_OK,
@@ -33,8 +33,8 @@ from kb_mcp.cli import (
     EXIT_VALIDATION,
     cli,
 )
-from kb_mcp.schema import Document
-from kb_mcp.stub_store import StubStore
+from kb_mcp_lite.schema import Document
+from kb_mcp_lite.stub_store import StubStore
 
 
 # ---------------------------------------------------------------------------

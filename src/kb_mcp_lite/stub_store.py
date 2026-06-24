@@ -1,7 +1,7 @@
 """In-memory dict-backed Store implementation.
 
 This module provides :class:`StubStore`, a complete implementation of the
-:mod:`kb_mcp.store` Protocol that lives entirely in process memory. It is
+:mod:`kb_mcp_lite.store` Protocol that lives entirely in process memory. It is
 used by:
 
 - the **CLI test suite** (``tests/test_cli_stub.py``) to exercise every
@@ -44,7 +44,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List, Iterable
 
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Document,
     DoctorCheck,
     DoctorReport,
@@ -57,8 +57,8 @@ from kb_mcp.schema import (
     make_id,
 )
 
-# NOTE: ``Store`` is the Protocol defined in ``kb_mcp.store``. We do not
-# import it here — in Wave 1A the ``kb_mcp.store`` namespace became a
+# NOTE: ``Store`` is the Protocol defined in ``kb_mcp_lite.store``. We do not
+# import it here — in Wave 1A the ``kb_mcp_lite.store`` namespace became a
 # package whose ``__init__.py`` does not re-export the Protocol, so a
 # direct import would fail. Structural subtyping (PEP 544) means we only
 # need the *methods*, not the type. A separate test

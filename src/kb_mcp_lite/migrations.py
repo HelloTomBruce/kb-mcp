@@ -1,7 +1,7 @@
 """SQLite migration runner.
 
 Migrations are versioned, forward-only SQL files under
-``kb_mcp/migrations/``. Each file MUST be named ``NNNN_*.sql`` where
+``kb_mcp_lite/migrations/``. Each file MUST be named ``NNNN_*.sql`` where
 ``NNNN`` is a zero-padded integer; the runner applies them in order and
 records the version in the ``schema_version`` table.
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from kb_mcp.schema import IntegrityError
+from kb_mcp_lite.schema import IntegrityError
 
 # ``migrations/`` is a directory of ``.sql`` files (not a Python package —
 # no ``__init__.py``). We resolve its absolute path from this module's
@@ -89,7 +89,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             # features still work. Any other failure is fatal.
             if version == 3:
                 import logging
-                logging.getLogger("kb_mcp").debug(
+                logging.getLogger("kb_mcp_lite").debug(
                     "vec0 migration skipped: %s (semantic search disabled)", e
                 )
                 return

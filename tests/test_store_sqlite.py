@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from kb_mcp import (
+from kb_mcp_lite import (
     Document,
     DuplicateError,
     Link,
     NotFoundError,
     ValidationError,
 )
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 
 # ---------------------------------------------------------------------------

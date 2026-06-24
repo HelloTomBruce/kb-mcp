@@ -3,14 +3,23 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kb-mcp"
-version = "0.2.0"
-description = "Agent-native knowledge base. SQLite + FTS5 + vec0 + MCP server."
+name = "kb-mcp-lite"
+version = "0.2.1"
+description = "Lightweight agent-native knowledge base. SQLite + FTS5 + vec0 + MCP server."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "kb-mcp contributors" }]
-keywords = ["knowledge-base", "mcp", "agent", "sqlite", "fts5", "vector-search", "semantic-search"]
+authors = [{ name = "HelloTomBruce (Zhang Bei)" }]
+keywords = [
+  "knowledge-base",
+  "mcp",
+  "agent",
+  "sqlite",
+  "fts5",
+  "vector-search",
+  "semantic-search",
+  "lightweight",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -47,13 +56,13 @@ dev = [
 ]
 
 [project.scripts]
-kb = "kb_mcp.cli:main"
+kb = "kb_mcp_lite.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/zhangbei/kb-mcp"
-Source = "https://github.com/zhangbei/kb-mcp"
-Issues = "https://github.com/zhangbei/kb-mcp/issues"
-Changelog = "https://github.com/zhangbei/kb-mcp/releases"
+Homepage = "https://github.com/HelloTomBruce/kb-mcp-lite"
+Source = "https://github.com/HelloTomBruce/kb-mcp-lite"
+Issues = "https://github.com/HelloTomBruce/kb-mcp-lite/issues"
+Changelog = "https://github.com/HelloTomBruce/kb-mcp-lite/releases"
 
 [tool.ruff]
 line-length = 100
@@ -70,4 +79,4 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [tool.setuptools.package-data]
-"kb_mcp" = ["migrations/*.sql"]  # SQLite DDL files loaded at runtime
+"kb_mcp_lite" = ["migrations/*.sql"]  # SQLite DDL files loaded at runtime

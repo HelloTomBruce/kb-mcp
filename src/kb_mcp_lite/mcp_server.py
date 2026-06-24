@@ -36,7 +36,7 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Document,
     DuplicateError,
     IntegrityError,
@@ -45,7 +45,7 @@ from kb_mcp.schema import (
     ValidationError,
     make_id,
 )
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 # ---------------------------------------------------------------------------
 # Pydantic input models (architecture.md § 4.4)
@@ -151,7 +151,7 @@ def _setup_logging(level: str | None = None) -> logging.Logger:
     Body content is never logged (privacy).
     """
     log_level = (level or os.environ.get("KB_MCP_LOG_LEVEL", "WARNING")).upper()
-    logger = logging.getLogger("kb_mcp")
+    logger = logging.getLogger("kb_mcp_lite")
     logger.setLevel(getattr(logging, log_level, logging.WARNING))
 
     handler = logging.StreamHandler(sys.stderr)
@@ -584,7 +584,7 @@ __all__ = ["run", "KbSearchInput", "KbGetInput", "KbAddInput", "KbLinkInput",
           "KbListInput", "KbUpdateInput", "KbDeleteInput", "KbUnlinkInput"]
 
 
-# Allow ``python -m kb_mcp.mcp_server`` to start the server directly
+# Allow ``python -m kb_mcp_lite.mcp_server`` to start the server directly
 # (avoids Click's stdin/stdout interaction).
 if __name__ == "__main__":
     run()

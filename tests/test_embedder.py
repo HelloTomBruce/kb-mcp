@@ -5,7 +5,7 @@ Covers:
 * ``HttpEmbedder`` posts the right body to ``{base_url}/v1/embeddings``
   and parses the OpenAI-shaped response.
 * ``load_embedding_config`` honours the priority order
-  ``KB_MCP_EMBEDDING_CONFIG`` → ``~/.hermes/shared/kb_mcp.yaml`` →
+  ``KB_MCP_EMBEDDING_CONFIG`` → ``~/.hermes/shared/kb_mcp_lite.yaml`` →
   ``~/.hermes/config.yaml``.
 * The ``Embedder`` is best-effort on errors: a 5xx response raises
   :class:`EmbeddingError`, but the call site in SqliteStore catches
@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from kb_mcp.embedder import (
+from kb_mcp_lite.embedder import (
     EmbeddingConfig,
     EmbeddingError,
     HttpEmbedder,
@@ -179,7 +179,7 @@ def test_load_embedding_config_shared_overrides_hermes(
         encoding="utf-8",
     )
     (tmp_path / ".hermes" / "shared").mkdir()
-    (tmp_path / ".hermes" / "shared" / "kb_mcp.yaml").write_text(
+    (tmp_path / ".hermes" / "shared" / "kb_mcp_lite.yaml").write_text(
         "auxiliary:\n"
         "  embedding:\n"
         "    base_url: https://api.B.com\n"

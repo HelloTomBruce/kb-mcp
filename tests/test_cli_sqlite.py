@@ -1,4 +1,4 @@
-"""Tests for ``kb_mcp.cli`` wired to :class:`SqliteStore` (Wave 2B).
+"""Tests for ``kb_mcp_lite.cli`` wired to :class:`SqliteStore` (Wave 2B).
 
 Every test uses Click's CliRunner in-process. The store is injected via
 ``runner.invoke(cli, [...], obj={"store": store})`` with a temporary SQLite
@@ -16,7 +16,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from kb_mcp.cli import (
+from kb_mcp_lite.cli import (
     EXIT_CONFLICT,
     EXIT_NOT_FOUND,
     EXIT_OK,
@@ -24,8 +24,8 @@ from kb_mcp.cli import (
     EXIT_VALIDATION,
     cli,
 )
-from kb_mcp.schema import Document
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.schema import Document
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 
 # ---------------------------------------------------------------------------

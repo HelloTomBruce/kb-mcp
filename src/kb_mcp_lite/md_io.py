@@ -1,8 +1,8 @@
 """Markdown I/O: parse frontmatter, render documents, bulk import/export.
 
 This module is the bridge between the on-disk Markdown vault and the
-:class:`kb_mcp.store.Store` backend. It only imports from
-:mod:`kb_mcp.schema` and :mod:`kb_mcp.store` (the Protocol); it never
+:class:`kb_mcp_lite.store.Store` backend. It only imports from
+:mod:`kb_mcp_lite.schema` and :mod:`kb_mcp_lite.store` (the Protocol); it never
 touches a concrete backend, which keeps the CLI, MCP server, and
 tests decoupled from SQLite.
 
@@ -16,7 +16,7 @@ Public API (defined in :ref:`docs/architecture.md § 4.3 <architecture>`):
     def export_dir(store: Store, dir: Path, *, force: bool = False) -> int: ...
 
 NFR-S-3 path-traversal guard: any resolved path that escapes the given
-directory raises :class:`kb_mcp.schema.ValidationError` with a clear
+directory raises :class:`kb_mcp_lite.schema.ValidationError` with a clear
 message.
 """
 
@@ -29,7 +29,7 @@ from typing import List, TYPE_CHECKING, Any, TypedDict
 
 import frontmatter
 
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Document,
     ImportReport,
     ValidationError,
@@ -37,7 +37,7 @@ from kb_mcp.schema import (
 )
 
 if TYPE_CHECKING:
-    # The Store Protocol lives in ``kb_mcp.store`` (the Protocol
+    # The Store Protocol lives in ``kb_mcp_lite.store`` (the Protocol
     # module). The Wave 0 directory layout puts both ``store.py`` (the
     # Protocol) and ``store/`` (the implementation package) at the same
     # level; Python's import machinery picks the package, shadowing the
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     # checking — runtime code duck-types against the Protocol — so the
     # import is guarded with TYPE_CHECKING and annotations stay as
     # strings (PEP 563). See deviations_from_architecture.md.
-    from kb_mcp.store import Store  # type: ignore[attr-defined]
+    from kb_mcp_lite.store import Store  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

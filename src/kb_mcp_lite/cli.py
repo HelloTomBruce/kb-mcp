@@ -28,7 +28,7 @@ Exit codes follow ``cli-reference.md``:
 Store selection
 ---------------
 
-For v0.1 the CLI uses :class:`~kb_mcp.store.sqlite.SqliteStore`
+For v0.1 the CLI uses :class:`~kb_mcp_lite.store.sqlite.SqliteStore`
 (SQLite + FTS5). Tests inject their own
 ``SqliteStore`` via Click's ``obj`` context object, e.g.::
 
@@ -38,9 +38,9 @@ Import / export
 ----------------
 
 ``kb import`` walks a directory of ``.md`` files, parses YAML frontmatter,
-and upserts each into the store via :func:`kb_mcp.md_io.import_dir`.
+and upserts each into the store via :func:`kb_mcp_lite.md_io.import_dir`.
 ``kb export`` writes one Markdown file per document via
-:func:`kb_mcp.md_io.export_dir`. See ``docs/architecture.md`` § 4.3 for
+:func:`kb_mcp_lite.md_io.export_dir`. See ``docs/architecture.md`` § 4.3 for
 the contract.
 """
 
@@ -57,7 +57,7 @@ from typing import Any, Callable, TypeVar
 import click
 from pydantic import ValidationError as PydanticValidationError
 
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Document,
     DuplicateError,
     KbMcpError,
@@ -65,7 +65,7 @@ from kb_mcp.schema import (
     ValidationError,
     make_id,
 )
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 
 # Type helpers ----------------------------------------------------------------
@@ -137,7 +137,7 @@ def _emit_error(ctx: click.Context, as_json: bool, kind: str, message: str) -> N
 
 
 def _handle_errors(func: F) -> F:
-    """Map :mod:`kb_mcp` exceptions to the exit codes in
+    """Map :mod:`kb_mcp_lite` exceptions to the exit codes in
     ``cli-reference.md``. ``click.UsageError`` and ``click.ClickException``
     are re-raised unchanged (Click renders them and sets the right code).
     """
@@ -242,7 +242,7 @@ def _parse_tags(raw: str | None) -> list[str]:
 
 
 @click.group()
-@click.version_option(package_name="kb_mcp")
+@click.version_option(package_name="kb_mcp_lite")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """kb-mcp: agent-native knowledge base."""
@@ -776,7 +776,7 @@ def import_cmd(
     as_json: bool,
 ) -> None:
     """Import a directory of Markdown files into the DB."""
-    from kb_mcp.md_io import import_dir as _import_dir
+    from kb_mcp_lite.md_io import import_dir as _import_dir
 
     store = _get_store(ctx)
     report = _import_dir(store, directory, dry_run=dry_run)
@@ -807,7 +807,7 @@ def export_cmd(
     as_json: bool,
 ) -> None:
     """Export the DB to a directory of Markdown files."""
-    from kb_mcp.md_io import export_dir as _export_dir
+    from kb_mcp_lite.md_io import export_dir as _export_dir
 
     store = _get_store(ctx)
     n = _export_dir(store, directory, force=force)
@@ -857,7 +857,7 @@ def doctor(ctx: click.Context, as_json: bool) -> None:
 @_handle_errors
 def serve(ctx: click.Context, log_level: str) -> None:
     """Start the MCP server on stdio (Wave 2A)."""
-    from kb_mcp.mcp_server import run as _run_mcp_server
+    from kb_mcp_lite.mcp_server import run as _run_mcp_server
 
     os.environ["KB_MCP_LOG_LEVEL"] = log_level
     _run_mcp_server()

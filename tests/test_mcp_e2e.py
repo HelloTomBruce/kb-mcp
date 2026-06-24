@@ -166,7 +166,7 @@ def mcp_proc(tmp_db: Path) -> Iterator[subprocess.Popen]:
         "KB_MCP_LOG_LEVEL": "ERROR",
     }
     proc = subprocess.Popen(
-        [sys.executable, "-m", "kb_mcp.mcp_server"],
+        [sys.executable, "-m", "kb_mcp_lite.mcp_server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -1,4 +1,4 @@
 def test_imports():
-    import kb_mcp
+    import kb_mcp_lite
 
-    assert kb_mcp.__version__ == "0.1.0"
+    assert kb_mcp_lite.__version__ == "0.2.1"

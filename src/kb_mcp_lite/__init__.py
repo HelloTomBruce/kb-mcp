@@ -1,10 +1,10 @@
-"""kb-mcp: agent-native knowledge base.
+"""kb-mcp-lite: lightweight agent-native knowledge base.
 
 A local-first, schema-first, MCP-native knowledge base for LLM agents.
-See https://github.com/your-org/kb-mcp for the full spec.
+See https://github.com/HelloTomBruce/kb-mcp-lite for the full spec.
 """
 
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Decision,
     Document,
     DocumentType,
@@ -29,7 +29,7 @@ from kb_mcp.schema import (
     slugify,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "__version__",

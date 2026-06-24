@@ -1,4 +1,4 @@
-"""Tests for kb_mcp.md_io (Wave 1B).
+"""Tests for kb_mcp_lite.md_io (Wave 1B).
 
 Every test uses the ``tmp_path`` fixture — no mocks, no fakes. We
 exercise the public API end-to-end against a real :class:`SqliteStore`
@@ -24,7 +24,7 @@ from typing import Iterator
 
 import pytest
 
-from kb_mcp.md_io import (
+from kb_mcp_lite.md_io import (
     Frontmatter,
     doc_from_frontmatter,
     export_dir,
@@ -32,13 +32,13 @@ from kb_mcp.md_io import (
     parse_frontmatter,
     render_document,
 )
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Document,
     ImportReport,
     ValidationError,
     make_id,
 )
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 
 # ---------------------------------------------------------------------------

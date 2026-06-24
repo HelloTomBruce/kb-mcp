@@ -1,7 +1,7 @@
 """Store Protocol — the interface every storage backend must implement.
 
 This module defines the **contract** only. The concrete SQLite
-implementation lives in :mod:`kb_mcp.store.sqlite`. Tests against this
+implementation lives in :mod:`kb_mcp_lite.store.sqlite`. Tests against this
 Protocol are in ``tests/test_store_contract.py``.
 
 Why a Protocol
@@ -43,7 +43,7 @@ Every method either:
 
 - returns the documented value (no exception on "not found" for
   ``list`` / ``search``);
-- raises one of the exceptions from :mod:`kb_mcp.schema` (``NotFoundError``,
+- raises one of the exceptions from :mod:`kb_mcp_lite.schema` (``NotFoundError``,
   ``DuplicateError``, ``ValidationError``, ``IntegrityError``).
 
 Callers MUST handle these. Callers MUST NOT catch the generic
@@ -55,7 +55,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Iterable, Protocol, runtime_checkable
 
-from kb_mcp.schema import (
+from kb_mcp_lite.schema import (
     Document,
     DoctorReport,
     ImportReport,
@@ -77,7 +77,7 @@ class Store(Protocol):
         """Insert a new document. Returns the stored id.
 
         Implementations MAY auto-generate the id when ``doc.id`` is empty;
-        the canonical generator is :func:`kb_mcp.schema.make_id`.
+        the canonical generator is :func:`kb_mcp_lite.schema.make_id`.
 
         Raises:
             DuplicateError: if a document with the same id (or, where the

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from kb_mcp.schema import Document, SearchHit
-from kb_mcp.store.sqlite import SqliteStore
+from kb_mcp_lite.schema import Document, SearchHit
+from kb_mcp_lite.store.sqlite import SqliteStore
 
 
 @pytest.fixture
