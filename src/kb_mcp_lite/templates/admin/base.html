@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}kb-mcp admin{% endblock %}</title>
+    <link rel="stylesheet" href="/static/admin.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">kb</div>
+          <div>
+            <div class="brand-title">kb-mcp</div>
+            <div class="brand-subtitle">Admin Console</div>
+          </div>
+        </div>
+        <nav class="nav">
+          <a href="/" class="nav-link">Overview</a>
+          <a href="/documents" class="nav-link">Documents</a>
+          <a href="/search" class="nav-link">Search Lab</a>
+          <a href="/imports" class="nav-link">Imports</a>
+          <a href="/settings" class="nav-link">Settings</a>
+        </nav>
+      </aside>
+      <main class="main">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

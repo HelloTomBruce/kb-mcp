@@ -941,10 +941,14 @@ class SqliteStore:
     def reindex_embeddings(self) -> int:
         """Recompute embeddings for all active documents.
 
-        Returns the number of documents re-embedded. Used by
-        ``kb embed --rebuild`` after switching embedding models, or to
-        backfill vectors that were skipped because the embedder was
-        not configured at write time.
+        Returns the number of documents that were **successfully**
+        embedded (i.e. whose vector landed in ``docs_vec``). Documents
+        that fail embedding (e.g. the embedder API errors) are silently
+        skipped — see :attr:`last_reindex_report` for the full picture.
+
+        Used by ``kb embed --rebuild`` after switching embedding
+        models, or to backfill vectors that were skipped because the
+        embedder was not configured at write time.
         """
         emb = getattr(self, "_embedder", None)
         if emb is None or not getattr(emb, "enabled", False):
@@ -952,18 +956,52 @@ class SqliteStore:
         rows = self._conn.execute(
             "SELECT id, title, body FROM documents WHERE deleted_at IS NULL"
         ).fetchall()
-        n = 0
+        n_ok, n_fail = 0, 0
+        failed_ids: list[str] = []
         for r in rows:
-            self._index_embedding(
-                Document(
-                    id=r["id"],
-                    type="(unknown)",  # not used for embedding
-                    title=r["title"],
-                    body=r["body"],
-                )
+            doc = Document(
+                id=r["id"],
+                type="(unknown)",  # not used for embedding
+                title=r["title"],
+                body=r["body"],
             )
-            n += 1
-        return n
+            # Peek at vec count before/after to detect silent failure
+            # inside _index_embedding (it logs but doesn't raise).
+            before = self._count_vec(doc.id)
+            self._index_embedding(doc)
+            after = self._count_vec(doc.id)
+            if after > before:
+                n_ok += 1
+            else:
+                n_fail += 1
+                failed_ids.append(doc.id)
+        self.last_reindex_report = {
+            "succeeded": n_ok,
+            "failed": n_fail,
+            "failed_ids": failed_ids,
+            "dim": getattr(emb, "dim", 0),
+            "total": len(rows),
+        }
+        return n_ok
+
+    def _count_vec(self, doc_id: str) -> int:
+        """Return 1 if ``doc_id`` has a row in ``docs_vec``, else 0.
+
+        Used by :meth:`reindex_embeddings` to detect silent failures
+        inside :meth:`_index_embedding`. Uses the base connection
+        (stdlib sqlite3) — counts are read against the same DB file
+        the vec0 side connection writes to, so WAL ordering keeps
+        this consistent.
+        """
+        try:
+            r = self._conn.execute(
+                "SELECT COUNT(*) FROM docs_vec WHERE rowid = "
+                "(SELECT rowid FROM documents WHERE id = ?)",
+                (doc_id,),
+            ).fetchone()
+            return int(r[0]) if r is not None else 0
+        except Exception:  # noqa: BLE001 — vec0 may not exist yet
+            return 0
 
 
 __all__ = ["SqliteStore"]

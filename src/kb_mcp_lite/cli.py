@@ -726,10 +726,29 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
                 "~/.hermes/config.yaml"
             )
         n = store.reindex_embeddings()
+        # Pull the real dim + failure count from the report captured
+        # during reindex. ``HttpEmbedder.dim`` is lazy and only fills
+        # in after the first embed() call, so reading it before
+        # reindex always returns 0 — the report captures the post-
+        # reindex value instead.
+        report = getattr(store, "last_reindex_report", {}) or {}
+        dim = report.get("dim") or dim
+        failed = report.get("failed", 0)
         if as_json:
-            _emit_json({"ok": True, "reindexed": n, "dim": dim})
+            _emit_json(
+                {
+                    "ok": True,
+                    "reindexed": n,
+                    "failed": failed,
+                    "dim": dim,
+                    "total": report.get("total", n + failed),
+                }
+            )
         else:
-            click.echo(f"re-embedded {n} document(s) (dim={dim})")
+            msg = f"re-embedded {n} document(s) (dim={dim})"
+            if failed:
+                msg += f", {failed} failed"
+            click.echo(msg)
         return
 
     # Status mode
