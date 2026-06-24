@@ -70,6 +70,7 @@ class KbAddInput(BaseModel):
     body: str = Field(default="", max_length=1_000_000)
     tags: List[str] | None = None
     source: str | None = None
+    id: str | None = Field(default=None, min_length=1, max_length=512)
 
 
 class KbLinkInput(BaseModel):
@@ -292,6 +293,7 @@ def _make_server() -> Any:
         body: str = "",
         tags: Optional[List[str]] = None,
         source: Optional[str] = None,
+        id: Optional[str] = None,
     ) -> Any:
         """Create a new document.
 
@@ -301,26 +303,33 @@ def _make_server() -> Any:
             body: Markdown body (default "").
             tags: List of tag strings (optional).
             source: Origin file path (optional, enables idempotent re-import).
+            id: Explicit document id (e.g. "reference/foo/bar"). When omitted,
+                the server auto-generates one from ``type`` and ``title``. Pass
+                this when the caller has a stable hierarchical id (multi-doc
+                imports, micro-app docs splits, etc.).
 
         Returns:
             {id: new_document_id}.
         """
         try:
-            inp = KbAddInput(type=type, title=title, body=body, tags=tags, source=source)
+            inp = KbAddInput(type=type, title=title, body=body, tags=tags,
+                             source=source, id=id)
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_add type=%r title=%r tags=%r source=%r",
+            "kb_add type=%r title=%r tags=%r source=%r id=%r",
             inp.type,
             inp.title,
             inp.tags,
             inp.source,
+            inp.id,
         )
         try:
+            doc_id = inp.id or make_id(inp.type, inp.title)
             doc = Document(
-                id=make_id(inp.type, inp.title),
+                id=doc_id,
                 type=inp.type,
                 title=inp.title,
                 body=inp.body,

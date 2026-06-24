@@ -103,29 +103,46 @@ _TYPE_PREFIX = {
 
 
 def slugify(title: str) -> str:
-    """Convert ``title`` to a URL-safe ASCII slug.
+    """Convert ``title`` to a URL-safe ASCII-first slug.
 
     Lowercase, replace runs of non-alphanumeric with ``-``, strip
     non-ASCII characters, and trim leading/trailing dashes. Non-ASCII
-    characters that cannot be represented in ASCII are dropped (e.g.
-    CJK characters), which keeps IDs compatible with the
+    characters that cannot be represented in ASCII (e.g. CJK characters)
+    are dropped, which keeps IDs compatible with the
     ``^[a-z0-9][a-z0-9/_-]*$`` validation regex.
 
     >>> slugify("Use SQLite FTS5!")
     'use-sqlite-fts5'
     >>> slugify("kb-mcp 项目")
     'kb-mcp'
+
+    **CJK / non-ASCII titles** (where the ASCII-only result is empty or
+    degenerates to a number, e.g. "1. 概述" or "项目概述") previously
+    produced a blank slug and collided on every CJK document of the same
+    type. As of v0.2.2, when the ASCII-cleaned result is empty, the
+    function falls back to ``cjk-<sha1[:8]>`` derived from the original
+    title. This is **idempotent** (same title → same fallback slug) and
+    **bounded** (always 12 chars + ``cjk-`` prefix).
+
+    >>> slugify("项目概述")
+    'cjk-<hash>'
+    >>> slugify("1. 概述")
+    'cjk-<hash>'   # '1' is degenerate → fallback
     """
+    import hashlib
     import re
     import unicodedata
 
     s = title.strip().lower()
     # Normalize (decomposes accented chars), then drop non-ASCII.
-    s = unicodedata.normalize("NFKD", s)
-    s = s.encode("ascii", "ignore").decode("ascii")
-    # Replace any run of non-alphanumeric with a single dash.
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    return s.strip("-")
+    s_ascii = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s_ascii = re.sub(r"[^a-z0-9]+", "-", s_ascii).strip("-")
+    if s_ascii and not s_ascii.replace("-", "").isdigit():
+        # Genuine ASCII slug (has at least one alpha char).
+        return s_ascii
+    # Fallback: empty / pure-digit (likely truncated CJK) → stable hash.
+    h = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
+    return f"cjk-{h}"
 
 
 def make_id(doc_type: str, title: str) -> str:
