@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Search Lab · kb-mcp admin{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Search Lab</h1>
+    <p>Inspect retrieval behavior across lexical, fuzzy, semantic, and hybrid modes.</p>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="get" action="/search" class="filter-grid search-grid">
+    <label class="span-2">
+      <span>Query</span>
+      <input type="text" name="query" value="{{ filters.query }}" placeholder="Why did we choose SQLite?" />
+    </label>
+    <label>
+      <span>Type</span>
+      <select name="type">
+        <option value="">All types</option>
+        {% for type_name in doc_types %}
+        <option value="{{ type_name }}" {% if filters.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Tags</span>
+      <input type="text" name="tags" value="{{ filters.tags }}" placeholder="comma separated" />
+    </label>
+    <label>
+      <span>Mode</span>
+      <select name="mode">
+        {% for search_mode in search_modes %}
+        <option value="{{ search_mode }}" {% if filters.mode == search_mode %}selected{% endif %}>{{ search_mode }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Limit</span>
+      <input type="number" min="1" max="100" name="limit" value="{{ filters.limit }}" />
+    </label>
+    <button class="button primary" type="submit">Run query</button>
+  </form>
+</section>
+
+{% if errors %}
+<section class="alert error">
+  {% for error in errors %}
+  <div>{{ error }}</div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Results</h2>
+    <span class="meta-chip">{{ hits|length }} hit(s)</span>
+  </div>
+  <div class="result-list">
+    {% for hit in hits %}
+    <article class="result-card">
+      <div class="result-head">
+        <div>
+          <a class="result-title" href="/documents/{{ hit.doc.id }}">{{ hit.doc.title }}</a>
+          <div class="row-meta">{{ hit.doc.type }} · {{ hit.doc.id }}</div>
+        </div>
+        <span class="score-pill">{{ "%.3f"|format(hit.score) }}</span>
+      </div>
+      <p class="snippet">{{ hit.snippet|safe if hit.snippet else hit.doc.body[:220] }}</p>
+      <div class="tag-line">
+        {% for tag in hit.doc.tags %}
+        <span class="tag-pill small">{{ tag }}</span>
+        {% endfor %}
+      </div>
+    </article>
+    {% else %}
+    <div class="empty-state">Run a query to inspect search behavior.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

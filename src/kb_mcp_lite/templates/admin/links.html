@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Links · kb-mcp admin{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Links</h1>
+    <p>Manage typed relationships between knowledge documents.</p>
+  </div>
+</header>
+
+<div class="split-grid">
+  <section class="panel">
+    <div class="panel-head"><h2>Create link</h2></div>
+    <form method="post" action="/links" class="form-stack">
+      <label>
+        <span>From</span>
+        <select name="from_id">
+          {% for doc in docs %}
+          <option value="{{ doc.id }}">{{ doc.title }} · {{ doc.id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>To</span>
+        <select name="to_id">
+          {% for doc in docs %}
+          <option value="{{ doc.id }}">{{ doc.title }} · {{ doc.id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Relation</span>
+        <input type="text" name="rel" value="relates-to" />
+      </label>
+      <button class="button primary" type="submit">Create link</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Filter links</h2></div>
+    <form method="get" action="/links" class="form-stack">
+      <label>
+        <span>Document</span>
+        <select name="doc_id">
+          <option value="">All documents</option>
+          {% for doc in docs %}
+          <option value="{{ doc.id }}" {% if filters.doc_id == doc.id %}selected{% endif %}>{{ doc.title }} · {{ doc.id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Relation</span>
+        <select name="rel">
+          <option value="">All relations</option>
+          {% for rel_name in rel_options %}
+          <option value="{{ rel_name }}" {% if filters.rel == rel_name %}selected{% endif %}>{{ rel_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="button secondary" type="submit">Apply filters</button>
+    </form>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Relationships</h2>
+    <span class="meta-chip">{{ links|length }} link(s)</span>
+  </div>
+  <div class="list">
+    {% for link in links %}
+    <div class="list-row">
+      <div>
+        <div class="row-title">{{ link.from_id }} → {{ link.to_id }}</div>
+        <div class="row-meta">{{ link.rel }} · {{ link.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+      </div>
+      <form method="post" action="/links/delete">
+        <input type="hidden" name="from_id" value="{{ link.from_id }}" />
+        <input type="hidden" name="to_id" value="{{ link.to_id }}" />
+        <input type="hidden" name="rel" value="{{ link.rel }}" />
+        <button class="button ghost small-button" type="submit">Delete</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="empty-state">No links match the current filter.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

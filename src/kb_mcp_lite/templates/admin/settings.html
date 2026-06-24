@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Settings · kb-mcp admin{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Settings & Health</h1>
+    <p>Inspect database, environment, and doctor status.</p>
+  </div>
+</header>
+
+<section class="stats-grid">
+  <article class="stat-panel"><span>KB_MCP_HOME</span><strong>{{ kb_home or "default" }}</strong></article>
+  <article class="stat-panel"><span>Schema</span><strong>{{ version }}</strong></article>
+  <article class="stat-panel"><span>Embeddings</span><strong>{{ "enabled" if embedder_enabled else "disabled" }}</strong></article>
+  <article class="stat-panel"><span>Dimension</span><strong>{{ embedder_dim }}</strong></article>
+</section>
+
+<div class="layout-grid single">
+  <section class="panel">
+    <div class="panel-head"><h2>Storage</h2></div>
+    <div class="meta-list">
+      <div><span>Database path</span><strong>{{ db_path }}</strong></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Doctor checks</h2></div>
+    <div class="list compact">
+      {% for check in doctor_report.checks %}
+      <div class="list-row">
+        <div>
+          <div class="row-title">{{ check.name }}</div>
+          <div class="row-meta">{{ check.detail }}</div>
+        </div>
+        <span class="status-pill {{ 'status-ok' if check.ok else 'status-bad' }}">{{ "OK" if check.ok else "Fail" }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Recent audit log</h2></div>
+    <div class="list compact">
+      {% for entry in audit_log %}
+      <div class="list-row">
+        <div>
+          <div class="row-title">{{ entry.entity_type }} · {{ entry.action }}</div>
+          <div class="row-meta">{{ entry.entity_id }} · {{ entry.created_at }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty-state">No audit entries yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

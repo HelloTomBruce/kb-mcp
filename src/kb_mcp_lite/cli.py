@@ -882,6 +882,23 @@ def serve(ctx: click.Context, log_level: str) -> None:
     _run_mcp_server()
 
 
+# ---- kb admin ---------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind host.")
+@click.option("--port", default=8765, show_default=True, type=int, help="Bind port.")
+@click.pass_context
+@_handle_errors
+def admin(ctx: click.Context, host: str, port: int) -> None:
+    """Start the phase-one admin web console."""
+    from kb_mcp_lite.admin import run_admin
+
+    store = _get_store(ctx)
+    click.echo(f"admin console: http://{host}:{port}")
+    run_admin(host=host, port=port, store=store)
+
+
 # Entry point -----------------------------------------------------------------
 
 

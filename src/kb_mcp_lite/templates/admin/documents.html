@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Documents · kb-mcp admin{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Documents</h1>
+    <p>Browse, filter, and jump into document editing.</p>
+  </div>
+  <a class="button primary" href="/documents/new">New document</a>
+</header>
+
+<section class="panel">
+  <form class="filter-grid" method="get" action="/documents">
+    <label>
+      <span>Search</span>
+      <input type="text" name="q" value="{{ filters.q }}" placeholder="Title, body, tags" />
+    </label>
+    <label>
+      <span>Type</span>
+      <select name="type">
+        <option value="">All types</option>
+        {% for type_name in doc_types %}
+        <option value="{{ type_name }}" {% if filters.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span>Tag</span>
+      <input type="text" name="tag" value="{{ filters.tag }}" placeholder="single tag" />
+    </label>
+    <label class="checkbox-field">
+      <input type="checkbox" name="include_deleted" value="true" {% if filters.include_deleted %}checked{% endif %} />
+      <span>Include deleted</span>
+    </label>
+    <button class="button secondary" type="submit">Apply</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Tags</th>
+          <th>Links</th>
+          <th>Updated</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <div class="table-title">{{ row.doc.title }}</div>
+            <div class="table-subtitle">{{ row.doc.id }}</div>
+          </td>
+          <td><span class="status-pill">{{ row.doc.type }}</span></td>
+          <td>
+            <div class="tag-line">
+              {% for tag in row.doc.tags %}
+              <span class="tag-pill small">{{ tag }}</span>
+              {% endfor %}
+            </div>
+          </td>
+          <td>{{ row.outlinks }} out · {{ row.backlinks }} in</td>
+          <td>{{ row.doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td><a class="button ghost" href="/documents/{{ row.doc.id }}">Open</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty-state">No documents matched this filter.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

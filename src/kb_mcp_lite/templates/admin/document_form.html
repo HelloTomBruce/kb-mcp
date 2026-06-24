@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if editing else "New" }} Document · kb-mcp admin{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>{{ "Edit document" if editing else "Create document" }}</h1>
+    <p>{{ doc_form.id or "A typed entry that agents can retrieve and reuse." }}</p>
+  </div>
+  <a class="button secondary" href="/documents">Back to list</a>
+</header>
+
+{% if errors %}
+<section class="alert error">
+  {% for error in errors %}
+  <div>{{ error }}</div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<div class="editor-grid">
+  <section class="panel">
+    <form method="post" action="{{ '/documents/' + doc_form.id if editing else '/documents' }}" class="form-stack">
+      {% if not editing %}
+      <label>
+        <span>ID</span>
+        <input type="text" name="id" value="{{ doc_form.id }}" placeholder="Optional auto-generated if blank" />
+      </label>
+      {% endif %}
+
+      <div class="inline-grid">
+        <label>
+          <span>Type</span>
+          {% if editing %}
+          <input type="text" value="{{ doc_form.type }}" disabled />
+          {% else %}
+          <select name="type">
+            {% for type_name in doc_types %}
+            <option value="{{ type_name }}" {% if doc_form.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </label>
+        <label>
+          <span>Source</span>
+          <input type="text" name="source" value="{{ doc_form.source }}" placeholder="Optional import/source path" />
+        </label>
+      </div>
+
+      <label>
+        <span>Title</span>
+        <input type="text" name="title" value="{{ doc_form.title }}" required />
+      </label>
+
+      <label>
+        <span>Tags</span>
+        <input type="text" name="tags" value="{{ doc_form.tags }}" placeholder="comma, separated, tags" />
+      </label>
+
+      <label>
+        <span>Body</span>
+        <textarea name="body" rows="20">{{ doc_form.body }}</textarea>
+      </label>
+
+      <div class="button-row">
+        <button class="button primary" type="submit" name="action" value="save">Save</button>
+        {% if editing %}
+        <button class="button danger" type="submit" name="action" value="delete">Delete</button>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+
+  <aside class="side-stack">
+    {% if editing and doc %}
+    <section class="panel">
+      <div class="panel-head"><h2>Metadata</h2></div>
+      <div class="meta-list">
+        <div><span>ID</span><strong>{{ doc.id }}</strong></div>
+        <div><span>Created</span><strong>{{ doc.created_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
+        <div><span>Updated</span><strong>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
+        <div><span>Deleted</span><strong>{{ doc.deleted_at.strftime("%Y-%m-%d %H:%M") if doc.deleted_at else "No" }}</strong></div>
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel-head"><h2>Outgoing links</h2></div>
+      {% if editing %}
+      <form method="post" action="/documents/{{ doc.id }}/links" class="link-form">
+        <label>
+          <span>Target document id</span>
+          <input type="text" name="to_id" placeholder="proj/related-doc" />
+        </label>
+        <label>
+          <span>Relation</span>
+          <input type="text" name="rel" value="relates-to" />
+        </label>
+        <button class="button secondary" type="submit">Add link</button>
+      </form>
+      {% endif %}
+      <div class="list compact">
+        {% for link in links_out %}
+        <div class="list-row">
+          <div>
+            <div class="row-title">{{ link.rel }}</div>
+            <div class="row-meta">{{ link.to_id }}</div>
+          </div>
+          {% if editing %}
+          <form method="post" action="/documents/{{ doc.id }}/links/delete">
+            <input type="hidden" name="to_id" value="{{ link.to_id }}" />
+            <input type="hidden" name="rel" value="{{ link.rel }}" />
+            <button class="button ghost small-button" type="submit">Remove</button>
+          </form>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-state">No outgoing links yet.</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Backlinks</h2></div>
+      <div class="list compact">
+        {% for link in links_back %}
+        <div class="list-row">
+          <div>
+            <div class="row-title">{{ link.rel }}</div>
+            <div class="row-meta">{{ link.from_id }}</div>
+          </div>
+        </div>
+        {% else %}
+        <div class="empty-state">No backlinks yet.</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if editing %}
+    <section class="panel">
+      <div class="panel-head"><h2>Version history</h2></div>
+      <div class="list compact">
+        {% for entry in history %}
+        <div class="list-row history-row">
+          <div>
+            <div class="row-title">{{ entry.action }}</div>
+            <div class="row-meta">{{ entry.created_at }}{% if entry.actor %} · {{ entry.actor }}{% endif %}</div>
+          </div>
+          <div class="history-note">{{ entry.snapshot.title if entry.snapshot.title else entry.doc_id }}</div>
+        </div>
+        {% else %}
+        <div class="empty-state">No history yet.</div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

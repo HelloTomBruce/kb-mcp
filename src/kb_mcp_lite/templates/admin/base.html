@@ -20,11 +20,17 @@
           <a href="/" class="nav-link">Overview</a>
           <a href="/documents" class="nav-link">Documents</a>
           <a href="/search" class="nav-link">Search Lab</a>
+          <a href="/links" class="nav-link">Links</a>
           <a href="/imports" class="nav-link">Imports</a>
           <a href="/settings" class="nav-link">Settings</a>
         </nav>
       </aside>
       <main class="main">
+        {% if flash.message %}
+        <section class="alert {{ 'success' if flash.kind == 'success' else 'error' }}">
+          <div>{{ flash.message }}</div>
+        </section>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>

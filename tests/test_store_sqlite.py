@@ -85,9 +85,7 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     s = SqliteStore(db)
     conn = sqlite3.connect(str(db))
     rows = conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-    # v0.2 added migration 0002 (trigram FTS). v0.1-only test sites that
-    # instantiate a fresh DB will see [1, 2]; v0.2+ will see the same.
-    assert [r[0] for r in rows] == [1, 2]
+    assert [r[0] for r in rows] == [1, 2, 4]
     conn.close()
     s.close()
 
@@ -124,6 +122,19 @@ def test_add_and_get(store: SqliteStore) -> None:
     assert got.id == "proj/kb-mcp"
     assert got.title == "kb-mcp"
     assert got.tags == ["open-source"]
+
+
+def test_document_history_and_audit_log(store: SqliteStore) -> None:
+    store.add(_doc(id="proj/history", title="History"))
+    store.update("proj/history", body="new body")
+    store.delete("proj/history")
+
+    history = store.document_history("proj/history")
+    actions = [entry["action"] for entry in history]
+    assert actions[:3] == ["delete", "update", "create"]
+
+    audit = store.audit_log(limit=10)
+    assert any(entry["entity_type"] == "document" and entry["action"] == "create" for entry in audit)
 
 
 def test_add_empty_id_generated(store: SqliteStore) -> None:

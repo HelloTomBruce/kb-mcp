@@ -87,6 +87,7 @@ def _try_load_vec0(conn) -> None:
 # ``ValidationError``. ``id``, ``type``, ``created_at``, ``updated_at``,
 # and ``deleted_at`` are managed by the store and cannot be changed.
 _UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source"})
+_DEFAULT_ACTOR = "admin"
 
 
 class SqliteStore:
@@ -186,6 +187,109 @@ class SqliteStore:
             created_at=self._parse_dt(row["created_at"]) or datetime.now(timezone.utc),
         )
 
+    def _record_doc_version(
+        self,
+        cur: sqlite3.Cursor,
+        doc: Document,
+        *,
+        action: str,
+        actor: str = _DEFAULT_ACTOR,
+        note: str = "",
+    ) -> None:
+        cur.execute(
+            """
+            INSERT INTO document_versions (doc_id, action, snapshot, created_at, actor, note)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                doc.id,
+                action,
+                json.dumps(doc.model_dump(mode="json"), ensure_ascii=False),
+                self._now_iso(),
+                actor,
+                note,
+            ),
+        )
+
+    def _record_audit(
+        self,
+        cur: sqlite3.Cursor,
+        *,
+        entity_type: str,
+        entity_id: str,
+        action: str,
+        detail: dict[str, object],
+        actor: str = _DEFAULT_ACTOR,
+        note: str = "",
+    ) -> None:
+        cur.execute(
+            """
+            INSERT INTO audit_log (entity_type, entity_id, action, detail, created_at, actor, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entity_type,
+                entity_id,
+                action,
+                json.dumps(detail, ensure_ascii=False, default=str),
+                self._now_iso(),
+                actor,
+                note,
+            ),
+        )
+
+    def document_history(self, doc_id: str, limit: int = 50) -> list[dict[str, object]]:
+        rows = self._conn.execute(
+            """
+            SELECT version_id, doc_id, action, snapshot, created_at, actor, note
+            FROM document_versions
+            WHERE doc_id = ?
+            ORDER BY version_id DESC
+            LIMIT ?
+            """,
+            (doc_id, limit),
+        ).fetchall()
+        out: list[dict[str, object]] = []
+        for row in rows:
+            out.append(
+                {
+                    "version_id": row["version_id"],
+                    "doc_id": row["doc_id"],
+                    "action": row["action"],
+                    "snapshot": json.loads(row["snapshot"]),
+                    "created_at": row["created_at"],
+                    "actor": row["actor"],
+                    "note": row["note"],
+                }
+            )
+        return out
+
+    def audit_log(self, limit: int = 100) -> list[dict[str, object]]:
+        rows = self._conn.execute(
+            """
+            SELECT audit_id, entity_type, entity_id, action, detail, created_at, actor, note
+            FROM audit_log
+            ORDER BY audit_id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        out: list[dict[str, object]] = []
+        for row in rows:
+            out.append(
+                {
+                    "audit_id": row["audit_id"],
+                    "entity_type": row["entity_type"],
+                    "entity_id": row["entity_id"],
+                    "action": row["action"],
+                    "detail": json.loads(row["detail"] or "{}"),
+                    "created_at": row["created_at"],
+                    "actor": row["actor"],
+                    "note": row["note"],
+                }
+            )
+        return out
+
     # ---- write ----------------------------------------------------------
 
     def add(self, doc: Document) -> str:
@@ -210,6 +314,14 @@ class SqliteStore:
                          :created_at, :updated_at, :deleted_at)
                     """,
                     row,
+                )
+                self._record_doc_version(cur, doc, action="create")
+                self._record_audit(
+                    cur,
+                    entity_type="document",
+                    entity_id=doc.id,
+                    action="create",
+                    detail={"title": doc.title, "type": doc.type},
                 )
         except sqlite3.IntegrityError as e:
             msg = str(e)
@@ -260,6 +372,14 @@ class SqliteStore:
                 """,
                 row,
             )
+            self._record_doc_version(cur, new_doc, action="update")
+            self._record_audit(
+                cur,
+                entity_type="document",
+                entity_id=doc_id,
+                action="update",
+                detail={"fields": sorted(fields.keys())},
+            )
         # Re-embed if title or body changed (cheap heuristic; tag-only
         # changes don't really need re-embedding, but the cost is small).
         if "title" in fields or "body" in fields:
@@ -286,10 +406,20 @@ class SqliteStore:
                 raise NotFoundError(doc_id)
             return  # already deleted — no-op
         now = self._now_iso()
+        doc = self.get(doc_id, include_deleted=True)
+        deleted_doc = doc.model_copy(update={"deleted_at": self._parse_dt(now)})
         with self._txn() as cur:
             cur.execute(
                 "UPDATE documents SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
                 (now, doc_id),
+            )
+            self._record_doc_version(cur, deleted_doc, action="delete")
+            self._record_audit(
+                cur,
+                entity_type="document",
+                entity_id=doc_id,
+                action="delete",
+                detail={"title": doc.title, "type": doc.type},
             )
         # Note: we do NOT touch docs_fts / docs_fts_trgm here. FTS5
         # with ``content='documents'`` is a projection of the
@@ -484,8 +614,10 @@ class SqliteStore:
             semantic = self._search_semantic(
                 query, type=type, tags=tags, limit=limit * 2
             )
-        except ValidationError:
-            # Embedder not configured or no vectors yet — skip silently.
+        except Exception:
+            # Semantic retrieval is opportunistic in hybrid mode. Any
+            # embedder/config/runtime failure should degrade to
+            # lexical+fuzzy rather than fail the whole search.
             semantic = []
         semantic_only = [h for h in semantic if h.doc.id not in seen]
 
@@ -671,6 +803,13 @@ class SqliteStore:
                 "SELECT from_id, to_id, rel, created_at FROM links WHERE from_id=? AND to_id=? AND rel=?",
                 (from_id, to_id, rel),
             ).fetchone()
+            self._record_audit(
+                cur,
+                entity_type="link",
+                entity_id=f"{from_id}|{to_id}|{rel}",
+                action="create",
+                detail={"from_id": from_id, "to_id": to_id, "rel": rel},
+            )
         assert row is not None  # just inserted
         return self._row_to_link(row)
 
@@ -685,8 +824,18 @@ class SqliteStore:
         if rel is not None:
             sql += " AND rel = ?"
             params.append(rel)
-        cur = self._conn.execute(sql, params)
-        return cur.rowcount
+        with self._txn() as cur:
+            cur.execute(sql, params)
+            removed = cur.rowcount
+            if removed:
+                self._record_audit(
+                    cur,
+                    entity_type="link",
+                    entity_id=f"{from_id}|{to_id}|{rel or '*'}",
+                    action="delete",
+                    detail={"from_id": from_id, "to_id": to_id, "rel": rel},
+                )
+            return removed
 
     def backlinks(self, doc_id: str) -> List[Link]:
         rows = self._conn.execute(

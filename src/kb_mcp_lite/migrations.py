@@ -23,6 +23,7 @@ from kb_mcp_lite.schema import IntegrityError
 # source tree is on disk) and in wheel installs (where the SQL files are
 # shipped as package data).
 _MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+_SKIPPABLE_VERSIONS = {3}
 
 
 def _migration_files() -> list[tuple[int, str]]:
@@ -65,7 +66,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     for version, sql_text in _migration_files():
         if version in applied:
             continue
-        if version < max(applied, default=0):
+        if version < max(applied, default=0) and version not in _SKIPPABLE_VERSIONS:
             raise IntegrityError(
                 f"migration {version} is older than applied version(s) {sorted(applied)}; refusing to downgrade"
             )
@@ -92,7 +93,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
                 logging.getLogger("kb_mcp_lite").debug(
                     "vec0 migration skipped: %s (semantic search disabled)", e
                 )
-                return
+                continue
             raise IntegrityError(f"migration v{version:04d} failed: {e}") from e
         applied.add(version)
 
