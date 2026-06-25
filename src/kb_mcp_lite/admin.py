@@ -235,6 +235,40 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
                 }
             )
 
+    @app.get("/api/graph")
+    def api_graph() -> JSONResponse:
+        with _open_store(app) as store:
+            active_docs = store.export_all(include_deleted=False)
+            links = _list_links(store)
+            type_colors = {
+                "project": "#0f62fe",
+                "decision": "#117a37",
+                "lesson": "#b42318",
+                "glossary": "#9a6700",
+                "person": "#8b5cf6",
+                "faq": "#0891b2",
+            }
+            default_color = "#62708a"
+            nodes = [
+                {
+                    "id": doc.id,
+                    "label": doc.title,
+                    "type": doc.type,
+                    "color": type_colors.get(doc.type, default_color),
+                    "url": f"/documents/{doc.id}",
+                }
+                for doc in active_docs
+            ]
+            edges = [
+                {
+                    "from": link.from_id,
+                    "to": link.to_id,
+                    "label": link.rel,
+                }
+                for link in links
+            ]
+            return JSONResponse({"nodes": nodes, "edges": edges})
+
     @app.get("/api/audit")
     def api_audit(limit: int = 100) -> JSONResponse:
         with _open_store(app) as store:
@@ -681,6 +715,10 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
                     "audit_log": store.audit_log(limit=50),
                 },
             )
+
+    @app.get("/graph", response_class=HTMLResponse)
+    def graph_page(request: Request) -> HTMLResponse:
+        return render(request, "graph.html")
 
     return app
 

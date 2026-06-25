@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Graph · kb-mcp admin{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <h1>Document Graph</h1>
+    <p>Interactive map of documents and their relationships.</p>
+  </div>
+  <div class="header-meta" id="graph-stats"></div>
+</header>
+
+<section class="graph-toolbar">
+  <label class="graph-legend-item">
+    <input type="checkbox" id="toggle-physics" checked />
+    <span>Physics</span>
+  </label>
+  <div class="graph-legend" id="type-legend"></div>
+</section>
+
+<div id="graph-container"></div>
+
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+(async () => {
+  const resp = await fetch("/api/graph");
+  const { nodes, edges } = await resp.json();
+
+  document.getElementById("graph-stats").innerHTML =
+    `<span class="meta-chip">${nodes.length} documents</span>` +
+    `<span class="meta-chip">${edges.length} links</span>`;
+
+  // Type legend
+  const typeSet = new Map();
+  nodes.forEach(n => {
+    if (!typeSet.has(n.type)) typeSet.set(n.type, n.color);
+  });
+  const legend = document.getElementById("type-legend");
+  legend.innerHTML = "";
+  typeSet.forEach((color, type) => {
+    const chip = document.createElement("span");
+    chip.className = "graph-legend-chip";
+    chip.innerHTML = `<i style="background:${color}"></i>${type}`;
+    legend.appendChild(chip);
+  });
+
+  const container = document.getElementById("graph-container");
+
+  const network = new vis.Network(container, { nodes, edges }, {
+    nodes: {
+      shape: "dot",
+      size: 14,
+      font: { size: 13, color: "#162033", face: "Inter, Segoe UI, sans-serif" },
+      borderWidth: 2,
+      borderWidthSelected: 3,
+      color: { border: "#ffffff", background: "#62708a" },
+      chosen: { node: (values) => { values.size = 24; } },
+    },
+    edges: {
+      arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+      font: { size: 10, color: "#62708a", background: "white", strokeWidth: 0 },
+      color: { color: "#bcc8dd", hover: "#0f62fe" },
+      width: 1.2,
+      smooth: { type: "continuous" },
+    },
+    physics: {
+      enabled: true,
+      solver: "forceAtlas2Based",
+      forceAtlas2Based: {
+        gravitationalConstant: -40,
+        centralGravity: 0.005,
+        springLength: 140,
+        springConstant: 0.08,
+      },
+      stabilization: { iterations: 200 },
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 200,
+      zoomView: true,
+      dragView: true,
+      navigationButtons: true,
+    },
+  });
+
+  // Click node → navigate to document
+  network.on("click", (params) => {
+    if (params.nodes.length === 1) {
+      const nodeId = params.nodes[0];
+      const node = nodes.find(n => n.id === nodeId);
+      if (node && node.url) {
+        window.location = node.url;
+      }
+    }
+  });
+
+  // Toggle physics
+  document.getElementById("toggle-physics").addEventListener("change", (e) => {
+    network.setOptions({ physics: { enabled: e.target.checked } });
+  });
+})();
+</script>
+
+<style>
+#graph-container {
+  width: 100%;
+  height: calc(100vh - 210px);
+  min-height: 500px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.graph-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.graph-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.graph-legend-chip i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.graph-legend-item input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.vis-network:focus {
+  outline: none;
+}
+</style>
+{% endblock %}
