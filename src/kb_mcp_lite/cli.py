@@ -1084,12 +1084,26 @@ def vault_info(name: str, as_json: bool) -> None:
 
 
 @vault.command(name="init-git")
+@click.option(
+    "--sync-dir",
+    "sync_dir",
+    default=None,
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    help="Existing git clone directory (e.g. after 'git clone ...'). "
+         "The vault's Markdown export will go into its 'md/' subdirectory.",
+)
 @click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_init_git(as_json: bool) -> None:
-    """Initialise a Git repository for the current vault's Markdown export."""
+def vault_init_git(sync_dir: Path | None, as_json: bool) -> None:
+    """Initialise a Git repository for the current vault's Markdown export.
+
+    By default, creates the repo inside the vault directory. Pass
+    ``--sync-dir`` to point at an existing git clone — the vault's
+    ``md/`` directory will be created there, and subsequent sync
+    commands will use that location.
+    """
     try:
         mgr = _get_vault_manager()
-        output = mgr.init_git()
+        output = mgr.init_git(sync_dir=sync_dir)
     except Exception as e:
         _vault_handle_error(e)
         return

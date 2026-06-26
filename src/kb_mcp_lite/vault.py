@@ -291,8 +291,28 @@ class VaultManager:
 
     # ---- Git sync -------------------------------------------------------
 
-    def init_git(self, name: str | None = None) -> str:
-        """Initialise a Git repository for the vault's ``md/`` export dir.
+    def _sync_dir(self, name: str | None = None) -> Path:
+        """Return the git sync directory for a vault.
+
+        Checks vaults.json for an explicit ``sync_dir``; falls back to
+        the vault's own ``md/`` directory.
+        """
+        data = self._read_registry()
+        for v in data["vaults"]:
+            if v["name"] == (name or self.get_current()):
+                sync = v.get("sync_dir")
+                if sync:
+                    return Path(sync) / "md"
+                break
+        return self.md_dir(name)
+
+    def init_git(self, name: str | None = None, sync_dir: Path | str | None = None) -> str:
+        """Initialise a Git repository for the vault's Markdown export.
+
+        By default, creates the repo inside the vault directory (``md/``
+        subdirectory). Pass ``sync_dir`` to point at an existing git clone
+        — the vault's ``md/`` directory will be created there, and the
+        location is saved in vaults.json so subsequent sync commands reuse it.
 
         Creates ``.gitignore`` and an empty ``md/`` directory. Returns the
         git command output.
@@ -300,11 +320,27 @@ class VaultManager:
         import subprocess
 
         vdir = self.vault_dir(name)
-        mdir = self.md_dir(name)
+        if sync_dir is None:
+            mdir = self.md_dir(name)
+        else:
+            sync_dir = Path(sync_dir).resolve()
+            # Save sync_dir in vaults.json
+            data = self._read_registry()
+            vault_name = name or self.get_current()
+            for v in data["vaults"]:
+                if v["name"] == vault_name:
+                    v["sync_dir"] = str(sync_dir)
+                    break
+            self._write_registry(data)
+            mdir = sync_dir / "md"
         mdir.mkdir(parents=True, exist_ok=True)
+        # Placeholder so git tracks the md/ directory
+        placeholder = mdir / ".gitkeep"
+        placeholder.write_text("")
 
-        # .gitignore — ignore the SQLite DB and Python cache
-        gitignore = vdir / ".gitignore"
+        # .gitignore — in the git root (sync_dir or vault dir)
+        gitignore_root = sync_dir if sync_dir else vdir
+        gitignore = gitignore_root / ".gitignore"
         if not gitignore.exists():
             gitignore.write_text(
                 "# kb-mcp vault sync\n"
@@ -316,10 +352,11 @@ class VaultManager:
                 ".venv/\n"
             )
 
-        # git init
+        # git init — in the sync root (sync_dir itself, not md/)
+        git_cwd = str(sync_dir) if sync_dir else str(vdir)
         result = subprocess.run(
             ["git", "init"],
-            cwd=str(vdir),
+            cwd=git_cwd,
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -340,24 +377,26 @@ class VaultManager:
         from kb_mcp_lite.md_io import export_dir as _export_dir
         from kb_mcp_lite.store.sqlite import SqliteStore
 
-        vdir = self.vault_dir(name)
-        mdir = self.md_dir(name)
+        sync_root = self._sync_dir(name)
+        mdir = self.md_dir(name)  # fallback if sync_dir not set
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        export_target = sync_root if sync_root != self.md_dir(name) else mdir
 
         # Ensure git repo exists
-        if not (vdir / ".git").exists():
+        if not (git_dir / ".git").exists():
             raise VaultError("vault not initialised for git; run `kb vault init-git` first")
 
         # Export to md/
         store = SqliteStore(self.resolve_path(name))
         try:
-            _export_dir(store, mdir, force=True)
+            _export_dir(store, export_target, force=True)
         finally:
             store.close()
 
         # git add + commit
         result = subprocess.run(
             ["git", "add", "-A"],
-            cwd=str(vdir),
+            cwd=str(git_dir),
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -365,7 +404,7 @@ class VaultManager:
 
         result = subprocess.run(
             ["git", "commit", "-m", message],
-            cwd=str(vdir),
+            cwd=str(git_dir),
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -386,10 +425,11 @@ class VaultManager:
         """
         import subprocess
 
-        vdir = self.vault_dir(name)
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
         result = subprocess.run(
             ["git", "push", remote, branch],
-            cwd=str(vdir),
+            cwd=str(git_dir),
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -411,16 +451,17 @@ class VaultManager:
         from kb_mcp_lite.md_io import import_dir as _import_dir
         from kb_mcp_lite.store.sqlite import SqliteStore
 
-        vdir = self.vault_dir(name)
-        mdir = self.md_dir(name)
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        import_target = sync_root if sync_root != self.md_dir(name) else self.md_dir(name)
 
-        if not (vdir / ".git").exists():
+        if not (git_dir / ".git").exists():
             raise VaultError("vault not initialised for git; run `kb vault init-git` first")
 
         # git pull
         result = subprocess.run(
             ["git", "pull", remote, branch],
-            cwd=str(vdir),
+            cwd=str(git_dir),
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -428,10 +469,10 @@ class VaultManager:
         pull_output = result.stdout.strip()
 
         # Import the Markdown files
-        if mdir.exists():
+        if import_target.exists():
             store = SqliteStore(self.resolve_path(name))
             try:
-                report = _import_dir(store, mdir)
+                report = _import_dir(store, import_target)
             finally:
                 store.close()
             import_summary = f"imported {report.inserted + report.updated} docs ({report.skipped} skipped)"
