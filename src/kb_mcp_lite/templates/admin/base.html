@@ -5,35 +5,120 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}kb-mcp admin{% endblock %}</title>
     <link rel="stylesheet" href="/static/admin.css" />
+    <!-- Google Fonts for fresh typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-mark">kb</div>
+          <div class="brand-mark">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+          </div>
           <div>
             <div class="brand-title">kb-mcp</div>
             <div class="brand-subtitle">Admin Console</div>
           </div>
         </div>
         <nav class="nav">
-          <a href="/" class="nav-link">Overview</a>
-          <a href="/documents" class="nav-link">Documents</a>
-          <a href="/search" class="nav-link">Search Lab</a>
-          <a href="/links" class="nav-link">Links</a>
-          <a href="/graph" class="nav-link">Graph</a>
-          <a href="/imports" class="nav-link">Imports</a>
-          <a href="/settings" class="nav-link">Settings</a>
+          <a href="/" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span>Overview</span>
+          </a>
+          <a href="/documents" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+            <span>Documents</span>
+          </a>
+          <a href="/search" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <span>Search Lab</span>
+          </a>
+          <a href="/links" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <span>Links</span>
+          </a>
+          <a href="/graph" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <span>Graph</span>
+          </a>
+          <a href="/imports" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Imports</span>
+          </a>
+          <a href="/settings" class="nav-link">
+            <svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span>Settings</span>
+          </a>
         </nav>
       </aside>
-      <main class="main">
-        {% if flash.message %}
-        <section class="alert {{ 'success' if flash.kind == 'success' else 'error' }}">
-          <div>{{ flash.message }}</div>
-        </section>
-        {% endif %}
-        {% block content %}{% endblock %}
-      </main>
+      
+      <div class="content-wrapper">
+        <header class="top-bar">
+          <div class="breadcrumb">
+            <span class="folder">kb-mcp</span>
+            <span class="separator">/</span>
+            <span class="page" id="breadcrumb-page">Overview</span>
+          </div>
+          
+          <div class="top-bar-actions">
+            <form action="/search" method="get" class="global-search-form">
+              <svg class="search-input-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" name="query" placeholder="Global search..." class="global-search-input" />
+            </form>
+            
+            <div class="db-status-badge">
+              <span class="status-indicator-dot"></span>
+              <span>SQLite Connected</span>
+            </div>
+          </div>
+        </header>
+
+        <main class="main">
+          {% if flash.message %}
+          <section class="alert {{ 'success' if flash.kind == 'success' else 'error' }}">
+            <div>{{ flash.message }}</div>
+          </section>
+          {% endif %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
     </div>
+
+    <!-- Active Navigation Highlight & Top Bar script -->
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        // Nav highlight
+        const currentPath = window.location.pathname;
+        const navLinks = document.querySelectorAll('.nav-link');
+        navLinks.forEach(link => {
+          const href = link.getAttribute('href');
+          if (href === currentPath || (href !== '/' && currentPath.startsWith(href))) {
+            link.classList.add('active');
+          }
+        });
+
+        // Dynamic breadcrumb
+        const pathMap = {
+          '/': 'Overview',
+          '/documents': 'Documents',
+          '/search': 'Search Lab',
+          '/links': 'Links',
+          '/graph': 'Graph',
+          '/imports': 'Imports',
+          '/settings': 'Settings'
+        };
+        let pageName = pathMap[currentPath];
+        if (!pageName) {
+          if (currentPath.startsWith('/documents/')) {
+            pageName = currentPath.includes('/new') ? 'New Document' : 'Edit Document';
+          } else {
+            pageName = 'Admin';
+          }
+        }
+        document.getElementById('breadcrumb-page').textContent = pageName;
+      });
+    </script>
   </body>
 </html>
