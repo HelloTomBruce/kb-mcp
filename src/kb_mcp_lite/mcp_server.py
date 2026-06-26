@@ -46,6 +46,7 @@ from kb_mcp_lite.schema import (
     make_id,
 )
 from kb_mcp_lite.store.sqlite import SqliteStore
+from kb_mcp_lite.vault import VaultManager, get_current_vault_name
 
 # ---------------------------------------------------------------------------
 # Pydantic input models (architecture.md § 4.4)
@@ -69,6 +70,7 @@ class KbAddInput(BaseModel):
     title: str = Field(min_length=1, max_length=512)
     body: str = Field(default="", max_length=1_000_000)
     tags: List[str] | None = None
+    aliases: List[str] | None = None
     source: str | None = None
     id: str | None = Field(default=None, min_length=1, max_length=512)
 
@@ -92,6 +94,7 @@ class KbUpdateInput(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=512)
     body: str | None = Field(default=None, max_length=1_000_000)
     tags: List[str] | None = None
+    aliases: List[str] | None = None
     source: str | None = None
 
 
@@ -168,17 +171,14 @@ def _setup_logging(level: str | None = None) -> logging.Logger:
 # ---------------------------------------------------------------------------
 
 
-def _default_db_path() -> Path:
-    """Return the default SQLite DB path."""
-    home = os.environ.get("KB_MCP_HOME")
-    if home:
-        return Path(home) / "kb.db"
-    return Path.home() / ".local" / "share" / "kb-mcp" / "kb.db"
+def _create_store(vault: str | None = None) -> SqliteStore:
+    """Return a :class:`SqliteStore` for the given (or current) vault.
 
-
-def _create_store() -> SqliteStore:
-    """Return a fresh :class:`SqliteStore` at the default path."""
-    return SqliteStore(_default_db_path())
+    The DB path is resolved via :class:`VaultManager`.
+    """
+    mgr = VaultManager()
+    db_path = mgr.resolve_path(vault)
+    return SqliteStore(db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -186,15 +186,19 @@ def _create_store() -> SqliteStore:
 # ---------------------------------------------------------------------------
 
 
-def _make_server() -> Any:
-    """Build and return a FastMCP instance with the 4 kb tools registered."""
+def _make_server(vault: str | None = None) -> Any:
+    """Build and return a FastMCP instance with kb tools registered.
+
+    Args:
+        vault: Optional vault name. Defaults to the current active vault.
+    """
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as e:  # pragma: no cover
         raise RuntimeError("mcp package not installed; run: pip install mcp") from e
 
     mcp = FastMCP("kb-mcp")
-    store = _create_store()
+    store = _create_store(vault)
     logger = _setup_logging()
 
     # ---- kb_search --------------------------------------------------------
@@ -292,6 +296,7 @@ def _make_server() -> Any:
         title: str,
         body: str = "",
         tags: Optional[List[str]] = None,
+        aliases: Optional[List[str]] = None,
         source: Optional[str] = None,
         id: Optional[str] = None,
     ) -> Any:
@@ -302,6 +307,7 @@ def _make_server() -> Any:
             title: Document title (non-empty).
             body: Markdown body (default "").
             tags: List of tag strings (optional).
+            aliases: Alternative IDs for this document (optional).
             source: Origin file path (optional, enables idempotent re-import).
             id: Explicit document id (e.g. "reference/foo/bar"). When omitted,
                 the server auto-generates one from ``type`` and ``title``. Pass
@@ -313,16 +319,17 @@ def _make_server() -> Any:
         """
         try:
             inp = KbAddInput(type=type, title=title, body=body, tags=tags,
-                             source=source, id=id)
+                             aliases=aliases, source=source, id=id)
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_add type=%r title=%r tags=%r source=%r id=%r",
+            "kb_add type=%r title=%r tags=%r aliases=%r source=%r id=%r",
             inp.type,
             inp.title,
             inp.tags,
+            inp.aliases,
             inp.source,
             inp.id,
         )
@@ -334,6 +341,7 @@ def _make_server() -> Any:
                 title=inp.title,
                 body=inp.body,
                 tags=inp.tags or [],
+                aliases=inp.aliases or [],
                 source=inp.source,
             )
             stored_id = store.add(doc)
@@ -448,25 +456,28 @@ def _make_server() -> Any:
         title: Optional[str] = None,
         body: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        aliases: Optional[List[str]] = None,
         source: Optional[str] = None,
     ) -> Any:
         """Patch fields on an existing document.
 
-        Only ``title``, ``body``, ``tags``, ``source`` may be changed.
-        ``id``, ``type``, ``created_at`` are immutable.
+        Only ``title``, ``body``, ``tags``, ``aliases``, ``source`` may be
+        changed. ``id``, ``type``, ``created_at`` are immutable.
 
         Args:
             id: Document id to update.
             title: New title (optional).
             body: New Markdown body (optional).
             tags: New tag list (optional; empty list clears tags).
+            aliases: New alias list (optional; empty list clears aliases).
             source: New source path (optional).
 
         Returns:
             {ok: True, id, updated_at}.
         """
         try:
-            inp = KbUpdateInput(id=id, title=title, body=body, tags=tags, source=source)
+            inp = KbUpdateInput(id=id, title=title, body=body, tags=tags,
+                                aliases=aliases, source=source)
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -478,6 +489,8 @@ def _make_server() -> Any:
             fields["body"] = inp.body
         if inp.tags is not None:
             fields["tags"] = inp.tags
+        if inp.aliases is not None:
+            fields["aliases"] = inp.aliases
         if inp.source is not None:
             fields["source"] = inp.source
 
@@ -566,6 +579,313 @@ def _make_server() -> Any:
             logger.exception("kb_unlink failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
+    # ---- kb_history -------------------------------------------------------
+
+    class KbHistoryInput(BaseModel):
+        id: str = Field(min_length=1)
+        limit: int = Field(default=50, ge=1, le=500)
+
+    @mcp.tool()
+    def kb_history(id: str, limit: int = 50) -> Any:
+        """View the version history of a document.
+
+        Args:
+            id: Document id.
+            limit: Max versions to return (default 50, max 500).
+
+        Returns:
+            List of version entries: {version_id, action, created_at, ...}.
+        """
+        try:
+            inp = KbHistoryInput(id=id, limit=limit)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_history id=%r limit=%d", inp.id, inp.limit)
+        try:
+            history = store.document_history(inp.id, limit=inp.limit)
+            return {"history": history, "count": len(history)}
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_history failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_restore -------------------------------------------------------
+
+    class KbRestoreInput(BaseModel):
+        id: str = Field(min_length=1)
+        version: int | None = None
+
+    @mcp.tool()
+    def kb_restore(id: str, version: Optional[int] = None) -> Any:
+        """Restore a document to a previous version.
+
+        Args:
+            id: Document id.
+            version: Version id to restore to (default: most recent).
+
+        Returns:
+            {ok: True, id, version, restored_at}.
+        """
+        try:
+            inp = KbRestoreInput(id=id, version=version)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_restore id=%r version=%r", inp.id, inp.version)
+        try:
+            doc = store.restore(inp.id, version_id=inp.version)
+            return {
+                "ok": True,
+                "id": doc.id,
+                "version": inp.version,
+                "restored_at": doc.updated_at.isoformat(),
+            }
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_restore failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_diff ----------------------------------------------------------
+
+    class KbDiffInput(BaseModel):
+        id: str = Field(min_length=1)
+        version_a: int
+        version_b: int
+
+    @mcp.tool()
+    def kb_diff(id: str, version_a: int, version_b: int) -> Any:
+        """Compare two document versions and return field-level differences.
+
+        Args:
+            id: Document id.
+            version_a: First version id.
+            version_b: Second version id.
+
+        Returns:
+            {added, removed, changed} describing the diff from A to B.
+        """
+        try:
+            inp = KbDiffInput(id=id, version_a=version_a, version_b=version_b)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_diff id=%r a=%d b=%d", inp.id, inp.version_a, inp.version_b)
+        try:
+            result = store.diff(inp.id, inp.version_a, inp.version_b)
+            return result
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_diff failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_restore_deleted -----------------------------------------------
+
+    @mcp.tool()
+    def kb_restore_deleted(id: str) -> Any:
+        """Restore a soft-deleted document.
+
+        Args:
+            id: Document id.
+
+        Returns:
+            {ok: True, id, restored_at}.
+        """
+        try:
+            inp = KbRestoreInput(id=id)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_restore_deleted id=%r", inp.id)
+        try:
+            doc = store.restore_deleted(inp.id)
+            return {
+                "ok": True,
+                "id": doc.id,
+                "restored_at": doc.updated_at.isoformat(),
+            }
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_restore_deleted failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- Resources -------------------------------------------------------
+
+    @mcp.resource(
+        "kb://doc/{type}/{slug}",
+        name="doc",
+        description="Full document by id (JSON); type=prefix (e.g. proj), slug=rest of id",
+        mime_type="application/json",
+    )
+    def kb_resource_doc(type: str, slug: str) -> str:
+        """Return the full document as JSON.
+
+        Args:
+            type: Document type prefix (e.g. "proj", "dec", "lesson").
+            slug: Remainder of the document id after the ``/``.
+
+        Returns:
+            JSON string of the full document.
+        """
+        doc_id = f"{type}/{slug}"
+        logger.info("resource kb://doc/%s", doc_id)
+        try:
+            doc = store.get(doc_id)
+            return json.dumps(doc.model_dump(mode="json"), ensure_ascii=False)
+        except NotFoundError:
+            return json.dumps({"error": "not_found", "id": doc_id})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://search/{query}",
+        name="search",
+        description="Search results as JSON list",
+        mime_type="application/json",
+    )
+    def kb_resource_search(query: str) -> str:
+        """Return search results for a query.
+
+        Args:
+            query: Search query string.
+
+        Returns:
+            JSON list of hit dicts.
+        """
+        logger.info("resource kb://search/%s", query)
+        try:
+            hits: list[SearchHit] = store.search(query=query, limit=10)
+            return json.dumps(
+                [
+                    {
+                        "id": h.doc.id,
+                        "title": h.doc.title,
+                        "type": h.doc.type,
+                        "snippet": h.snippet,
+                        "score": h.score,
+                    }
+                    for h in hits
+                ],
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://links/{type}/{slug}",
+        name="links",
+        description="Backlinks and outlinks for a document (JSON)",
+        mime_type="application/json",
+    )
+    def kb_resource_links(type: str, slug: str) -> str:
+        """Return the links (inbound + outbound) for a document.
+
+        Args:
+            type: Document type prefix (e.g. "proj").
+            slug: Remainder of the document id.
+
+        Returns:
+            JSON object with backlinks and outlinks arrays.
+        """
+        doc_id = f"{type}/{slug}"
+        logger.info("resource kb://links/%s", doc_id)
+        try:
+            backlinks = store.backlinks(doc_id)
+            outlinks = store.outlinks(doc_id)
+            return json.dumps(
+                {
+                    "doc_id": doc_id,
+                    "backlinks": [
+                        {"from_id": l.from_id, "rel": l.rel}
+                        for l in backlinks
+                    ],
+                    "outlinks": [
+                        {"to_id": l.to_id, "rel": l.rel}
+                        for l in outlinks
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://doctor",
+        name="doctor",
+        description="Knowledge base health check (JSON)",
+        mime_type="application/json",
+    )
+    def kb_resource_doctor() -> str:
+        """Return the health check report.
+
+        Returns:
+            JSON string of DoctorReport.
+        """
+        logger.info("resource kb://doctor")
+        try:
+            report = store.doctor()
+            return json.dumps(
+                {
+                    "ok": report.ok,
+                    "checks": [
+                        {"name": c.name, "passed": c.ok, "detail": c.detail}
+                        for c in report.checks
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ---- Prompts ---------------------------------------------------------
+
+    @mcp.prompt(
+        name="new-doc",
+        title="New Document",
+        description="Guide the agent to create a well-structured knowledge document.",
+    )
+    def kb_prompt_new_doc() -> str:
+        """Return a prompt template for creating a new document.
+
+        The agent sees this as a structured writing guide.
+        """
+        return (
+            "You are about to add a new document to the knowledge base. "
+            "Choose the appropriate document type from: project, decision, "
+            "lesson, glossary, person, faq.\n\n"
+            "Structure your document with:\n"
+            "- A clear, specific title (non-empty, max 512 chars)\n"
+            "- Relevant tags (lowercase, no spaces)\n"
+            "- A well-organized Markdown body\n\n"
+            "Call kb_add with: type, title, body, and optional tags."
+        )
+
+    @mcp.prompt(
+        name="search-expert",
+        title="Search Expert",
+        description="Guide the agent to search the knowledge base effectively.",
+    )
+    def kb_prompt_search_expert() -> str:
+        """Return a prompt template for deep search.
+
+        The agent sees strategies for finding information.
+        """
+        return (
+            "You are searching the knowledge base. Use these strategies:\n\n"
+            "1. **Exact match** — use kb_search with mode='lexical' for "
+            "precise queries (product names, specific terms)\n"
+            "2. **Fuzzy match** — use mode='fuzzy' when you're unsure of "
+            "exact spelling or token boundaries\n"
+            "3. **Hybrid** — use mode='hybrid' (default) to combine "
+            "exact + fuzzy + semantic results\n\n"
+            "Tip: Start broad, then narrow with type/tags filters. "
+            "Use kb_get to read full documents from search results."
+        )
+
     return mcp
 
 
@@ -574,8 +894,11 @@ def _make_server() -> Any:
 # ---------------------------------------------------------------------------
 
 
-def run() -> None:
+def run(vault: str | None = None) -> None:
     """Start the MCP server on stdio.
+
+    Args:
+        vault: Optional vault name. Defaults to the current active vault.
 
     Called by ``kb serve`` CLI command.
 
@@ -585,7 +908,7 @@ def run() -> None:
     before the asyncio loop is fully scheduled. ``anyio.run`` handles
     stdin/stdout lifecycle more gracefully under subprocess stdio.
     """
-    mcp = _make_server()
+    mcp = _make_server(vault)
     mcp.run(transport="stdio")
 
 

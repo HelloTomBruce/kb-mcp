@@ -227,6 +227,7 @@ class TestDiscovery:
         assert names == {
             "kb_search", "kb_get", "kb_add", "kb_link",
             "kb_list", "kb_update", "kb_delete", "kb_unlink",
+            "kb_history", "kb_restore", "kb_diff", "kb_restore_deleted",
         }
 
 
@@ -413,3 +414,195 @@ class TestErrorCodes:
         err = _extract_error(resp)
         assert err is not None
         assert err[0] == -32005
+
+
+# ---------------------------------------------------------------------------
+# Resources (v0.3)
+# ---------------------------------------------------------------------------
+
+
+class TestResources:
+    """MCP server exposes resources via resources/list and resources/read."""
+
+    def test_list_resources(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/list returns doctor static resource."""
+        rid = _next_id()
+        _send(mcp_proc, {"jsonrpc": "2.0", "id": rid, "method": "resources/list"})
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/list failed: {resp}"
+        resources = resp["result"].get("resources", [])
+        uris = {r["uri"] for r in resources}
+        assert "kb://doctor" in uris, f"Expected kb://doctor in resources, got: {uris}"
+
+    def test_read_doc_resource(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read kb://doc/{id} returns the document."""
+        # First add a doc
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "ResourceDoc", "body": "body here"})
+        rid = _next_id()
+        _send(mcp_proc, {
+            "jsonrpc": "2.0", "id": rid,
+            "method": "resources/read",
+            "params": {"uri": "kb://doc/proj/resourcedoc"},
+        })
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [])
+        assert contents, f"Expected contents, got: {resp}"
+        text = contents[0].get("text", "")
+        doc = json.loads(text)
+        assert doc.get("id") == "proj/resourcedoc", f"Unexpected: {text[:300]}"
+        assert doc.get("title") == "ResourceDoc", f"Missing title: {text[:300]}"
+        assert doc.get("body") == "body here", f"Missing body: {text[:300]}"
+
+    def test_read_doc_resource_not_found(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read for a missing doc returns error JSON, not crash."""
+        rid = _next_id()
+        _send(mcp_proc, {
+            "jsonrpc": "2.0", "id": rid,
+            "method": "resources/read",
+            "params": {"uri": "kb://doc/nonexistent/slug"},
+        })
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [{}])
+        text = contents[0].get("text", "")
+        data = json.loads(text)
+        assert data.get("error") == "not_found"
+
+    def test_read_search_resource(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read kb://search/{q} works (template resolution)."""
+        rid = _next_id()
+        _send(mcp_proc, {
+            "jsonrpc": "2.0", "id": rid,
+            "method": "resources/read",
+            "params": {"uri": "kb://search/something"},
+        })
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+
+    def test_read_links_resource(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read kb://links/{id} returns links object."""
+        # Add two docs and link them
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "LinkA"})
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "LinkB"})
+        _call_tool(mcp_proc, "kb_link", {"from_id": "proj/linka", "to_id": "proj/linkb"})
+
+        rid = _next_id()
+        _send(mcp_proc, {
+            "jsonrpc": "2.0", "id": rid,
+            "method": "resources/read",
+            "params": {"uri": "kb://links/proj/linka"},
+        })
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [{}])
+        text = contents[0].get("text", "")
+        data = json.loads(text)
+        assert data.get("doc_id") == "proj/linka", f"Unexpected: {text[:300]}"
+        assert len(data.get("outlinks", [])) == 1
+
+    def test_read_doctor_resource(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read kb://doctor returns health check."""
+        rid = _next_id()
+        _send(mcp_proc, {
+            "jsonrpc": "2.0", "id": rid,
+            "method": "resources/read",
+            "params": {"uri": "kb://doctor"},
+        })
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [{}])
+        text = contents[0].get("text", "")
+        data = json.loads(text)
+        assert "ok" in data
+        assert "checks" in data
+
+
+# ---------------------------------------------------------------------------
+# Prompts (v0.3)
+# ---------------------------------------------------------------------------
+
+
+class TestPrompts:
+    """MCP server exposes prompts via prompts/list and prompts/get."""
+
+    def test_list_prompts(self, mcp_proc: subprocess.Popen) -> None:
+        """prompts/list returns new-doc and search-expert."""
+        rid = _next_id()
+        _send(mcp_proc, {"jsonrpc": "2.0", "id": rid, "method": "prompts/list"})
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"prompts/list failed: {resp}"
+        prompts = resp["result"].get("prompts", [])
+        names = {p["name"] for p in prompts}
+        assert "new-doc" in names, f"Expected new-doc in prompts, got: {names}"
+        assert "search-expert" in names, f"Expected search-expert in prompts, got: {names}"
+
+
+# ---------------------------------------------------------------------------
+# Version history tools (v0.3)
+# ---------------------------------------------------------------------------
+
+
+class TestKbHistory:
+    """kb_history / kb_restore / kb_diff / kb_restore_deleted tools."""
+
+    def test_history_happy_path(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_history returns version entries for a document."""
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "HistDoc"})
+        _call_tool(mcp_proc, "kb_update", {"id": "proj/histdoc",
+                                            "title": "HistDoc Updated"})
+        resp = _call_tool(mcp_proc, "kb_history", {"id": "proj/histdoc"})
+        data = _extract_result(resp)
+        assert isinstance(data, dict), f"Expected dict, got: {type(data)}"
+        assert data["count"] >= 2, f"Expected >=2 versions, got {data['count']}"
+
+    def test_restore_happy_path(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_restore restores a document to a previous version."""
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "RestDoc",
+                                        "body": "v1 body"})
+        _call_tool(mcp_proc, "kb_update", {"id": "proj/restdoc",
+                                            "body": "v2 body"})
+        hist_resp = _call_tool(mcp_proc, "kb_history", {"id": "proj/restdoc"})
+        hist = _extract_result(hist_resp)
+        assert isinstance(hist, dict)
+        versions = hist.get("history", [])
+        if len(versions) >= 2:
+            v1 = versions[1]["version_id"]
+            resp = _call_tool(mcp_proc, "kb_restore",
+                              {"id": "proj/restdoc", "version": v1})
+            data = _extract_result(resp)
+            assert isinstance(data, dict)
+            assert data.get("ok") is True
+
+    def test_diff_happy_path(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_diff returns field-level diff between versions."""
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "DiffDoc",
+                                        "body": "original"})
+        _call_tool(mcp_proc, "kb_update", {"id": "proj/diffdoc",
+                                            "title": "DiffDoc V2"})
+        hist_resp = _call_tool(mcp_proc, "kb_history", {"id": "proj/diffdoc"})
+        hist = _extract_result(hist_resp)
+        assert isinstance(hist, dict)
+        versions = hist.get("history", [])
+        if len(versions) >= 2:
+            v1 = versions[1]["version_id"]
+            v2 = versions[0]["version_id"]
+            resp = _call_tool(mcp_proc, "kb_diff",
+                              {"id": "proj/diffdoc",
+                               "version_a": v1, "version_b": v2})
+            data = _extract_result(resp)
+            assert isinstance(data, dict)
+            assert "changed" in data
+
+    def test_restore_deleted_happy_path(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_restore_deleted restores a soft-deleted document."""
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "DelRestore"})
+        _call_tool(mcp_proc, "kb_delete", {"id": "proj/delrestore"})
+        resp = _call_tool(mcp_proc, "kb_restore_deleted",
+                          {"id": "proj/delrestore"})
+        data = _extract_result(resp)
+        assert isinstance(data, dict)
+        assert data.get("ok") is True
+        get_resp = _call_tool(mcp_proc, "kb_get", {"id": "proj/delrestore"})
+        get_data = _extract_result(get_resp)
+        assert get_data["id"] == "proj/delrestore"

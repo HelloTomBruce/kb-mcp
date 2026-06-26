@@ -1,3 +1,149 @@
+# kb-mcp v0.4.0 Release Notes
+
+## Overview
+
+kb-mcp v0.4.0 introduces **multi-vault** support and **Git-based team sync**,
+turning kb-mcp from a personal knowledge base into a shareable team knowledge
+base.
+
+## What's new in v0.4.0
+
+### Multi-vault
+
+Vaults are isolated, named SQLite databases. Each vault lives in its own
+subdirectory under `KB_MCP_HOME`.
+
+| CLI command | Description |
+|---|---|
+| `kb vault create <name>` | Create a new vault |
+| `kb vault list` | List all vaults |
+| `kb vault switch <name>` | Switch the active vault |
+| `kb vault current` | Show current vault |
+| `kb vault rename <old> <new>` | Rename a vault |
+| `kb vault remove <name>` | Remove a vault |
+| `kb vault info <name>` | Show vault details |
+
+### Git team sync
+
+Vaults can be shared via any Git remote. The sync uses **Markdown files**
+(not binary `.db`) so diffs and merges are text-based and reviewable.
+
+| CLI command | Description |
+|---|---|
+| `kb vault init-git` | Init Git repo + .gitignore in vault |
+| `kb vault commit -m MSG` | Export to Markdown + git commit |
+| `kb vault push [remote] [branch]` | Git push |
+| `kb vault pull [remote] [branch]` | Git pull + import Markdown |
+
+### MCP vault selection
+
+`kb serve --vault <name>` starts the MCP server for a specific vault.
+The `KB_MCP_VAULT` env var also controls the active vault at runtime.
+
+### Migration
+
+On first run, any existing `KB_MCP_HOME/kb.db` is automatically migrated
+into a `default/` subdirectory and registered in `vaults.json`. Zero
+manual steps required.
+
+### Internal
+
+* New `VaultManager` class in `src/kb_mcp_lite/vault.py`
+* `_create_store()` in both `cli.py` and `mcp_server.py` unified to use
+  `VaultManager.resolve_path()`
+* CLI store caching respects `KB_MCP_VAULT` env var
+
+### Compatibility
+
+* **Backwards compatible** with v0.3.x databases. Existing data is
+  migrated to a `default` vault automatically.
+* All previous CLI commands and MCP tools work unchanged.
+* `kb serve` without `--vault` uses the current active vault (same as
+  before).
+
+## Installation
+
+```bash
+pip install kb-mcp            # core
+pip install 'kb-mcp[vec]'     # adds semantic search
+```
+
+
+# kb-mcp v0.3.0 Release Notes
+
+## Overview
+
+kb-mcp v0.3.0 enhances the **knowledge management experience** with MCP
+Resources & Prompts, document version history, and alias support.
+
+## What's new in v0.3.0
+
+### MCP Resources (was 0, now 4)
+
+| Resource URI | Description |
+|---|---|
+| `kb://doc/{type}/{slug}` | Full document by id |
+| `kb://search/{query}` | Search results as JSON |
+| `kb://links/{type}/{slug}` | Backlinks and outlinks |
+| `kb://doctor` | Health check status |
+
+### MCP Prompts (was 0, now 2)
+
+| Prompt | Description |
+|---|---|
+| `new-doc` | Guides the agent to create a well-structured document |
+| `search-expert` | Guides the agent to search effectively |
+
+### MCP Tools (was 8, now 12)
+
+Four new tools:
+
+| Tool | Description |
+|---|---|
+| `kb_history(id, limit?)` | View version history |
+| `kb_restore(id, version?)` | Restore to a previous version |
+| `kb_diff(id, version_a, version_b)` | Field-level diff between versions |
+| `kb_restore_deleted(id)` | Restore a soft-deleted document |
+
+### CLI additions
+
+* `kb history ID [--limit N]` — View version history
+* `kb restore ID [--version N]` — Restore to a previous version
+* `kb diff ID VERSION_A VERSION_B` — Compare two versions
+* `kb restore-deleted ID` — Restore a soft-deleted doc
+* `kb add --aliases a1,a2,...` — Alternative IDs when creating
+* `kb update --aliases a1,a2,...` — Update aliases
+
+### Alias support
+
+Documents can now have alternative IDs (aliases). Searching by alias
+works just like searching by primary ID. Aliases are stored in a new
+`doc_aliases` table (migration 0005) and persist across sessions.
+
+### Internal
+
+* Store Protocol now includes `document_history()`, `audit_log()`,
+  `restore()`, `diff()`, `restore_deleted()`, `resolve_alias()`
+* SqliteStore `get()` resolves aliases when direct id lookup fails
+* Version snapshots recorded on every create/update/delete in StubStore
+  (previously only in SqliteStore)
+
+### Compatibility
+
+* **Backwards compatible** with v0.2.x databases. Migration 0005
+  (`doc_aliases`) is applied automatically on first connect.
+* All previous CLI commands and MCP tools work unchanged.
+* The `kb://doc/{type}/{slug}` URI template replaces the flat
+  `kb://doc/{id}` pattern to support document IDs containing slashes.
+
+## Installation
+
+```bash
+pip install kb-mcp            # core (lexical + fuzzy)
+pip install 'kb-mcp[vec]'     # adds semantic search
+```
+
+
 # kb-mcp v0.2.0 Release Notes
 
 ## Overview

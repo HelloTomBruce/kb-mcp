@@ -109,6 +109,13 @@ class StubStore(_Store):
         self._links: dict[tuple[str, str, str], Link] = {}
         # Secondary index: source -> doc_id, for idempotent re-import.
         self._by_source: dict[str, str] = {}
+        # Version history: doc_id -> list of dicts
+        self._version_history: dict[str, list[dict[str, object]]] = {}
+        # Global audit log (newest first)
+        self._audit_log: list[dict[str, object]] = []
+        self._version_counter: int = 0
+        # Aliases: alias -> doc_id
+        self._aliases: dict[str, str] = {}
 
     # ---- write ----------------------------------------------------------
 
@@ -146,6 +153,10 @@ class StubStore(_Store):
         self._docs[doc.id] = doc
         if doc.source:
             self._by_source[doc.source] = doc.id
+        # Write aliases
+        for alias in doc.aliases:
+            self._aliases[alias] = doc.id
+        self._record_version(doc.id, "create", doc)
         return doc.id
 
     def update(self, doc_id: str, **fields: object) -> Document:
@@ -168,6 +179,16 @@ class StubStore(_Store):
         # Keep source index in sync.
         if merged.source:
             self._by_source[merged.source] = merged.id
+        # Update aliases if provided
+        if "aliases" in fields:
+            # Remove old aliases for this doc
+            old_to_remove = [a for a, d in self._aliases.items() if d == doc_id]
+            for a in old_to_remove:
+                del self._aliases[a]
+            for alias in (fields.get("aliases") or []):
+                if alias:
+                    self._aliases[alias] = doc_id
+        self._record_version(doc_id, "update", merged)
         return merged
 
     def delete(self, doc_id: str) -> None:
@@ -177,13 +198,26 @@ class StubStore(_Store):
         current = self._docs[doc_id]
         if current.deleted_at is not None:
             return  # already soft-deleted — no-op
-        self._docs[doc_id] = current.model_copy(update={"deleted_at": _now()})
+        deleted_doc = current.model_copy(update={"deleted_at": _now()})
+        self._docs[doc_id] = deleted_doc
+        self._record_version(doc_id, "delete", deleted_doc)
 
     # ---- read -----------------------------------------------------------
 
     def get(self, doc_id: str, include_deleted: bool = False) -> Document:
         if doc_id not in self._docs:
+            # Try alias resolution
+            resolved = self._aliases.get(doc_id)
+            if resolved:
+                return self.get(resolved, include_deleted=include_deleted)
             raise NotFoundError(doc_id)
+        doc = self._docs[doc_id]
+        if doc.deleted_at is not None and not include_deleted:
+            raise NotFoundError(doc_id)
+        return doc
+
+    def resolve_alias(self, alias: str) -> str | None:
+        return self._aliases.get(alias)
         doc = self._docs[doc_id]
         if doc.deleted_at is not None and not include_deleted:
             raise NotFoundError(doc_id)
@@ -409,6 +443,121 @@ class StubStore(_Store):
             if doc.source and self._by_source.get(doc.source) == doc_id:
                 del self._by_source[doc.source]
         return len(to_delete)
+
+    # ---- history / audit / restore -------------------------------------
+
+    def _record_version(
+        self, doc_id: str, action: str, doc: Document,
+    ) -> None:
+        """Record a version snapshot for a document."""
+        self._version_counter += 1
+        entry: dict[str, object] = {
+            "version_id": self._version_counter,
+            "doc_id": doc_id,
+            "action": action,
+            "snapshot": doc.model_dump(mode="json"),
+            "created_at": _now().isoformat(),
+            "actor": "admin",
+            "note": "",
+        }
+        if doc_id not in self._version_history:
+            self._version_history[doc_id] = []
+        self._version_history[doc_id].insert(0, entry)
+        self._audit_log.insert(0, {
+            "audit_id": self._version_counter,
+            "entity_type": "document",
+            "entity_id": doc_id,
+            "action": action,
+            "detail": {},
+            "created_at": _now().isoformat(),
+            "actor": "admin",
+            "note": "",
+        })
+
+    def document_history(
+        self, doc_id: str, limit: int = 50
+    ) -> list[dict[str, object]]:
+        raw = self._version_history.get(doc_id, [])
+        return raw[:limit]
+
+    def audit_log(self, limit: int = 100) -> list[dict[str, object]]:
+        return self._audit_log[:limit]
+
+    def restore(
+        self, doc_id: str, version_id: int | None = None
+    ) -> Document:
+        history = self._version_history.get(doc_id, [])
+        if not history:
+            raise NotFoundError(f"no versions found for {doc_id!r}")
+
+        if version_id is not None:
+            matches = [e for e in history if e["version_id"] == version_id]
+            if not matches:
+                raise NotFoundError(f"version {version_id} for {doc_id!r}")
+            entry = matches[0]
+        else:
+            entry = history[0]
+
+        snapshot = dict(entry["snapshot"])  # type: ignore[arg-type]
+        snapshot["id"] = doc_id
+        restored_doc = Document.model_validate(snapshot)
+
+        fields: dict[str, object] = {}
+        for f in ("title", "body", "tags", "source"):
+            fields[f] = getattr(restored_doc, f, None)
+        return self.update(doc_id, **fields)
+
+    def diff(
+        self,
+        doc_id: str,
+        version_a: int,
+        version_b: int,
+    ) -> dict[str, object]:
+        history = self._version_history.get(doc_id, [])
+        entries = {e["version_id"]: e for e in history}
+        entry_a = entries.get(version_a)
+        entry_b = entries.get(version_b)
+        if entry_a is None:
+            raise NotFoundError(f"version {version_a} for {doc_id!r}")
+        if entry_b is None:
+            raise NotFoundError(f"version {version_b} for {doc_id!r}")
+
+        snap_a = dict(entry_a["snapshot"])  # type: ignore[arg-type]
+        snap_b = dict(entry_b["snapshot"])
+
+        keys_a = set(snap_a.keys())
+        keys_b = set(snap_b.keys())
+
+        added: dict[str, object] = {}
+        removed: dict[str, object] = {}
+        changed: dict[str, dict[str, object]] = {}
+
+        for k in keys_b - keys_a:
+            added[k] = snap_b[k]
+        for k in keys_a - keys_b:
+            removed[k] = snap_a[k]
+        for k in keys_a & keys_b:
+            if snap_a[k] != snap_b[k]:
+                changed[k] = {"from": snap_a[k], "to": snap_b[k]}
+
+        return {
+            "doc_id": doc_id,
+            "version_a": version_a,
+            "version_b": version_b,
+            "added": added,
+            "removed": removed,
+            "changed": changed,
+        }
+
+    def restore_deleted(self, doc_id: str) -> Document:
+        doc = self.get(doc_id, include_deleted=True)
+        if doc.deleted_at is None:
+            raise ValidationError(f"document {doc_id!r} is not deleted")
+        now = _now()
+        restored_doc = doc.model_copy(update={"deleted_at": None, "updated_at": now})
+        self._docs[doc_id] = restored_doc
+        self._record_version(doc_id, "restore", restored_doc)
+        return self.get(doc_id)
 
     # ---- lifecycle ------------------------------------------------------
 

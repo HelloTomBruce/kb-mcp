@@ -85,7 +85,7 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     s = SqliteStore(db)
     conn = sqlite3.connect(str(db))
     rows = conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-    assert [r[0] for r in rows] == [1, 2, 4]
+    assert [r[0] for r in rows] == [1, 2, 4, 5]
     conn.close()
     s.close()
 

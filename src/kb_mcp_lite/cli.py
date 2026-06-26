@@ -66,6 +66,13 @@ from kb_mcp_lite.schema import (
     make_id,
 )
 from kb_mcp_lite.store.sqlite import SqliteStore
+from kb_mcp_lite.vault import (
+    VaultAlreadyExistsError,
+    VaultError,
+    VaultManager,
+    VaultNotFoundError,
+    get_current_vault_name,
+)
 
 
 # Type helpers ----------------------------------------------------------------
@@ -84,17 +91,19 @@ EXIT_USAGE = 64
 # Store factory ---------------------------------------------------------------
 
 
-def _create_default_store() -> SqliteStore:
-    """Return the default :class:`SqliteStore` for production use.
+def _get_vault_manager() -> VaultManager:
+    """Return the :class:`VaultManager` for the current KB home."""
+    return VaultManager()
 
-    DB path comes from ``KB_MCP_HOME`` env var (default
-    ``~/.local/share/kb-mcp/kb.db``). Parent directory is auto-created.
+
+def _create_default_store(vault: str | None = None) -> SqliteStore:
+    """Return a :class:`SqliteStore` for the given (or current) vault.
+
+    DB path is resolved via :class:`VaultManager`. Parent directory is
+    auto-created by ``SqliteStore.__init__``.
     """
-    home = os.environ.get("KB_MCP_HOME")
-    if home:
-        db_path = Path(home) / "kb.db"
-    else:
-        db_path = Path.home() / ".local" / "share" / "kb-mcp" / "kb.db"
+    mgr = _get_vault_manager()
+    db_path = mgr.resolve_path(vault)
     return SqliteStore(db_path)
 
 
@@ -308,6 +317,12 @@ def init(ctx: click.Context, force: bool, skip_confirm: bool, as_json: bool) -> 
     default=None,
     help="Comma-separated tag list (e.g. 'kb,mcp,design').",
 )
+@click.option(
+    "--aliases",
+    "aliases_raw",
+    default=None,
+    help="Comma-separated alias list (e.g. 'kb-mcp,kb').",
+)
 @click.option("--body", default=None, help="Inline Markdown body.")
 @click.option(
     "--body-file",
@@ -329,6 +344,7 @@ def add(
     doc_type: str,
     title: str,
     tags_raw: str | None,
+    aliases_raw: str | None,
     body: str | None,
     body_file: str | None,
     source: str | None,
@@ -338,6 +354,7 @@ def add(
     store = _get_store(ctx)
     body_text = _resolve_body(body, body_file)
     tags = _parse_tags(tags_raw)
+    aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()] if aliases_raw else []
     new_id = make_id(doc_type, title)
     doc = Document(
         id=new_id,
@@ -345,6 +362,7 @@ def add(
         title=title,
         body=body_text,
         tags=tags,
+        aliases=aliases,
         source=source,
     )
     stored_id = store.add(doc)
@@ -600,6 +618,12 @@ def unlink_cmd(
     default=None,
     help="New comma-separated tag list. Use '-' to clear all tags.",
 )
+@click.option(
+    "--aliases",
+    "aliases_raw",
+    default=None,
+    help="New comma-separated alias list. Use '-' to clear all aliases.",
+)
 @click.option("--source", default=None, help="New source path.")
 @_json_option
 @click.pass_context
@@ -611,13 +635,15 @@ def update(
     body: str | None,
     body_file: str | None,
     tags_raw: str | None,
+    aliases_raw: str | None,
     source: str | None,
     as_json: bool,
 ) -> None:
     """Patch fields on an existing document.
 
-    Only ``--title``, ``--body``, ``--tags``, ``--source`` are accepted.
-    The document's ``id``, ``type``, and ``created_at`` cannot be changed.
+    Only ``--title``, ``--body``, ``--tags``, ``--aliases``, ``--source``
+    are accepted. The document's ``id``, ``type``, and ``created_at``
+    cannot be changed.
     """
     store = _get_store(ctx)
     fields: dict[str, object] = {}
@@ -631,10 +657,15 @@ def update(
             fields["tags"] = []
         else:
             fields["tags"] = _parse_tags(tags_raw)
+    if aliases_raw is not None:
+        if aliases_raw == "-":
+            fields["aliases"] = []
+        else:
+            fields["aliases"] = [a.strip() for a in aliases_raw.split(",") if a.strip()]
     if source is not None:
         fields["source"] = source
     if not fields:
-        raise click.UsageError("update requires at least one of --title/--body/--tags/--source")
+        raise click.UsageError("update requires at least one of --title/--body/--tags/--aliases/--source")
     doc = store.update(doc_id, **fields)
     if as_json:
         _emit_json({"ok": True, "id": doc.id, "updated_at": doc.updated_at.isoformat()})
@@ -872,14 +903,268 @@ def doctor(ctx: click.Context, as_json: bool) -> None:
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
     help="Log level for the MCP server.",
 )
+@click.option(
+    "--vault",
+    default=None,
+    help="Vault name (default: current active vault, or KB_MCP_VAULT env var).",
+)
 @click.pass_context
 @_handle_errors
-def serve(ctx: click.Context, log_level: str) -> None:
+def serve(ctx: click.Context, log_level: str, vault: str | None) -> None:
     """Start the MCP server on stdio (Wave 2A)."""
     from kb_mcp_lite.mcp_server import run as _run_mcp_server
 
     os.environ["KB_MCP_LOG_LEVEL"] = log_level
+    if vault:
+        os.environ["KB_MCP_VAULT"] = vault
     _run_mcp_server()
+
+
+# ---- kb vault ---------------------------------------------------------------
+
+
+@cli.group()
+def vault() -> None:
+    """Manage knowledge-base vaults."""
+
+
+def _vault_handle_error(e: Exception) -> None:
+    """Map vault exceptions to Click exceptions."""
+    if isinstance(e, VaultNotFoundError):
+        raise click.ClickException(str(e)) from e
+    if isinstance(e, VaultAlreadyExistsError):
+        raise click.ClickException(str(e)) from e
+    if isinstance(e, VaultError):
+        raise click.UsageError(str(e)) from e
+    raise
+
+
+@vault.command(name="list")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_list(as_json: bool) -> None:
+    """List all registered vaults."""
+    try:
+        mgr = _get_vault_manager()
+        vaults = mgr.list_vaults()
+        current = mgr.get_current()
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({
+            "current": current,
+            "vaults": [{"name": v.name, "description": v.description} for v in vaults],
+        }, indent=2))
+        return
+    if not vaults:
+        click.echo("No vaults registered.")
+        return
+    click.echo(f"Current vault: {current}")
+    click.echo("")
+    for v in vaults:
+        marker = " *" if v.name == current else "  "
+        click.echo(f"  {marker} {v.name:20s}  {v.description}")
+
+
+@vault.command(name="create")
+@click.argument("name")
+@click.option("--desc", default="", help="Vault description.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_create(name: str, desc: str, as_json: bool) -> None:
+    """Create a new vault."""
+    try:
+        mgr = _get_vault_manager()
+        info = mgr.create(name, description=desc)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "name": info.name}, indent=2))
+    else:
+        click.echo(f"Created vault {info.name!r}.")
+
+
+@vault.command(name="switch")
+@click.argument("name")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_switch(name: str, as_json: bool) -> None:
+    """Switch the current active vault."""
+    try:
+        mgr = _get_vault_manager()
+        mgr.switch(name)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "current": name}, indent=2))
+    else:
+        click.echo(f"Switched to vault {name!r}.")
+
+
+@vault.command(name="current")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_current(as_json: bool) -> None:
+    """Show the current active vault."""
+    try:
+        mgr = _get_vault_manager()
+        name = mgr.get_current()
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"current": name}, indent=2))
+    else:
+        click.echo(name)
+
+
+@vault.command(name="rename")
+@click.argument("name")
+@click.argument("new_name")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_rename(name: str, new_name: str, as_json: bool) -> None:
+    """Rename a vault."""
+    try:
+        mgr = _get_vault_manager()
+        mgr.rename(name, new_name)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "old": name, "new": new_name}, indent=2))
+    else:
+        click.echo(f"Renamed vault {name!r} to {new_name!r}.")
+
+
+@vault.command(name="remove")
+@click.argument("name")
+@click.option("--delete-files", is_flag=True, help="Also delete vault files.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_remove(name: str, delete_files: bool, as_json: bool) -> None:
+    """Remove a vault from the registry."""
+    try:
+        mgr = _get_vault_manager()
+        mgr.remove(name, delete_files=delete_files)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "removed": name}, indent=2))
+    else:
+        click.echo(f"Removed vault {name!r}.")
+
+
+@vault.command(name="info")
+@click.argument("name")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_info(name: str, as_json: bool) -> None:
+    """Show detailed info about a vault."""
+    try:
+        mgr = _get_vault_manager()
+        info = mgr.info(name)
+        current = mgr.get_current()
+        db_path = mgr.resolve_path(info.name)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({
+            "name": info.name,
+            "description": info.description,
+            "path": str(db_path),
+            "is_current": info.name == current,
+        }, indent=2))
+    else:
+        click.echo(f"Name:        {info.name}")
+        click.echo(f"Description: {info.description}")
+        click.echo(f"DB path:     {db_path}")
+        click.echo(f"Current:     {'yes' if info.name == current else 'no'}")
+
+
+# ---- kb vault init-git ------------------------------------------------------
+
+
+@vault.command(name="init-git")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_init_git(as_json: bool) -> None:
+    """Initialise a Git repository for the current vault's Markdown export."""
+    try:
+        mgr = _get_vault_manager()
+        output = mgr.init_git()
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
+    else:
+        click.echo(output or "Git repository initialised.")
+
+
+# ---- kb vault commit --------------------------------------------------------
+
+
+@vault.command(name="commit")
+@click.option("-m", "--message", required=True, help="Commit message.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_commit(message: str, as_json: bool) -> None:
+    """Export vault to Markdown and git commit."""
+    try:
+        mgr = _get_vault_manager()
+        output = mgr.commit(message)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
+    else:
+        click.echo(output)
+
+
+# ---- kb vault push ----------------------------------------------------------
+
+
+@vault.command(name="push")
+@click.argument("remote", default="origin", required=False)
+@click.argument("branch", default="main", required=False)
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_push(remote: str, branch: str, as_json: bool) -> None:
+    """Git push the vault's Markdown export to a remote.
+
+    Default remote is ``origin``, default branch is ``main``.
+    """
+    try:
+        mgr = _get_vault_manager()
+        output = mgr.push(remote=remote, branch=branch)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
+    else:
+        click.echo(output)
+
+
+# ---- kb vault pull ----------------------------------------------------------
+
+
+@vault.command(name="pull")
+@click.argument("remote", default="origin", required=False)
+@click.argument("branch", default="main", required=False)
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def vault_pull(remote: str, branch: str, as_json: bool) -> None:
+    """Git pull and import Markdown into the vault.
+
+    Default remote is ``origin``, default branch is ``main``.
+    """
+    try:
+        mgr = _get_vault_manager()
+        output = mgr.pull(remote=remote, branch=branch)
+    except Exception as e:
+        _vault_handle_error(e)
+        return
+    if as_json:
+        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
+    else:
+        click.echo(output)
 
 
 # ---- kb admin ---------------------------------------------------------------
@@ -897,6 +1182,111 @@ def admin(ctx: click.Context, host: str, port: int) -> None:
     store = _get_store(ctx)
     click.echo(f"admin console: http://{host}:{port}")
     run_admin(host=host, port=port, store=store)
+
+
+# ---- kb history -------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("id", metavar="ID")
+@click.option("--limit", default=50, type=int, help="Max versions to show.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+@click.pass_context
+@_handle_errors
+def history(ctx: click.Context, id: str, limit: int, as_json: bool) -> None:
+    """Show version history of a document."""
+    store = _get_store(ctx)
+    entries = store.document_history(id, limit=limit)
+    if as_json:
+        click.echo(json.dumps({"history": entries, "count": len(entries)}, indent=2))
+        return
+    if not entries:
+        click.echo(f"No version history for {id!r}.")
+        return
+    click.echo(f"Version history for {id!r} ({len(entries)} entries):")
+    for e in entries:
+        ts = e.get("created_at", "")
+        action = e.get("action", "?")
+        vid = e.get("version_id", "?")
+        click.echo(f"  #{vid} {action}  {ts}")
+
+
+# ---- kb restore -------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("id", metavar="ID")
+@click.option("--version", type=int, default=None, help="Version id to restore.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+@click.pass_context
+@_handle_errors
+def restore(ctx: click.Context, id: str, version: int | None, as_json: bool) -> None:
+    """Restore a document to a previous version."""
+    store = _get_store(ctx)
+    doc = store.restore(id, version_id=version)
+    if as_json:
+        click.echo(json.dumps({
+            "ok": True,
+            "id": doc.id,
+            "version": version,
+            "restored_at": doc.updated_at.isoformat(),
+        }, indent=2))
+        return
+    click.echo(f"Restored {doc.id!r} to version {version or 'latest'} "
+               f"(updated_at={doc.updated_at.isoformat()})")
+
+
+# ---- kb diff ---------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("id", metavar="ID")
+@click.argument("version_a", type=int)
+@click.argument("version_b", type=int)
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+@click.pass_context
+@_handle_errors
+def diff(ctx: click.Context, id: str, version_a: int, version_b: int,
+         as_json: bool) -> None:
+    """Show field-level differences between two document versions."""
+    store = _get_store(ctx)
+    result = store.diff(id, version_a, version_b)
+    if as_json:
+        click.echo(json.dumps(result, indent=2, default=str))
+        return
+    changed = result.get("changed", {})
+    added = result.get("added", {})
+    removed = result.get("removed", {})
+    click.echo(f"Diff {id!r} version #{version_a} → #{version_b}:")
+    for k, v in changed.items():
+        click.echo(f"  ~ {k}: {v.get('from', '')} → {v.get('to', '')}")
+    for k, v in added.items():
+        click.echo(f"  + {k}: {v}")
+    for k, v in removed.items():
+        click.echo(f"  - {k}: {v}")
+
+
+# ---- kb restore-deleted -----------------------------------------------------
+
+
+@cli.command(name="restore-deleted")
+@click.argument("id", metavar="ID")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+@click.pass_context
+@_handle_errors
+def restore_deleted(ctx: click.Context, id: str, as_json: bool) -> None:
+    """Restore a soft-deleted document."""
+    store = _get_store(ctx)
+    doc = store.restore_deleted(id)
+    if as_json:
+        click.echo(json.dumps({
+            "ok": True,
+            "id": doc.id,
+            "restored_at": doc.updated_at.isoformat(),
+        }, indent=2))
+        return
+    click.echo(f"Restored deleted document {doc.id!r} "
+               f"(updated_at={doc.updated_at.isoformat()})")
 
 
 # Entry point -----------------------------------------------------------------

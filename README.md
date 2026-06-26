@@ -6,11 +6,11 @@
 
 `pip install kb-mcp` — give any LLM agent a structured, queryable, local-first second brain.
 
-[![PyPI version](https://img.shields.io/badge/pypi-v0.2.0-blue)](https://pypi.org/project/kb-mcp/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.3.0-blue)](https://pypi.org/project/kb-mcp/)
 [![Python](https://img.shields.io/badge/python-≥3.10-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple)](https://modelcontextprotocol.io/)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange)](#status)
+[![Status: beta](https://img.shields.io/badge/status-beta-green)](#status)
 
 </div>
 
@@ -36,22 +36,25 @@ that speaks their protocol and assumes the reader is a model, not a person.**
 
 ## Features
 
-- **🧠 Agent-native.** Every document is reachable from any MCP client
-  (`Claude Desktop`, `Cursor`, `OpenCode`, `Codex`, …) via
-  `kb_search` / `kb_get` / `kb_add` / `kb_link`.
+- **🧠 Agent-native.** Every document is reachable from any MCP client via
+  12 tools, 4 Resources, and 2 Prompts.
 - **📐 Schema-first.** Six built-in document types
   (`project`, `decision`, `lesson`, `glossary`, `person`, `faq`) —
   extensible via Python subclassing.
-- **🔍 Full-text search.** SQLite FTS5 with BM25 ranking. Snippet-aware
-  results returned to the agent.
+- **🔍 Full-text search.** Three modes: lexical (BM25), fuzzy (trigram),
+  and hybrid (combined). Optional semantic search with `sqlite-vec`.
+- **📜 Version history.** Every create/update/delete is recorded. Restore
+  any previous version, diff between versions, or recover soft-deleted docs.
 - **🔗 Typed links.** Documents reference other documents; backlinks are
   automatic.
 - **📝 Markdown friendly.** Round-trip import/export with frontmatter.
-  Humans can edit, agents can read.
+  Aliases let agents reference the same doc from different contexts.
+- **🗄️ Multi-vault.** Isolated knowledge bases per project or team.
+  Switch between vaults with `kb vault switch`.
 - **🪶 Zero deps by default.** SQLite ships with Python. `pip install kb-mcp`
   and you're done.
-- **🔒 Local-first.** Your data lives in `~/.local/share/kb-mcp/`. No
-  cloud, no telemetry, no phone-home.
+- **🔒 Local-first.** Your data stays on your machine. No cloud, no
+  telemetry, no phone-home.
 
 ---
 
@@ -70,6 +73,54 @@ kb serve
 That's it. Five commands, zero config files.
 
 👉 Full walkthrough: [docs/quickstart.md](./docs/quickstart.md)
+
+## Vault quickstart (multi-space)
+
+```bash
+# Create isolated knowledge bases
+kb vault create work --desc "Work projects"
+kb vault create personal --desc "Personal learning"
+
+# Switch between them
+kb vault switch work
+kb add --type project --title "My Work App" --body "..."
+
+kb vault switch personal
+kb add --type lesson --title "Rust tutorial notes" --body "..."
+
+# Each vault has its own SQLite database
+kb vault list
+```
+
+## Team sync (Git)
+
+Share a team vault via any Git remote:
+
+```bash
+# A member: set up
+kb vault create team --desc "Team shared knowledge"
+kb vault init-git                     # git init + .gitignore
+kb vault commit -m "Initial KB"       # export → git commit
+kb vault push origin main             # push to remote
+
+# B member: clone and start using
+git clone <remote-url> ~/.local/share/kb-mcp-custom/
+KB_MCP_HOME=~/.local/share/kb-mcp-custom kb vault list
+KB_MCP_HOME=~/.local/share/kb-mcp-custom kb vault pull    # pull → import
+
+# Daily workflow:
+# Make changes...
+kb add --type decision --title "Use SQLite FTS5"
+# Share:
+kb vault commit -m "Add ADR about FTS5"
+kb vault push
+
+# Get teammates' changes:
+kb vault pull
+```
+
+The sync is **text-based**: the vault's Markdown files go to a `md/` subdirectory
+under Git, while the binary `.db` stays local and `.gitignore`d.
 
 ---
 
@@ -103,12 +154,30 @@ Add to `~/.config/claude_desktop_config.json` (or any MCP client):
 }
 ```
 
-The agent then sees four tools:
+The agent sees **12 tools**:
 
-- `kb_search(query, type?, tags?, limit?)` — BM25-ranked results with snippets
-- `kb_get(id)` — full document by id (or slug)
-- `kb_add(type, title, body, tags?, source?)` — create document
-- `kb_link(from_id, to_id, rel?)` — typed edge between documents
+| Tool | Description |
+|---|---|
+| `kb_search` | Full-text search (lexical / fuzzy / hybrid) |
+| `kb_get` | Fetch document by id (also resolves aliases) |
+| `kb_add` | Create a new document |
+| `kb_update` | Patch fields on an existing document |
+| `kb_delete` | Soft-delete a document |
+| `kb_list` | Browse documents with type/tag filters |
+| `kb_link` | Create a typed edge between documents |
+| `kb_unlink` | Remove typed edges |
+| `kb_history` | View document version history |
+| `kb_restore` | Restore to a previous version |
+| `kb_diff` | Field-level diff between versions |
+| `kb_restore_deleted` | Restore a soft-deleted document |
+
+... plus **4 Resources** (`kb://doc/`, `kb://search/`, `kb://links/`, `kb://doctor`)
+and **2 Prompts** (`new-doc`, `search-expert`) for richer agent interaction.
+
+You can also serve a specific vault:
+```bash
+kb serve --vault project-x
+```
 
 ---
 
@@ -133,31 +202,29 @@ CLI reference: [docs/cli-reference.md](./docs/cli-reference.md)
 
 | Version | Scope | Status |
 |---|---|---|
-| **v0.1.0** | CLI + MCP server + SQLite/FTS5 + 6 doc types + Markdown I/O | 🚧 in progress |
-| v0.2.0 | Vector search (sqlite-vss) as opt-in, hybrid BM25 + embedding ranking | planned |
-| v0.3.0 | Multi-vault (per-project isolated KBs) + shared-vault mode | planned |
-| v0.4.0 | Web UI (read-only) + collaborative editing hints | exploring |
+| **v0.1.0** | CLI + MCP server + SQLite/FTS5 + 6 doc types + Markdown I/O | ✅ shipped |
+| **v0.2.0** | Fuzzy/trigram search, semantic search (sqlite-vec), tools/CLI completion | ✅ shipped |
+| **v0.3.0** | MCP Resources & Prompts, version history (restore/diff), aliases | ✅ shipped |
+| **v0.4.0** | Multi-vault (isolated knowledge bases), vault CLI + MCP vault selection | ✅ shipped |
+| v0.5.0 | Local embedding models, CJK tokenizer, knowledge graph visualization | exploring |
+| v0.6.0 | Plugin system, external sync (Notion/GitHub), LLM-native enhancements | exploring |
 | v1.0.0 | Postgres backend, multi-user auth, hosted mode | exploring |
-
-See [docs/requirements.md](./docs/requirements.md) § 4 for v0.1 scope decisions
-and out-of-scope list.
 
 ---
 
 ## Status
 
-**alpha.** API and storage format may change before v0.2.0. Pin minor versions
-(`kb-mcp>=0.1,<0.2`) in production.
+**beta.** The API and storage format are stable since v0.3.0. Pin minor versions
+(`kb-mcp>=0.3,<0.5`) in production if you prefer conservative upgrades.
 
 ---
 
 ## Contributing
 
-Issues and PRs welcome. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) (TODO before v0.1.0 release).
+Issues and PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 By participating, you agree to abide by the
-[Code of Conduct](./CODE_OF_CONDUCT.md) (TODO before v0.1.0 release).
+[Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ---
 

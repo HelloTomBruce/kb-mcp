@@ -219,6 +219,81 @@ class Store(Protocol):
         older than the cutoff. Returns count removed."""
         ...
 
+    # ---- history / audit ------------------------------------------------
+
+    def document_history(
+        self, doc_id: str, limit: int = 50
+    ) -> list[dict[str, object]]:
+        """Return the version history of a document.
+
+        Each entry contains: ``version_id``, ``doc_id``, ``action``
+        (create/update/delete), ``snapshot`` (full JSON of the document
+        at that point), ``created_at``, ``actor``, ``note``.
+
+        Returns empty list if the document has never been recorded
+        (e.g. imported before migration 0004).
+        """
+        ...
+
+    def audit_log(
+        self, limit: int = 100
+    ) -> list[dict[str, object]]:
+        """Return the global audit log, newest first.
+
+        Each entry contains: ``audit_id``, ``entity_type``, ``entity_id``,
+        ``action``, ``detail``, ``created_at``, ``actor``, ``note``.
+        """
+        ...
+
+    def restore(
+        self, doc_id: str, version_id: int | None = None
+    ) -> Document:
+        """Restore a document to a previous version.
+
+        If ``version_id`` is None, restores to the most recent version.
+        Creates a new version snapshot before applying the restore.
+
+        Raises:
+            NotFoundError: if ``doc_id`` or ``version_id`` does not exist.
+            ValidationError: if the snapshot fails validation.
+        """
+        ...
+
+    def diff(
+        self,
+        doc_id: str,
+        version_a: int,
+        version_b: int,
+    ) -> dict[str, object]:
+        """Compare two document versions and return field-level differences.
+
+        Returns a dict with keys: ``added`` (fields in B not in A),
+        ``removed`` (fields in A not in B), ``changed`` (dict of
+        ``{field: {"from": ..., "to": ...}}``).
+
+        Raises:
+            NotFoundError: if either version does not exist.
+        """
+        ...
+
+    def restore_deleted(self, doc_id: str) -> Document:
+        """Restore a soft-deleted document by clearing ``deleted_at``.
+
+        Creates a version snapshot recording the restore action.
+
+        Raises:
+            NotFoundError: if the document id does not exist at all.
+            ValidationError: if the document is not soft-deleted.
+        """
+        ...
+
+    def resolve_alias(self, alias: str) -> str | None:
+        """Resolve an alias to a canonical document id.
+
+        Returns the document id, or ``None`` if the alias does not exist.
+        """
+        ...
+
     # ---- lifecycle ------------------------------------------------------
 
     def close(self) -> None:

@@ -42,12 +42,13 @@ kb init [--force] [--json]
 Create a document.
 
 ```
-kb add --type TYPE --title TITLE [--tags t1,t2,...] [--body BODY] [--source PATH] [--json]
+kb add --type TYPE --title TITLE [--tags t1,t2,...] [--aliases a1,a2,...] [--body BODY] [--source PATH] [--json]
 ```
 
 If `--body` is omitted, `kb` reads body from stdin (until EOF). If `--source`
 is set, the document is marked as imported from that path (enables
-idempotent re-import).
+idempotent re-import). ``--aliases`` accepts a comma-separated list of
+alternative IDs for the document.
 
 Returns the new document's id on success.
 
@@ -202,6 +203,84 @@ kb search "fts5" --json | jq '.[0].id'
 # Strict mode (non-zero exit on missing doc)
 kb get nonexistent-id || echo "not found, exit=$?"
 ```
+
+---
+
+## `kb history`
+
+Show the version history of a document.
+
+```
+kb history ID [--limit N] [--json]
+```
+
+| Flag / Arg | Effect |
+|---|---|
+| `ID` | Document id |
+| `--limit N` | Max entries (default 50) |
+| `--json` | JSON output |
+
+## `kb restore`
+
+Restore a document to a previous version.
+
+```
+kb restore ID [--version N] [--json]
+```
+
+| Flag / Arg | Effect |
+|---|---|
+| `ID` | Document id |
+| `--version N` | Version id to restore to (default: latest) |
+| `--json` | JSON output |
+
+## `kb diff`
+
+Show field-level differences between two document versions.
+
+```
+kb diff ID VERSION_A VERSION_B [--json]
+```
+
+| Flag / Arg | Effect |
+|---|---|
+| `ID` | Document id |
+| `VERSION_A` | First version id |
+| `VERSION_B` | Second version id |
+| `--json` | JSON output |
+
+## `kb restore-deleted`
+
+Restore a soft-deleted document.
+
+```
+kb restore-deleted ID [--json]
+```
+
+| Flag / Arg | Effect |
+|---|---|
+| `ID` | Document id |
+| `--json` | JSON output |
+
+---
+
+## `kb vault`
+
+Group command for vault management. Sub-commands:
+
+| Sub-command | Description |
+|---|---|
+| `list` | List all vaults |
+| `create <name>` | Create a new vault |
+| `switch <name>` | Switch the active vault |
+| `current` | Show current vault |
+| `rename <old> <new>` | Rename a vault |
+| `remove <name>` | Remove a vault from registry |
+| `info <name>` | Show vault details |
+| `init-git` | Init Git repo in vault for team sync |
+| `commit -m MSG` | Export to Markdown + git commit |
+| `push [remote] [branch]` | Git push (default origin main) |
+| `pull [remote] [branch]` | Git pull + import Markdown |
 
 ---
 

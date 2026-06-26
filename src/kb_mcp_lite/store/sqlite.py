@@ -86,7 +86,7 @@ def _try_load_vec0(conn) -> None:
 # Fields that ``update`` is allowed to mutate. Anything else raises
 # ``ValidationError``. ``id``, ``type``, ``created_at``, ``updated_at``,
 # and ``deleted_at`` are managed by the store and cannot be changed.
-_UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source"})
+_UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source", "aliases"})
 _DEFAULT_ACTOR = "admin"
 
 
@@ -290,6 +290,178 @@ class SqliteStore:
             )
         return out
 
+    # ---- history / audit / restore -------------------------------------
+
+    def _fetch_version(self, doc_id: str, version_id: int) -> dict[str, object] | None:
+        row = self._conn.execute(
+            """
+            SELECT version_id, doc_id, action, snapshot, created_at, actor, note
+            FROM document_versions
+            WHERE doc_id = ? AND version_id = ?
+            """,
+            (doc_id, version_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "version_id": row["version_id"],
+            "doc_id": row["doc_id"],
+            "action": row["action"],
+            "snapshot": json.loads(row["snapshot"]),
+            "created_at": row["created_at"],
+            "actor": row["actor"],
+            "note": row["note"],
+        }
+
+    def restore(self, doc_id: str, version_id: int | None = None) -> Document:
+        """Restore a document to a previous version.
+
+        If ``version_id`` is None, restores to the most recent version.
+        Creates a new version snapshot before applying the restore.
+        """
+        # Check the document exists (including deleted)
+        self.get(doc_id, include_deleted=True)
+
+        if version_id is not None:
+            entry = self._fetch_version(doc_id, version_id)
+            if entry is None:
+                raise NotFoundError(f"version {version_id} for {doc_id!r}")
+        else:
+            history = self.document_history(doc_id, limit=1)
+            if not history:
+                raise NotFoundError(f"no versions found for {doc_id!r}")
+            entry = history[0]
+
+        snapshot = entry["snapshot"]  # type: dict[str, object]
+        # Ensure id is correct (snapshot may have been serialised with it)
+        snapshot["id"] = doc_id
+        restored_doc = Document.model_validate(snapshot)
+
+        # Apply via update — this records the restore as a new version
+        fields: dict[str, object] = {}
+        for f in ("title", "body", "tags", "source"):
+            fields[f] = getattr(restored_doc, f, None)
+        return self.update(doc_id, **fields)
+
+    def diff(
+        self,
+        doc_id: str,
+        version_a: int,
+        version_b: int,
+    ) -> dict[str, object]:
+        """Compare two document versions.
+
+        Returns ``{added, removed, changed}``.
+        """
+        entry_a = self._fetch_version(doc_id, version_a)
+        if entry_a is None:
+            raise NotFoundError(f"version {version_a} for {doc_id!r}")
+        entry_b = self._fetch_version(doc_id, version_b)
+        if entry_b is None:
+            raise NotFoundError(f"version {version_b} for {doc_id!r}")
+
+        snap_a: dict[str, object] = entry_a["snapshot"]  # type: ignore[assignment]
+        snap_b: dict[str, object] = entry_b["snapshot"]
+
+        keys_a = set(snap_a.keys())
+        keys_b = set(snap_b.keys())
+
+        added: dict[str, object] = {}
+        removed: dict[str, object] = {}
+        changed: dict[str, dict[str, object]] = {}
+
+        for k in keys_b - keys_a:
+            added[k] = snap_b[k]
+        for k in keys_a - keys_b:
+            removed[k] = snap_a[k]
+        for k in keys_a & keys_b:
+            if snap_a[k] != snap_b[k]:
+                changed[k] = {"from": snap_a[k], "to": snap_b[k]}
+
+        return {
+            "doc_id": doc_id,
+            "version_a": version_a,
+            "version_b": version_b,
+            "added": added,
+            "removed": removed,
+            "changed": changed,
+        }
+
+    def restore_deleted(self, doc_id: str) -> Document:
+        """Restore a soft-deleted document.
+
+        Raises ValidationError if the document is not soft-deleted.
+        """
+        doc = self.get(doc_id, include_deleted=True)
+        if doc.deleted_at is None:
+            raise ValidationError(f"document {doc_id!r} is not deleted")
+        now = self._now_iso()
+        with self._txn() as cur:
+            cur.execute(
+                "UPDATE documents SET deleted_at = NULL, updated_at = ? WHERE id = ?",
+                (now, doc_id),
+            )
+            restored_doc = doc.model_copy(update={"deleted_at": None})
+            self._record_doc_version(cur, restored_doc, action="restore")
+            self._record_audit(
+                cur,
+                entity_type="document",
+                entity_id=doc_id,
+                action="restore",
+                detail={"title": doc.title, "type": doc.type},
+            )
+        # Re-index in FTS and vec
+        self._index_embedding(restored_doc)
+        return self.get(doc_id)
+
+    # ---- aliases --------------------------------------------------------
+
+    def _write_aliases(self, doc_id: str, aliases: list[str]) -> None:
+        """Replace all aliases for a document."""
+        self._conn.execute("DELETE FROM doc_aliases WHERE doc_id = ?", (doc_id,))
+        if not aliases:
+            return
+        now = self._now_iso()
+        for alias in aliases:
+            if not alias:
+                continue
+            try:
+                self._conn.execute(
+                    "INSERT INTO doc_aliases (alias, doc_id, created_at) VALUES (?, ?, ?)",
+                    (alias, doc_id, now),
+                )
+            except sqlite3.IntegrityError:
+                # Alias already taken by another doc — skip (best-effort)
+                continue
+
+    def _read_aliases(self, doc_id: str) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT alias FROM doc_aliases WHERE doc_id = ? ORDER BY alias",
+            (doc_id,),
+        ).fetchall()
+        return [r["alias"] for r in rows]
+
+    def resolve_alias(self, alias: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT doc_id FROM doc_aliases WHERE alias = ?", (alias,)
+        ).fetchone()
+        return row["doc_id"] if row else None
+
+    def get(self, doc_id: str, include_deleted: bool = False) -> Document:
+        """Fetch a document by id. Also resolves aliases."""
+        sql = "SELECT * FROM documents WHERE id = ?"
+        if not include_deleted:
+            sql += " AND deleted_at IS NULL"
+        row = self._conn.execute(sql, (doc_id,)).fetchone()
+        if row is None:
+            # Try alias resolution
+            resolved = self.resolve_alias(doc_id)
+            if resolved:
+                return self.get(resolved, include_deleted=include_deleted)
+            raise NotFoundError(doc_id)
+        doc = self._row_to_doc(row)
+        return doc
+
     # ---- write ----------------------------------------------------------
 
     def add(self, doc: Document) -> str:
@@ -331,6 +503,7 @@ class SqliteStore:
         # Best-effort: write embedding if embedder is configured. Errors
         # here MUST NOT break the add (the lexical path is more
         # important), so we log and move on.
+        self._write_aliases(doc.id, doc.aliases)
         self._index_embedding(doc)
         return doc.id
 
@@ -380,6 +553,9 @@ class SqliteStore:
                 action="update",
                 detail={"fields": sorted(fields.keys())},
             )
+        # Write aliases if provided
+        if "aliases" in fields:
+            self._write_aliases(doc_id, fields["aliases"])  # type: ignore[arg-type]
         # Re-embed if title or body changed (cheap heuristic; tag-only
         # changes don't really need re-embedding, but the cost is small).
         if "title" in fields or "body" in fields:
