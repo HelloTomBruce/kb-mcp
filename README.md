@@ -168,19 +168,220 @@ KB_MCP_HOME=~/.local/share/kb-mcp-custom kb vault pull
 Puts everything under a custom directory — useful for side-by-side vaults
 or testing.
 
+---
+
+## `kb import` — bulk-import Markdown files
+
+Import an entire directory of Markdown files into the vault at once.
+
+```bash
+kb import <directory> [--dry-run] [--json]
+```
+
+- `<directory>` — path to a directory of `.md` files (searched recursively)
+- `--dry-run` — parse & validate every file without writing anything
+- `--json` — output the import report as JSON
+
+### Frontmatter format
+
+Every `.md` file can begin with a YAML frontmatter block (between `---` delimiters).
+The body is everything after the closing `---`.
+
+```yaml
+---
+type: decision
+title: Use SQLite FTS5 over Elasticsearch
+tags:
+  - architecture
+  - database
+created_at: 2025-01-15T10:00:00Z
+updated_at: 2025-01-20T14:30:00Z
+---
+
+# Body text goes here
+
+Any valid Markdown.
+```
+
+#### Required fields
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | `str` | Document type. One of `project`, `decision`, `lesson`, `glossary`, `person`, `faq`, or a custom type of your own. |
+| `title` | `str` | Document title. Non-empty, max 512 characters. |
+
+#### Optional fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `tags` | `list[str]` | `[]` | Tags for filtering and grouping. Each tag: lowercase, alphanumeric + `_`/`-`. Max 64 tags. |
+| `source` | `str` | *(auto)* | Overridden by the file's relative path during import. Usually you don't set this. |
+| `created_at` | `str` | `now` UTC | ISO-8601 datetime. `2025-01-15T10:00:00Z` or `2025-01-15T10:00:00+00:00`. |
+| `updated_at` | `str` | `now` UTC | Same format as `created_at`. |
+
+> **Note:** Unknown frontmatter keys are silently passed through and ignored.
+
+#### Examples per document type
+
+**Project** — a repository or initiative overview:
+
+```markdown
+---
+type: project
+title: kb-mcp
+tags:
+  - mcp
+  - knowledge-base
+  - python
+---
+
+Agent-native knowledge base. SQLite + FTS5 + vec0 + MCP server.
+```
+
+**Decision** — an Architecture Decision Record (ADR):
+
+```markdown
+---
+type: decision
+title: Use SQLite FTS5 over Elasticsearch
+tags:
+  - architecture
+  - database
+created_at: 2025-01-15T10:00:00Z
+---
+
+## Context
+
+We need full-text search that works offline with zero setup.
+
+## Decision
+
+Use SQLite FTS5 — it ships with Python, requires no external process,
+and handles our scale.
+
+## Consequences
+
++ No infra to manage
+- No distributed search
+```
+
+**Lesson** — a post-mortem or lesson learned:
+
+```markdown
+---
+type: lesson
+title: Don't cross-connection last_insert_rowid
+tags:
+  - sqlite
+  - bug
+created_at: 2025-02-01T08:30:00Z
+---
+
+`last_insert_rowid()` is connection-scoped, not transaction-scoped.
+If you INSERT on connection A but call `last_insert_rowid()` on
+connection B, you get 0 — silently.
+```
+
+**Glossary** — a term definition:
+
+```markdown
+---
+type: glossary
+title: FTS5
+tags:
+  - sqlite
+  - search
+---
+
+SQLite's full-text search engine. Supports BM25 ranking, prefix queries,
+and incremental merge. Ships as a compile-time option in the standard
+`sqlite3` module.
+```
+
+**Person** — profile of a person the agent should know about:
+
+```markdown
+---
+type: person
+title: Zhang Bei
+tags:
+  - team
+  - maintainer
+---
+
+Owner of kb-mcp. Uses Hermes agent framework. Active in the MCP community.
+```
+
+**FAQ** — a frequently asked question:
+
+```markdown
+---
+type: faq
+title: Why SQLite?
+tags:
+  - faq
+  - architecture
+---
+
+**Q:** Why SQLite instead of PostgreSQL or a vector DB?
+
+**A:** SQLite ships with Python — zero deps. For a local-first agent
+knowledge base, it's fast enough, and FTS5 + vec0 cover search.
+```
+
+### Import behavior
+
+1. **Recursive walk** — all `.md` files (excluding hidden files/dirs) are found.
+2. **Frontmatter parsed** — each file is read and its YAML frontmatter extracted.
+3. **Document constructed** — `type` + `title` are validated (required); missing fields raise errors collected per-file.
+4. **Source-based dedup** — if a document with the same `source` path already exists, it is **updated in-place** (preserving `id` and `created_at`). Otherwise a new document is **inserted**.
+5. **Report generated** — a summary showing inserted / updated / skipped / error counts.
+
+```bash
+$ kb import ./docs/
+Imported 12 files: 8 inserted, 3 updated, 1 error
+Errors:
+  ./docs/broken.md: frontmatter missing required field 'type'
+```
+
+Use `--dry-run` to see what would happen before making changes:
+
+```bash
+$ kb import ./docs/ --dry-run
+Would import 12 files: 8 inserted, 3 updated, 0 errors
+```
+
+### Export
+
+The reverse — dump every document in the vault as `.md` files:
+
+```bash
+kb export <directory> [--force]
+```
+
+- Each document becomes a `<slug>.md` file (based on its ID).
+- Collisions get a numeric suffix (`kb-mcp-2.md`).
+- Pre-existing files are **not** overwritten unless `--force` is passed.
+- After export, each document's `source` field is updated in the DB so a
+  subsequent `kb import` of the same directory matches correctly.
+
 
 ---
 
 ## Document types
 
-| Type | Purpose | Example |
-|---|---|---|
-| `project` | Repo / initiative background | `kb-mcp`, `micro-app-fork` |
-| `decision` | Architecture Decision Record (ADR) | "Use SQLite FTS5 over Elasticsearch" |
-| `lesson` | Post-mortem / lessons learned | "Don't `last_insert_rowid()` across multi-INSERT batches" |
-| `glossary` | Term definitions | `FTS5`, `MCP`, `ADR` |
-| `person` | People the agent should recognise | "Zhang Bei, owner, uses Hermes" |
-| `faq` | Frequently asked questions | "Why SQLite?" |
+| Type | ID prefix | Purpose | Example |
+|---|---|---|---|
+| `project` | `proj` | Repo / initiative background | `kb-mcp`, `micro-app-fork` |
+| `decision` | `dec` | Architecture Decision Record (ADR) | "Use SQLite FTS5 over Elasticsearch" |
+| `lesson` | `lesson` | Post-mortem / lessons learned | "Don't `last_insert_rowid()` across multi-INSERT batches" |
+| `glossary` | `glossary` | Term definitions | `FTS5`, `MCP`, `ADR` |
+| `person` | `person` | People the agent should recognise | "Zhang Bei, owner, uses Hermes" |
+| `faq` | `faq` | Frequently asked questions | "Why SQLite?" |
+
+Every document gets a stable ID auto-generated from its type and title
+(e.g. `decision/use-sqlite-fts5-over-elasticsearch`). IDs are permanent —
+once created, the `type`, `id`, and `created_at` fields are immutable.
 
 Subclass `kb_mcp.schema.Document` to add your own.
 
@@ -203,23 +404,36 @@ Add to `~/.config/claude_desktop_config.json` (or any MCP client):
 
 The agent sees **12 tools**:
 
-| Tool | Description |
-|---|---|
-| `kb_search` | Full-text search (lexical / fuzzy / hybrid) |
-| `kb_get` | Fetch document by id (also resolves aliases) |
-| `kb_add` | Create a new document |
-| `kb_update` | Patch fields on an existing document |
-| `kb_delete` | Soft-delete a document |
-| `kb_list` | Browse documents with type/tag filters |
-| `kb_link` | Create a typed edge between documents |
-| `kb_unlink` | Remove typed edges |
-| `kb_history` | View document version history |
-| `kb_restore` | Restore to a previous version |
-| `kb_diff` | Field-level diff between versions |
-| `kb_restore_deleted` | Restore a soft-deleted document |
+| Tool | Description | Example |
+|---|---|---|
+| `kb_search` | Full-text search (lexical / fuzzy / hybrid) | `kb_search("FTS5 search")` |
+| `kb_get` | Fetch document by id (also resolves aliases) | `kb_get("dec/use-sqlite-fts5")` |
+| `kb_add` | Create a new document | `kb_add(type="lesson", title="…", body="…")` |
+| `kb_update` | Patch fields on an existing document | `kb_update(id="…", title="New title")` |
+| `kb_delete` | Soft-delete a document | `kb_delete("proj/kb-mcp")` |
+| `kb_list` | Browse documents with type/tag filters | `kb_list(type="decision")` |
+| `kb_link` | Create a typed edge between documents | `kb_link(from="dec/…", to="proj/…", rel="governs")` |
+| `kb_unlink` | Remove typed edges | `kb_unlink(from="dec/…", to="proj/…")` |
+| `kb_history` | View document version history | `kb_history("doc/…")` |
+| `kb_restore` | Restore to a previous version | `kb_restore("doc/…", version=3)` |
+| `kb_diff` | Field-level diff between versions | `kb_diff("doc/…", v1=1, v2=3)` |
+| `kb_restore_deleted` | Restore a soft-deleted document | `kb_restore_deleted("doc/…")` |
 
-... plus **4 Resources** (`kb://doc/`, `kb://search/`, `kb://links/`, `kb://doctor`)
-and **2 Prompts** (`new-doc`, `search-expert`) for richer agent interaction.
+... plus **4 Resources** — each returns a structured view:
+
+| Resource URI | Returns |
+|---|---|
+| `kb://doc/{id}` | Full document with body, metadata, and backlinks |
+| `kb://search/{query}` | Search results with relevance scores |
+| `kb://links/{id}` | All typed edges for a document (outgoing + incoming) |
+| `kb://doctor` | Health check report (integrity, missing refs, schema stats) |
+
+... and **2 Prompts** for richer agent interaction:
+
+| Prompt | Purpose |
+|---|---|
+| `new-doc` | Guided multi-step doc creation (walks the agent through type/title/body/tags) |
+| `search-expert` | Expert search strategist — picks the best search mode for the query |
 
 You can also serve a specific vault:
 ```bash
