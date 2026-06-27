@@ -449,11 +449,12 @@ button, input, select, textarea {
 }
 
 .stat-panel strong {
-  font-size: 36px;
+  font-size: 28px;
   font-weight: 800;
   line-height: 1.1;
   color: var(--text);
   margin-top: 8px;
+  word-break: break-word;
   letter-spacing: -1px;
 }
 

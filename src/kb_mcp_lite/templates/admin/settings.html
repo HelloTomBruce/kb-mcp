@@ -24,6 +24,20 @@
   </section>
 
   <section class="panel">
+    <div class="panel-head"><h2>Configuration</h2></div>
+    <div class="meta-list">
+      <div><span>Config file</span><strong>{{ config_path }}</strong></div>
+    </div>
+    <div style="margin-top:12px;">
+      <textarea id="config-editor" style="width:100%;min-height:200px;font-family:monospace;font-size:13px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-alt);color:var(--text);resize:vertical;">{{ config_content }}</textarea>
+      <div style="margin-top:8px;display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+        <span id="config-save-result" style="font-size:13px;color:var(--muted);align-self:center;"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
     <div class="panel-head"><h2>Actions</h2></div>
     <div class="list compact actions-list">
       <div class="list-row">
@@ -84,6 +98,26 @@
 </div>
 
 <script>
+function saveConfig() {
+  const content = document.getElementById('config-editor').value;
+  const resultSpan = document.getElementById('config-save-result');
+  resultSpan.textContent = 'Saving…';
+  fetch('/api/config', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: content})
+  })
+    .then(r => r.json())
+    .then(data => {
+      resultSpan.textContent = data.ok ? '✓ Saved' : '✗ ' + (data.error || 'Error');
+      resultSpan.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+    })
+    .catch(e => {
+      resultSpan.textContent = '✗ ' + e.message;
+      resultSpan.style.color = 'var(--danger)';
+    });
+}
+
 function runVaultAction(url, label) {
   const btn = event.target;
   const resultDiv = document.getElementById('action-result');

@@ -704,6 +704,9 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
         with _open_store(app) as store:
             doctor_report = store.doctor()
             embedder = getattr(store, "_embedder", None)
+            from kb_mcp_lite.config import config_path, load_config
+            cfg_path = config_path()
+            cfg_content = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
             return render(
                 request,
                 "settings.html",
@@ -715,6 +718,8 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
                     "kb_home": os.environ.get("KB_MCP_HOME", ""),
                     "version": _schema_version(store),
                     "audit_log": store.audit_log(limit=50),
+                    "config_path": str(cfg_path),
+                    "config_content": cfg_content,
                 },
             )
 
@@ -793,6 +798,25 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
             return JSONResponse({"ok": True, "output": output})
         except Exception as e:
             return _json_error(str(e), status_code=500)
+
+    @app.get("/api/config")
+    def api_config_get() -> JSONResponse:
+        from kb_mcp_lite.config import config_path
+        p = config_path()
+        if not p.exists():
+            return JSONResponse({"ok": False, "error": "config file not found"}, status_code=404)
+        return JSONResponse({"ok": True, "path": str(p), "content": p.read_text(encoding="utf-8")})
+
+    @app.put("/api/config")
+    def api_config_put(payload: dict[str, str]) -> JSONResponse:
+        content = payload.get("content", "")
+        if not content:
+            return _json_error("content is required", status_code=400)
+        from kb_mcp_lite.config import config_path
+        p = config_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return JSONResponse({"ok": True, "path": str(p)})
 
     @app.post("/api/vaults/embed")
     def api_vault_embed() -> JSONResponse:
