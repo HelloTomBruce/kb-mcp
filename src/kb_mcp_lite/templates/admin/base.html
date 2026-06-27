@@ -68,6 +68,12 @@
               <input type="text" name="query" placeholder="Global search..." class="global-search-input" />
             </form>
             
+            <div class="vault-switcher">
+              <select id="vault-select" class="vault-select">
+                <option value="">{{ vault_name or "loading…" }}</option>
+              </select>
+            </div>
+
             <div class="db-status-badge">
               <span class="status-indicator-dot"></span>
               <span>SQLite Connected</span>
@@ -85,6 +91,26 @@
         </main>
       </div>
     </div>
+
+    <!-- Vault switcher style -->
+    <style>
+      .vault-switcher { display: flex; align-items: center; margin-right: 12px; }
+      .vault-select {
+        background: var(--surface, #1a1a2e);
+        color: var(--text, #e0e0e0);
+        border: 1px solid var(--border, #2d2d4a);
+        border-radius: 6px;
+        padding: 4px 28px 4px 10px;
+        font-size: 13px;
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23e0e0e0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+      }
+      .vault-select:focus { outline: none; border-color: var(--accent, #0f62fe); }
+    </style>
 
     <!-- Active Navigation Highlight & Top Bar script -->
     <script>
@@ -118,6 +144,40 @@
           }
         }
         document.getElementById('breadcrumb-page').textContent = pageName;
+
+        // Vault switcher
+        const vaultSelect = document.getElementById('vault-select');
+        if (vaultSelect) {
+          fetch('/api/vaults')
+            .then(r => r.json())
+            .then(data => {
+              vaultSelect.innerHTML = '';
+              data.vaults.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.name;
+                opt.textContent = v.name + (v.description ? ' — ' + v.description : '');
+                if (v.name === data.current) opt.selected = true;
+                vaultSelect.appendChild(opt);
+              });
+            })
+            .catch(() => {});
+
+          vaultSelect.addEventListener('change', function() {
+            if (this.value) {
+              fetch('/api/vaults/switch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: this.value})
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (data.ok) location.reload();
+                else alert('Switch failed: ' + (data.error || 'unknown'));
+              })
+              .catch(e => alert('Switch failed: ' + e.message));
+            }
+          });
+        }
       });
     </script>
   </body>

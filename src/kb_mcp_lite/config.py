@@ -130,6 +130,7 @@ TEMPLATE = """# kb-mcp configuration
 # embedding:
 #   url: "http://localhost:11434/v1"     # e.g. Ollama
 #   model: "bge-m3"
+#   timeout: 120                         # seconds (Ollama cold-start may need >30)
 #   # api_key: "${OPENAI_API_KEY}"       # env var expansion supported
 
 # Data root directory (optional, default ~/.local/share/kb-mcp/)

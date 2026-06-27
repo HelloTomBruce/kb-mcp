@@ -24,6 +24,34 @@
   </section>
 
   <section class="panel">
+    <div class="panel-head"><h2>Actions</h2></div>
+    <div class="list compact actions-list">
+      <div class="list-row">
+        <div>
+          <div class="row-title">Import from sync directory</div>
+          <div class="row-meta">Import markdown files from the vault's <code>sync_dir/md/</code></div>
+        </div>
+        <button class="btn btn-primary" onclick="runVaultAction('/api/vaults/import', 'Import')">Import</button>
+      </div>
+      <div class="list-row">
+        <div>
+          <div class="row-title">Git commit</div>
+          <div class="row-meta">Export documents to markdown and git commit</div>
+        </div>
+        <button class="btn btn-primary" onclick="runVaultCommit()">Commit</button>
+      </div>
+      <div class="list-row">
+        <div>
+          <div class="row-title">Rebuild embeddings</div>
+          <div class="row-meta">Recompute semantic-search vectors for all documents</div>
+        </div>
+        <button class="btn btn-primary" onclick="runVaultAction('/api/vaults/embed', 'Embed')">Embed</button>
+      </div>
+    </div>
+    <div id="action-result" style="margin-top:12px;display:none;"></div>
+  </section>
+
+  <section class="panel">
     <div class="panel-head"><h2>Doctor checks</h2></div>
     <div class="list compact">
       {% for check in doctor_report.checks %}
@@ -54,4 +82,69 @@
     </div>
   </section>
 </div>
+
+<script>
+function runVaultAction(url, label) {
+  const btn = event.target;
+  const resultDiv = document.getElementById('action-result');
+  btn.disabled = true;
+  btn.textContent = label + '…';
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="empty-state">Running…</div>';
+
+  fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        let html = '<div class="alert success"><strong>Success:</strong><ul>';
+        for (const [k, v] of Object.entries(data)) {
+          if (k !== 'ok') html += '<li>' + k + ': ' + JSON.stringify(v) + '</li>';
+        }
+        html += '</ul></div>';
+        resultDiv.innerHTML = html;
+      } else {
+        resultDiv.innerHTML = '<div class="alert error">' + (data.error || 'Unknown error') + '</div>';
+      }
+    })
+    .catch(e => {
+      resultDiv.innerHTML = '<div class="alert error">' + e.message + '</div>';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = label;
+    });
+}
+
+function runVaultCommit() {
+  const msg = prompt('Commit message:', 'admin commit');
+  if (!msg) return;
+  const btn = event.target;
+  const resultDiv = document.getElementById('action-result');
+  btn.disabled = true;
+  btn.textContent = 'Commit…';
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="empty-state">Running…</div>';
+
+  fetch('/api/vaults/commit', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({message: msg})
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        resultDiv.innerHTML = '<div class="alert success"><strong>Commit OK:</strong> ' + (data.output || '') + '</div>';
+      } else {
+        resultDiv.innerHTML = '<div class="alert error">' + (data.error || 'Unknown error') + '</div>';
+      }
+    })
+    .catch(e => {
+      resultDiv.innerHTML = '<div class="alert error">' + e.message + '</div>';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Commit';
+    });
+}
+</script>
 {% endblock %}

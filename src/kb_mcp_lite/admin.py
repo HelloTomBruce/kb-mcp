@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from kb_mcp_lite.md_io import export_dir, import_dir
 from kb_mcp_lite.schema import Document, Link, SearchHit, ValidationError
 from kb_mcp_lite.store.sqlite import SqliteStore
+from kb_mcp_lite.vault import VaultManager, get_current_vault_name
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates" / "admin"
@@ -66,6 +67,7 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
             "request": request,
             "doc_types": DOC_TYPES,
             "search_modes": SEARCH_MODES,
+            "vault_name": get_current_vault_name(),
             "flash": {
                 "kind": request.query_params.get("flash", ""),
                 "message": request.query_params.get("message", ""),
@@ -720,16 +722,113 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
     def graph_page(request: Request) -> HTMLResponse:
         return render(request, "graph.html")
 
+    # ---- vault management -------------------------------------------------
+
+    @app.get("/api/vaults")
+    def api_vaults() -> JSONResponse:
+        mgr = VaultManager()
+        vaults = mgr.list_vaults()
+        current = mgr.get_current()
+        return JSONResponse({
+            "current": current,
+            "vaults": [
+                {
+                    "name": v.name,
+                    "description": v.description,
+                    "sync_dir": v.sync_dir,
+                }
+                for v in vaults
+            ],
+        })
+
+    @app.post("/api/vaults/switch")
+    def api_vault_switch(payload: dict[str, str]) -> JSONResponse:
+        name = payload.get("name", "")
+        if not name:
+            return _json_error("vault name required", status_code=400)
+        mgr = VaultManager()
+        try:
+            mgr.switch(name)
+            new_path = str(mgr.resolve_path(name))
+            app.state.store_path = new_path
+            return JSONResponse({"ok": True, "current": name, "store_path": new_path})
+        except Exception as e:
+            return _json_error(str(e), status_code=400)
+
+    @app.post("/api/vaults/import")
+    def api_vault_import() -> JSONResponse:
+        mgr = VaultManager()
+        name = mgr.get_current()
+        try:
+            from kb_mcp_lite.md_io import import_dir as _import_dir
+
+            sync_root = mgr._sync_dir(name)
+            mdir = mgr.md_dir(name)
+            import_target = sync_root if sync_root != mdir else mdir
+            if not import_target.exists():
+                return JSONResponse({"ok": False, "error": f"import target {import_target} does not exist"})
+
+            store = SqliteStore(mgr.resolve_path(name))
+            try:
+                report = _import_dir(store, import_target)
+            finally:
+                store.close()
+            return JSONResponse({
+                "ok": True,
+                "inserted": report.inserted,
+                "updated": report.updated,
+                "skipped": report.skipped,
+                "errors": report.errors[:10],
+            })
+        except Exception as e:
+            return _json_error(str(e), status_code=500)
+
+    @app.post("/api/vaults/commit")
+    def api_vault_commit(payload: dict[str, str]) -> JSONResponse:
+        message = payload.get("message", "admin commit")
+        mgr = VaultManager()
+        name = mgr.get_current()
+        try:
+            output = mgr.commit(name, message=message)
+            return JSONResponse({"ok": True, "output": output})
+        except Exception as e:
+            return _json_error(str(e), status_code=500)
+
+    @app.post("/api/vaults/embed")
+    def api_vault_embed() -> JSONResponse:
+        mgr = VaultManager()
+        name = mgr.get_current()
+        store = SqliteStore(mgr.resolve_path(name))
+        try:
+            n = store.reindex_embeddings()
+            report = getattr(store, "last_reindex_report", {}) or {}
+            return JSONResponse({
+                "ok": True,
+                "reindexed": n,
+                "failed": report.get("failed", 0),
+                "dim": report.get("dim", 0),
+                "total": report.get("total", 0),
+            })
+        except Exception as e:
+            return _json_error(str(e), status_code=500)
+        finally:
+            store.close()
+
     return app
 
 
 def _create_default_store() -> SqliteStore:
-    home = os.environ.get("KB_MCP_HOME")
-    if home:
-        db_path = Path(home) / "kb.db"
-    else:
-        db_path = Path.home() / ".local" / "share" / "kb-mcp" / "kb.db"
-    return SqliteStore(db_path)
+    try:
+        mgr = VaultManager()
+        db_path = mgr.resolve_path()
+        return SqliteStore(db_path)
+    except Exception:
+        home = os.environ.get("KB_MCP_HOME")
+        if home:
+            db_path = Path(home) / "kb.db"
+        else:
+            db_path = Path.home() / ".local" / "share" / "kb-mcp" / "kb.db"
+        return SqliteStore(db_path)
 
 
 @contextmanager
