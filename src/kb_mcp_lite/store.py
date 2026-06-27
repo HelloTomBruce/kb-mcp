@@ -205,6 +205,53 @@ class Store(Protocol):
         """Return every document. Used by ``kb export``."""
         ...
 
+    # ---- embedding / similarity -----------------------------------------
+
+    def similar_docs(
+        self, doc_id: str, limit: int = 10
+    ) -> list[tuple[Document, float]]:
+        """Return documents most similar to ``doc_id`` by embedding
+        cosine distance, sorted nearest-first.
+
+        Each tuple is ``(document, cosine_distance)`` where 0.0 = identical.
+        Returns ``[]`` when the embedder is disabled or the doc has no
+        embedding vector.
+        """
+        ...
+
+    def suggest_tags(
+        self, doc_id: str, limit: int = 10
+    ) -> list[tuple[str, float]]:
+        """Suggest tags for ``doc_id`` based on similar documents' tags.
+
+        Returns ``[(tag, weight), ...]`` sorted by descending weight.
+        Weight is the sum of (1 - distance) contributions from each
+        similar document that carries the tag.
+        """
+        ...
+
+    def suggest_type(
+        self, doc_id: str, limit: int = 10
+    ) -> list[tuple[str, float]]:
+        """Suggest a document type for ``doc_id`` based on similar docs.
+
+        Returns ``[(type, weight), ...]`` sorted by descending weight,
+        where weight is the count of similar docs with that type
+        modulated by similarity (1 - distance).
+        """
+        ...
+
+    def find_duplicates(
+        self, threshold: float = 0.15, limit: int = 50
+    ) -> list[tuple[str, str, float]]:
+        """Scan all documents and find near-duplicate pairs.
+
+        ``threshold`` is the cosine-distance cutoff (0.0 = identical,
+        lower = more similar). Returns ``[(id_a, id_b, distance), ...]``
+        sorted by distance ascending, limited to ``limit`` pairs.
+        """
+        ...
+
     # ---- maintenance ----------------------------------------------------
 
     def doctor(self) -> DoctorReport:

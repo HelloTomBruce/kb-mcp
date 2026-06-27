@@ -101,11 +101,14 @@ def _load_yaml(path: Path) -> dict:
 def _extract_embedding_block(d: dict) -> Optional[dict]:
     """Find the embedding config inside a parsed YAML.
 
-    Looks in two places, in order:
+    Looks in three places, in order:
 
-    1. ``auxiliary.embedding.*``  — matches Hermes' main config layout.
-    2. ``kb_mcp_lite.embedding.*``      — flat top-level override.
+    1. ``embedding.*``  — kb-mcp native config.
+    2. ``auxiliary.embedding.*``  — Hermes' main config layout.
+    3. ``kb_mcp_lite.embedding.*`` — flat top-level override.
     """
+    if isinstance(d.get("embedding"), dict):
+        return d["embedding"]
     aux = d.get("auxiliary") or {}
     if isinstance(aux, dict) and isinstance(aux.get("embedding"), dict):
         return aux["embedding"]
@@ -168,22 +171,25 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
     """Resolve the embedding config in priority order.
 
     1. ``KB_MCP_EMBEDDING_CONFIG`` env var (path to a YAML file).
-    2. ``~/.hermes/shared/kb_mcp_lite.yaml`` (shared override; multiple
-       kb-mcp-using apps can co-locate their overrides here).
-    3. ``~/.hermes/config.yaml`` (Hermes main config; the
-       ``auxiliary.embedding`` block the user has already set up for
-       vision-style tasks).
+    2. ``KB_MCP_CONFIG`` env var → ``~/.config/kb-mcp/config.yaml``
+       (kb-mcp native config file — ``embedding:`` key).
+    3. ``~/.hermes/shared/kb_mcp_lite.yaml`` (shared override).
+    4. ``~/.hermes/config.yaml`` (Hermes compatibility).
 
     ``api_key`` values of the form ``${VAR}`` are expanded against
     environment variables so secrets can live in ``.env`` rather than
     config.yaml.
     """
-    # Ensure Hermes' .env is loaded so ${VAR} references resolve.
+    # Load Hermes' .env if present, so ${VAR} references resolve.
     _load_dotenv()
     candidates: list[Path] = []
     env = os.environ.get("KB_MCP_EMBEDDING_CONFIG")
     if env:
         candidates.append(Path(env))
+    # kb-mcp native config (~/.config/kb-mcp/config.yaml)
+    from kb_mcp_lite.config import config_path as _kb_config_path
+
+    candidates.append(_kb_config_path())
     candidates.append(Path.home() / ".hermes" / "shared" / "kb_mcp_lite.yaml")
     candidates.append(Path.home() / ".hermes" / "config.yaml")
 
@@ -194,7 +200,7 @@ def load_embedding_config() -> Optional[EmbeddingConfig]:
         block = _extract_embedding_block(d)
         if not block:
             continue
-        base_url = _expand_env((block.get("base_url") or "").strip())
+        base_url = _expand_env((block.get("base_url") or block.get("url") or "").strip())
         model = (block.get("model") or "").strip()
         if not base_url or not model:
             logger.debug("%s: embedding block present but missing base_url/model", path)

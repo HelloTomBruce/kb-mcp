@@ -288,6 +288,11 @@ def init(ctx: click.Context, force: bool, skip_confirm: bool, as_json: bool) -> 
         # (e.g. CliRunner) and explicit --yes skip the check.
         if not click.confirm("--force will recreate the KB. Continue?", default=False):
             raise click.Abort()
+
+    # Ensure config file exists (generate template if missing).
+    from kb_mcp_lite.config import ensure_config
+    cfg_path = ensure_config()
+
     store = _get_store(ctx)
     # Touching the store proves the protocol works end-to-end.
     _ = store.doctor()
@@ -295,9 +300,9 @@ def init(ctx: click.Context, force: bool, skip_confirm: bool, as_json: bool) -> 
     if force:
         message += " (force)"
     if as_json:
-        _emit_json({"ok": True, "force": force, "message": message})
+        _emit_json({"ok": True, "force": force, "message": message, "config": str(cfg_path)})
     else:
-        click.echo(f"kb init: {message}")
+        click.echo(f"kb init: {message}  config: {cfg_path}")
 
 
 # ---- kb add ------------------------------------------------------------------
@@ -801,6 +806,108 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
             f"embedder={'enabled' if enabled else 'disabled'} "
             f"dim={dim} indexed={n_vec}"
         )
+
+
+# ---- kb similar --------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@click.option("--limit", default=10, show_default=True, help="Max results.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def similar(ctx: click.Context, doc_id: str, limit: int, as_json: bool) -> None:
+    """Find documents similar to DOC_ID by embedding similarity."""
+    store = _get_store(ctx)
+    results = store.similar_docs(doc_id, limit=limit)
+    if as_json:
+        _emit_json([
+            {"id": doc.id, "type": doc.type, "title": doc.title, "distance": round(dist, 4)}
+            for doc, dist in results
+        ])
+    else:
+        if not results:
+            click.echo("No similar documents found.")
+            return
+        for doc, dist in results:
+            click.echo(f"{doc.id:50s}  {dist:.4f}  {doc.title}")
+
+
+# ---- kb suggest-tags ----------------------------------------------------------
+
+
+@cli.command(name="suggest-tags")
+@click.argument("doc_id")
+@click.option("--limit", default=10, show_default=True, help="Max tag suggestions.")
+@click.option("--apply", "do_apply", is_flag=True, help="Apply suggested tags to the document.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def suggest_tags(
+    ctx: click.Context, doc_id: str, limit: int, do_apply: bool, as_json: bool
+) -> None:
+    """Suggest tags for DOC_ID based on similar documents' tags."""
+    store = _get_store(ctx)
+    results = store.suggest_tags(doc_id, limit=limit)
+    if as_json:
+        _emit_json(results)
+    elif not results:
+        click.echo("No tag suggestions.")
+    else:
+        for tag, weight in results:
+            click.echo(f"{tag:30s}  {weight:.4f}")
+        if do_apply:
+            tags_to_apply = [t for t, _ in results]
+            store.update(doc_id, tags=tags_to_apply)
+            click.echo(f"Applied {len(tags_to_apply)} tag(s) to {doc_id}.")
+
+
+# ---- kb classify -------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@click.option("--limit", default=10, show_default=True, help="Max type suggestions.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def classify(ctx: click.Context, doc_id: str, limit: int, as_json: bool) -> None:
+    """Suggest a document type for DOC_ID based on similar documents."""
+    store = _get_store(ctx)
+    results = store.suggest_type(doc_id, limit=limit)
+    if as_json:
+        _emit_json(results)
+    elif not results:
+        click.echo("No type suggestions.")
+    else:
+        for typ, weight in results:
+            click.echo(f"{typ:20s}  {weight:.4f}")
+        top = results[0][0]
+        click.echo(f"\n→ Suggested type: {top}")
+
+
+# ---- kb dedup ----------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--threshold", default=0.15, show_default=True, type=float,
+              help="Cosine distance threshold (lower = more similar).")
+@click.option("--limit", default=50, show_default=True, help="Max pairs to report.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def dedup(ctx: click.Context, threshold: float, limit: int, as_json: bool) -> None:
+    """Find near-duplicate document pairs by embedding similarity."""
+    store = _get_store(ctx)
+    results = store.find_duplicates(threshold=threshold, limit=limit)
+    if as_json:
+        _emit_json(results)
+    elif not results:
+        click.echo("No duplicates found.")
+    else:
+        for id_a, id_b, dist in results:
+            click.echo(f"{dist:.4f}  {id_a}  ↔  {id_b}")
 
 
 # ---- kb import ---------------------------------------------------------------

@@ -404,6 +404,22 @@ class StubStore(_Store):
             results.append(doc)
         return results
 
+    # ---- embedding / similarity -----------------------------------------
+
+    def similar_docs(self, doc_id: str, limit: int = 10) -> list[tuple[Document, float]]:
+        return []
+
+    def suggest_tags(self, doc_id: str, limit: int = 10) -> list[tuple[str, float]]:
+        return []
+
+    def suggest_type(self, doc_id: str, limit: int = 10) -> list[tuple[str, float]]:
+        return []
+
+    def find_duplicates(
+        self, threshold: float = 0.15, limit: int = 50
+    ) -> list[tuple[str, str, float]]:
+        return []
+
     # ---- maintenance ----------------------------------------------------
 
     def doctor(self) -> DoctorReport:

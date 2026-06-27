@@ -68,12 +68,17 @@ def get_kb_home() -> Path:
 
     Order:
     1. ``KB_MCP_HOME`` env var, if set.
-    2. ``~/.local/share/kb-mcp/`` (XDG-style, all platforms).
+    2. ``data_dir`` from ``~/.config/kb-mcp/config.yaml``, if set.
+    3. ``~/.local/share/kb-mcp/`` (XDG-style, all platforms).
     """
     env = os.environ.get("KB_MCP_HOME")
     if env:
         return Path(env)
-    return Path.home() / ".local" / "share" / "kb-mcp"
+    try:
+        from kb_mcp_lite.config import get_data_dir
+        return get_data_dir()
+    except ImportError:
+        return Path.home() / ".local" / "share" / "kb-mcp"
 
 
 def get_current_vault_name() -> str:

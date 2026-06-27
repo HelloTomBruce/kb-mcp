@@ -1148,6 +1148,173 @@ class SqliteStore:
         with self._txn() as cur:
             cur.execute("INSERT INTO docs_fts(docs_fts) VALUES('rebuild')")
 
+    # ---- embedding / similarity helpers ---------------------------------
+
+    def similar_docs(
+        self, doc_id: str, limit: int = 10
+    ) -> list[tuple[Document, float]]:
+        """Return documents most similar to ``doc_id`` by embedding
+        cosine distance, sorted nearest-first.
+
+        Returns ``[]`` when the embedder is disabled, vec0 unavailable,
+        or the source doc has no embedding.
+        """
+        vec_conn = self._vec_conn_lazy()
+        if vec_conn is None:
+            return []
+
+        row = self._conn.execute(
+            "SELECT rowid FROM documents WHERE id = ? AND deleted_at IS NULL",
+            (doc_id,),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError(doc_id)
+
+        # Fetch the source document's embedding vector from the vec0 side
+        # connection (it may be a different connection from self._conn).
+        # vec0 stores embeddings as serialized float32 bytes, so we pass
+        # them directly to the MATCH clause — do NOT re-serialize.
+        try:
+            emb_row = vec_conn.execute(
+                "SELECT embedding FROM docs_vec WHERE rowid = ?",
+                (row[0],),
+            ).fetchone()
+        except Exception:  # noqa: BLE001
+            return []
+        if emb_row is None:
+            return []  # source doc has no embedding
+        query_vec = emb_row[0]  # already serialized float32 bytes
+
+        try:
+            cursor = vec_conn.execute(
+                """
+                SELECT d.id, d.type, d.title, d.body, d.tags, d.source,
+                       d.created_at, d.updated_at, d.deleted_at,
+                       v.distance
+                FROM docs_vec v
+                JOIN documents d ON d.rowid = v.rowid
+                WHERE v.embedding MATCH ?
+                  AND v.rowid != ?
+                  AND d.deleted_at IS NULL
+                  AND k = ?
+                ORDER BY v.distance
+                """,
+                (query_vec, row[0], limit),
+            )
+        except Exception:  # noqa: BLE001
+            return []
+
+        cols = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        result: list[tuple[Document, float]] = []
+        for r in rows:
+            d = dict(zip(cols, r))
+            dist = float(d.pop("distance", 0.0))
+            result.append((self._row_to_doc_dict(d), dist))
+        return result
+
+    def suggest_tags(
+        self, doc_id: str, limit: int = 10
+    ) -> list[tuple[str, float]]:
+        """Suggest tags for ``doc_id`` based on similar documents' tags.
+
+        Returns ``[(tag, weight), ...]`` sorted by descending weight.
+        Weight is the sum of ``(1 - distance)`` contributions from each
+        similar document that carries the tag.
+        """
+        sim = self.similar_docs(doc_id, limit=limit * 3)
+        if not sim:
+            return []
+
+        scores: dict[str, float] = {}
+        for doc, dist in sim:
+            weight = 1.0 - dist
+            for tag in doc.tags:
+                scores[tag] = scores.get(tag, 0.0) + weight
+
+        sorted_tags = sorted(scores.items(), key=lambda x: -x[1])
+        return sorted_tags[:limit]
+
+    def suggest_type(
+        self, doc_id: str, limit: int = 10
+    ) -> list[tuple[str, float]]:
+        """Suggest a document type for ``doc_id`` based on similar docs.
+
+        Returns ``[(type, weight), ...]`` sorted by descending weight,
+        where weight is the count of similar docs with that type
+        modulated by similarity ``(1 - distance)``.
+        """
+        sim = self.similar_docs(doc_id, limit=limit * 3)
+        if not sim:
+            return []
+
+        scores: dict[str, float] = {}
+        for doc, dist in sim:
+            weight = 1.0 - dist
+            scores[doc.type] = scores.get(doc.type, 0.0) + weight
+
+        sorted_types = sorted(scores.items(), key=lambda x: -x[1])
+        return sorted_types[:limit]
+
+    def find_duplicates(
+        self, threshold: float = 0.15, limit: int = 50
+    ) -> list[tuple[str, str, float]]:
+        """Scan all documents and find near-duplicate pairs.
+
+        ``threshold`` is the cosine-distance cutoff (0.0 = identical,
+        lower = more similar). Returns ``[(id_a, id_b, distance), ...]``
+        sorted by distance ascending, limited to ``limit`` pairs.
+        """
+        vec_conn = self._vec_conn_lazy()
+        if vec_conn is None:
+            return []
+
+        doc_ids = self._conn.execute(
+            "SELECT id, rowid FROM documents WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+
+        results: list[tuple[str, str, float]] = []
+        for idx, (id_a, rowid_a) in enumerate(doc_ids):
+            # Fetch the embedding vector for this doc first.
+            # vec0 stores embeddings as serialized float32 bytes; pass
+            # them directly to MATCH — do NOT re-serialize.
+            try:
+                emb_row = vec_conn.execute(
+                    "SELECT embedding FROM docs_vec WHERE rowid = ?",
+                    (rowid_a,),
+                ).fetchone()
+            except Exception:  # noqa: BLE001
+                continue
+            if emb_row is None:
+                continue
+            query_vec = emb_row[0]  # already serialized float32 bytes
+
+            try:
+                cursor = vec_conn.execute(
+                    """
+                    SELECT d.id, v.distance
+                    FROM docs_vec v
+                    JOIN documents d ON d.rowid = v.rowid
+                    WHERE v.embedding MATCH ?
+                      AND v.rowid > ?
+                      AND d.deleted_at IS NULL
+                      AND v.distance <= ?
+                      AND k = ?
+                    ORDER BY v.distance
+                    """,
+                    (query_vec, rowid_a, threshold, limit - len(results)),
+                )
+            except Exception:  # noqa: BLE001
+                continue
+
+            for r in cursor.fetchall():
+                id_b, dist = r[0], float(r[1])
+                results.append((id_a, id_b, dist))
+                if len(results) >= limit:
+                    return results
+
+        return results
+
     # ---- embeddings (vec0) ----------------------------------------------
 
     def _index_embedding(self, doc: Document) -> None:
