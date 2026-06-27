@@ -11,7 +11,7 @@ Public API (defined in :ref:`docs/architecture.md § 4.3 <architecture>`):
 .. code-block:: python
 
     def parse_frontmatter(text: str) -> tuple[Frontmatter, str]: ...
-    def render_document(doc: Document) -> str: ...
+    def render_document(doc: Document, outlinks: list[Link] | None = None) -> str: ...
     def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportReport: ...
     def export_dir(store: Store, dir: Path, *, force: bool = False) -> int: ...
 
@@ -32,6 +32,7 @@ import frontmatter
 from kb_mcp_lite.schema import (
     Document,
     ImportReport,
+    Link,
     ValidationError,
     make_id,
 )
@@ -69,6 +70,7 @@ class Frontmatter(TypedDict, total=False):
     source: str
     created_at: str
     updated_at: str
+    links: List[dict]
 
 
 # ---------------------------------------------------------------------------
@@ -107,13 +109,17 @@ def parse_frontmatter(text: str) -> tuple[Frontmatter, str]:
 # ---------------------------------------------------------------------------
 
 
-def render_document(doc: Document) -> str:
+def render_document(doc: Document, outlinks: list[Link] | None = None) -> str:
     """Render a :class:`Document` to its stable on-disk Markdown form.
 
     The output has a YAML frontmatter block (keys sorted alphabetically
     by :func:`frontmatter.dumps` for determinism) followed by a blank
     line and the body. Round-trippable via :func:`parse_frontmatter`
     plus :func:`import_dir`.
+
+    When ``outlinks`` is provided, a ``links`` list is added to the
+    frontmatter so that import round-trips preserve document
+    relationships.
 
     The body is emitted **verbatim** — Markdown is never HTML-converted
     here. Callers wanting HTML should run their own renderer (e.g.
@@ -130,6 +136,8 @@ def render_document(doc: Document) -> str:
         fm["created_at"] = doc.created_at.isoformat()
     if doc.updated_at is not None:
         fm["updated_at"] = doc.updated_at.isoformat()
+    if outlinks:
+        fm["links"] = [{"to": link.to_id, "rel": link.rel} for link in outlinks]
 
     post = frontmatter.Post(doc.body or "", **fm)
     return frontmatter.dumps(post)
@@ -152,6 +160,32 @@ def _coerce_tags(value: Any) -> List[str]:
     if isinstance(value, str):
         return [value] if value else []
     return []
+
+
+def _coerce_links(value: Any) -> list[dict[str, str]]:
+    """Coerce the frontmatter ``links`` value to a list of ``{to, rel}`` dicts.
+
+    Accepts a list of dicts. Each dict must have a ``to`` key (str).
+    ``rel`` is optional and defaults to ``"relates-to"``.
+
+    Raises:
+        ValidationError: if any entry is missing ``to`` or has a
+            non-string ``to`` / ``rel``.
+    """
+    if not isinstance(value, list):
+        return []
+    result: list[dict[str, str]] = []
+    for i, entry in enumerate(value):
+        if not isinstance(entry, dict):
+            raise ValidationError(f"links[{i}]: expected a dict, got {type(entry).__name__}")
+        to = entry.get("to")
+        if not to or not isinstance(to, str):
+            raise ValidationError(f"links[{i}]: missing or invalid 'to' (expected str, got {to!r})")
+        rel = entry.get("rel", "relates-to")
+        if not isinstance(rel, str) or not rel.strip():
+            raise ValidationError(f"links[{i}]: invalid 'rel' (expected non-empty str, got {rel!r})")
+        result.append({"to": to, "rel": rel.strip()})
+    return result
 
 
 def _parse_iso_dt(value: Any) -> datetime:
@@ -276,6 +310,8 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
 
     docs: List[Document] = []
     errors: List[str] = []
+    # Each entry: (from_id, to_id, rel, source_path) — source_path for error messages.
+    pending_links: list[tuple[str, str, str, str]] = []
 
     for root, dirs, files in os.walk(base):
         # Skip hidden directories in-place so walk doesn't descend into them.
@@ -304,6 +340,17 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
                 rel_source = str(path.relative_to(base))
                 doc = doc_from_frontmatter(fm, body, source=rel_source)
                 docs.append(doc)
+
+                # Collect links from frontmatter.
+                raw_links = fm.get("links")
+                if raw_links:
+                    try:
+                        parsed = _coerce_links(raw_links)
+                        for link in parsed:
+                            pending_links.append((doc.id, link["to"], link["rel"], rel_source))
+                    except ValidationError as e:
+                        errors.append(f"{path}: {e}")
+
             except ValidationError as e:
                 errors.append(f"{path}: {e}")
             except Exception as e:  # noqa: BLE001 — surface any parse error per-file
@@ -320,11 +367,20 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
     # Delegate to the store. import_many implements source-based dedup
     # ("update by source path" per architecture § 4.3).
     report = store.import_many(docs)
+
+    # Create links after all documents are in the store.
+    link_errors: list[str] = []
+    for from_id, to_id, rel, source_path in pending_links:
+        try:
+            store.link(from_id, to_id, rel=rel)
+        except Exception as e:  # noqa: BLE001 — surface per-link error
+            link_errors.append(f"{source_path}: link {from_id} -> {to_id} ({rel}): {e}")
+
     return ImportReport(
         inserted=report.inserted,
         updated=report.updated,
         skipped=report.skipped,
-        errors=list(errors) + list(report.errors),
+        errors=list(errors) + list(report.errors) + link_errors,
     )
 
 
@@ -403,7 +459,10 @@ def export_dir(store: Store, dir: Path, *, force: bool = False) -> int:
                 f"refusing to overwrite existing file {candidate} (use force=True to overwrite)"
             )
 
-        candidate.write_text(render_document(doc), encoding="utf-8")
+        candidate.write_text(
+            render_document(doc, outlinks=store.outlinks(doc.id)),
+            encoding="utf-8",
+        )
         written += 1
 
         # Update doc.source in the store so a subsequent import from

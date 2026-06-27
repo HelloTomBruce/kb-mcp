@@ -218,6 +218,7 @@ Any valid Markdown.
 | `source` | `str` | *(auto)* | Overridden by the file's relative path during import. Usually you don't set this. |
 | `created_at` | `str` | `now` UTC | ISO-8601 datetime. `2025-01-15T10:00:00Z` or `2025-01-15T10:00:00+00:00`. |
 | `updated_at` | `str` | `now` UTC | Same format as `created_at`. |
+| `links` | `list[dict]` | `[]` | Outgoing document links. Each entry has `to` (target doc ID) and optional `rel` (default `"relates-to"`). |
 
 > **Note:** Unknown frontmatter keys are silently passed through and ignored.
 
@@ -248,6 +249,10 @@ tags:
   - architecture
   - database
 created_at: 2025-01-15T10:00:00Z
+links:
+  - to: proj/kb-mcp
+    rel: governs
+  - to: glossary/fts5
 ---
 
 ## Context
@@ -335,7 +340,8 @@ knowledge base, it's fast enough, and FTS5 + vec0 cover search.
 2. **Frontmatter parsed** — each file is read and its YAML frontmatter extracted.
 3. **Document constructed** — `type` + `title` are validated (required); missing fields raise errors collected per-file.
 4. **Source-based dedup** — if a document with the same `source` path already exists, it is **updated in-place** (preserving `id` and `created_at`). Otherwise a new document is **inserted**.
-5. **Report generated** — a summary showing inserted / updated / skipped / error counts.
+5. **Links created** — if a file's frontmatter has a `links` field, each link is created via `store.link()`. Failed links (e.g. target doc not found) are reported as errors.
+6. **Report generated** — a summary showing inserted / updated / skipped / error counts.
 
 ```bash
 $ kb import ./docs/
@@ -364,6 +370,9 @@ kb export <directory> [--force]
 - Pre-existing files are **not** overwritten unless `--force` is passed.
 - After export, each document's `source` field is updated in the DB so a
   subsequent `kb import` of the same directory matches correctly.
+- Outgoing document links (from `store.outlinks()`) are included in each file's
+  frontmatter as a `links` list, so **import-export round-trips preserve
+  document relationships**.
 
 
 ---
