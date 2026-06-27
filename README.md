@@ -119,8 +119,55 @@ kb vault push
 kb vault pull
 ```
 
+Both `push` and `pull` accept optional `<remote> <branch>` arguments:
+`kb vault push origin main`. When omitted, defaults are `origin` and `main`.
+
 The sync is **text-based**: the vault's Markdown files go to a `md/` subdirectory
 under Git, while the binary `.db` stays local and `.gitignore`d.
+
+### First-time import from a Git repo
+
+If you have an existing Git repository with `md/` (exported Markdown files) and
+want to import it into a local vault, three approaches:
+
+**①  Use `--sync-dir` (recommended for ongoing sync)**
+
+```bash
+# Clone the repo first
+git clone <remote-url> ~/my-vault-repo
+
+# Create a vault pointing at the clone
+kb vault create my-vault --desc "Team KB"
+kb vault init-git --sync-dir ~/my-vault-repo
+
+# Import the Markdown files into SQLite
+kb vault pull
+```
+
+This links the vault to the git clone so future `kb vault commit` / `push` / `pull`
+all work without extra arguments.
+
+**②  Direct `kb import` (one-shot, no git link)**
+
+```bash
+kb vault create my-vault
+kb import ~/my-vault-repo/md/
+```
+
+Fastest for a one-off import, but subsequent `kb vault commit` won't know
+where to export to unless you also run `kb vault init-git --sync-dir`.
+
+**③  Override `KB_MCP_HOME` (isolated vault directory)**
+
+```bash
+git clone <remote-url> ~/.local/share/kb-mcp-custom/
+KB_MCP_HOME=~/.local/share/kb-mcp-custom kb vault list
+KB_MCP_HOME=~/.local/share/kb-mcp-custom kb vault pull
+```
+
+Puts everything under a custom directory — useful for side-by-side vaults
+or testing.
+
 
 ---
 

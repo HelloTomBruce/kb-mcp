@@ -23,6 +23,8 @@ Conventions
 
 from __future__ import annotations
 
+import os
+
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable, Literal
@@ -199,6 +201,15 @@ class Document(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     deleted_at: datetime | None = None
+
+    @field_validator("source")
+    @classmethod
+    def _check_source(cls, v: str | None) -> str | None:
+        if v and os.path.isabs(v):
+            raise ValueError(
+                f"source must be a relative path, got absolute path {v!r}"
+            )
+        return v
 
     @field_validator("id")
     @classmethod

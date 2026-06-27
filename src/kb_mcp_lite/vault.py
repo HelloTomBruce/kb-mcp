@@ -51,6 +51,7 @@ class VaultInfo:
     name: str
     path: str  # relative to KB_MCP_HOME
     description: str = ""
+    sync_dir: str | None = None  # external git sync directory, if set
 
 
 # ---------------------------------------------------------------------------

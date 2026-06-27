@@ -32,6 +32,8 @@ from kb_mcp_lite.md_io import (
     parse_frontmatter,
     render_document,
 )
+from pydantic import ValidationError as PydanticValidationError
+
 from kb_mcp_lite.schema import (
     Document,
     ImportReport,
@@ -549,8 +551,8 @@ class TestExportDir:
             export_dir(store, out)
 
     def test_absolute_source_rejected(self, tmp_path: Path, store: SqliteStore) -> None:
-        """Absolute doc.source paths are rejected outright."""
-        store.add(
+        """Absolute doc.source paths are rejected outright (model-level)."""
+        with pytest.raises(PydanticValidationError, match="source must be a relative path"):
             Document(
                 id="proj/abs",
                 type="project",
@@ -558,7 +560,16 @@ class TestExportDir:
                 body="b",
                 source="/etc/passwd",
             )
+
+    def test_absolute_source_rejected_export(self, tmp_path: Path, store: SqliteStore) -> None:
+        """Defense-in-depth: export_dir rejects absolute source even if data bypassed model validation."""
+        # Insert directly into SQLite to bypass the model-level validator.
+        now = datetime.now(timezone.utc).isoformat()
+        store._conn.execute(
+            "INSERT INTO documents (id, type, title, body, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("proj/abs", "project", "Abs", "b", "/etc/passwd", now, now),
         )
+        store._conn.commit()
         out = tmp_path / "out"
         with pytest.raises(ValidationError, match="absolute"):
             export_dir(store, out)

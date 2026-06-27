@@ -177,7 +177,7 @@ class SqliteStore:
         for k in ("created_at", "updated_at", "deleted_at"):
             if d.get(k):
                 d[k] = self._parse_dt(d[k])
-        return Document.model_validate(d)
+        return Document.model_construct(**d)
 
     def _row_to_link(self, row: sqlite3.Row) -> Link:
         return Link(
@@ -905,7 +905,7 @@ class SqliteStore:
         # 'snip' and 'score' are search-only columns; drop them.
         d.pop("snip", None)
         d.pop("score", None)
-        return Document.model_validate(d)
+        return Document.model_construct(**d)
 
     @staticmethod
     def _escape_fts(query: str) -> str:
