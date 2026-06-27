@@ -1349,10 +1349,18 @@ class SqliteStore:
         if vec_conn is None:
             return
         try:
+            rowid = self._conn.execute(
+                "SELECT rowid FROM documents WHERE id = ?", (doc.id,)
+            ).fetchone()
+            if rowid is None:
+                return
+            # vec0 does not support INSERT OR REPLACE — delete first.
             vec_conn.execute(
-                "INSERT OR REPLACE INTO docs_vec(rowid, embedding) "
-                "VALUES ((SELECT rowid FROM documents WHERE id = ?), ?)",
-                (doc.id, serialize_float32(vector)),
+                "DELETE FROM docs_vec WHERE rowid = ?", (rowid[0],)
+            )
+            vec_conn.execute(
+                "INSERT INTO docs_vec(rowid, embedding) VALUES (?, ?)",
+                (rowid[0], serialize_float32(vector)),
             )
         except Exception as e:  # noqa: BLE001
             import logging
@@ -1457,12 +1465,10 @@ class SqliteStore:
                 title=r["title"],
                 body=r["body"],
             )
-            # Peek at vec count before/after to detect silent failure
-            # inside _index_embedding (it logs but doesn't raise).
-            before = self._count_vec(doc.id)
+            # Verify the vector landed in docs_vec (silent failures inside
+            # _index_embedding are caught and logged but not raised).
             self._index_embedding(doc)
-            after = self._count_vec(doc.id)
-            if after > before:
+            if self._count_vec(doc.id) >= 1:
                 n_ok += 1
             else:
                 n_fail += 1
@@ -1479,19 +1485,19 @@ class SqliteStore:
     def _count_vec(self, doc_id: str) -> int:
         """Return 1 if ``doc_id`` has a row in ``docs_vec``, else 0.
 
-        Used by :meth:`reindex_embeddings` to detect silent failures
-        inside :meth:`_index_embedding`. Uses the base connection
-        (stdlib sqlite3) — counts are read against the same DB file
-        the vec0 side connection writes to, so WAL ordering keeps
-        this consistent.
+        Uses the vec0 side connection — the main connection (stdlib
+        sqlite3) cannot see virtual tables created by pysqlite3.
         """
+        vec_conn = self._vec_conn_lazy()
+        if vec_conn is None:
+            return 0
         try:
-            r = self._conn.execute(
-                "SELECT COUNT(*) FROM docs_vec WHERE rowid = "
+            r = vec_conn.execute(
+                "SELECT rowid FROM docs_vec WHERE rowid = "
                 "(SELECT rowid FROM documents WHERE id = ?)",
                 (doc_id,),
             ).fetchone()
-            return int(r[0]) if r is not None else 0
+            return 1 if r is not None else 0
         except Exception:  # noqa: BLE001 — vec0 may not exist yet
             return 0
 
