@@ -9,13 +9,6 @@ Soft delete: :meth:`delete` sets ``deleted_at``. Reads filter
 
 Failure modes: every method either returns the documented value or
 raises one of the documented exceptions from :mod:`kb_mcp_lite.schema`.
-
-v0.2 (Phase D): the connection is created with the ``pysqlite3``
-module when available (so ``sqlite-vec`` can load the vec0 extension).
-If pysqlite3 is missing, we fall back to stdlib ``sqlite3`` — but
-``docs_vec`` operations will then raise ``IntegrityError`` on first
-attempt. This is a deliberate graceful-degradation: kb-mcp without
-vec support still works as v0.1.
 """
 
 from __future__ import annotations
@@ -25,72 +18,58 @@ import re
 import sqlite3
 import sqlite3 as _stdlib_sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Iterable, Iterator, Optional
+from typing import Iterable, Iterator, List
 
 from kb_mcp_lite.migrations import apply_migrations
 from kb_mcp_lite.schema import (
     Document,
-    DoctorCheck,
-    DoctorReport,
     DuplicateError,
     ImportReport,
     IntegrityError,
     Link,
     NotFoundError,
-    SearchHit,
     ValidationError,
 )
+from kb_mcp_lite.store.search import SearchMixin
+from kb_mcp_lite.store.versioning import VersioningMixin
+from kb_mcp_lite.store.embedding import EmbeddingMixin
+from kb_mcp_lite.store.maintenance import MaintenanceMixin
 
 
-def _make_sqlite_connection(path: str):  # type: ignore[no-untyped-def]
-    """Open a sqlite3 connection that supports vec0 if possible.
-
-    Strategy:
-
-    1. ``pysqlite3`` if installed (ships a SQLite build with
-       extension support). This is the happy path — has wheels for
-       Linux and macOS (x86_64 + arm64).
-    2. Stdlib ``sqlite3`` (no vec0 — semantic search disabled but
-       the rest of kb-mcp keeps working).
-
-    The ctypes-based fallback for Python 3.12 macOS arm64 was
-    abandoned: that Python build strips ``sqlite3_enable_load_extension``
-    from the public ABI (``-DSQLITE_OMIT_LOAD_EXTENSION``), so the
-    symbol genuinely does not exist in the loaded library.
-    """
+def _make_sqlite_connection(path: str):
+    """Open a sqlite3 connection that supports vec0 if possible."""
     try:
-        import pysqlite3 as _psql  # type: ignore[import-not-found]
+        import pysqlite3 as _psql
+
         conn = _psql.connect(path, isolation_level=None)
         conn.enable_load_extension(True)
         _try_load_vec0(conn)
         return conn
     except ImportError:
         pass
-    # Fallback: stdlib. vec0 won't work; the embedder becomes a
-    # no-op and semantic search returns ValidationError.
     return _stdlib_sqlite3.connect(path, isolation_level=None)
 
 
 def _try_load_vec0(conn) -> None:
     """Best-effort load of the vec0 SQLite extension. No-op on failure."""
     import logging
+
     log = logging.getLogger("kb_mcp_lite")
     try:
-        import sqlite_vec  # type: ignore[import-untyped]
+        import sqlite_vec
+
         sqlite_vec.load(conn)
     except Exception as e:
         log.debug("vec0 extension not loaded (%s); semantic search disabled", e)
 
-# Fields that ``update`` is allowed to mutate. Anything else raises
-# ``ValidationError``. ``id``, ``type``, ``created_at``, ``updated_at``,
-# and ``deleted_at`` are managed by the store and cannot be changed.
+
 _UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source", "aliases"})
 _DEFAULT_ACTOR = "admin"
 
 
-class SqliteStore:
+class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin):
     """SQLite-backed :class:`~kb_mcp_lite.store.Store` implementation."""
 
     def __init__(
@@ -100,28 +79,17 @@ class SqliteStore:
     ) -> None:
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Use a vanilla stdlib connection for migration; the vec0
-        # connection is opened later only if we actually need to
-        # write/read vectors. This keeps ``kb init`` / ``kb doctor``
-        # working on any platform, even when vec0 is unavailable.
         self._conn = _stdlib_sqlite3.connect(str(self._path), isolation_level=None)
         self._conn.row_factory = sqlite3.Row
-        # WAL allows concurrent readers while a writer is active.
         self._conn.execute("PRAGMA journal_mode=WAL")
-        # FK enforcement is per-connection; must be set every time.
         self._conn.execute("PRAGMA foreign_keys=ON")
         apply_migrations(self._conn)
-        # Embedder is optional; lazy-make one if not supplied so existing
-        # callers (``SqliteStore(path)``) keep working unchanged.
         if embedder is None:
             from kb_mcp_lite.embedder import make_embedder
+
             embedder = make_embedder()
         self._embedder = embedder
-        # Track whether vec0 is available on this connection. Set on
-        # first need (lazy). The base connection (self._conn) is plain
-        # stdlib; vec0 access is routed through a side connection that
-        # only opens when needed, so platforms without vec0 don't fail.
-        self._vec_conn = None  # type: ignore[assignment]
+        self._vec_conn = None
 
     # ---- context manager + close ---------------------------------------
 
@@ -135,7 +103,7 @@ class SqliteStore:
         try:
             self._conn.close()
         except sqlite3.ProgrammingError:
-            pass  # already closed
+            pass
 
     @property
     def path(self) -> Path:
@@ -187,237 +155,9 @@ class SqliteStore:
             created_at=self._parse_dt(row["created_at"]) or datetime.now(timezone.utc),
         )
 
-    def _record_doc_version(
-        self,
-        cur: sqlite3.Cursor,
-        doc: Document,
-        *,
-        action: str,
-        actor: str = _DEFAULT_ACTOR,
-        note: str = "",
-    ) -> None:
-        cur.execute(
-            """
-            INSERT INTO document_versions (doc_id, action, snapshot, created_at, actor, note)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                doc.id,
-                action,
-                json.dumps(doc.model_dump(mode="json"), ensure_ascii=False),
-                self._now_iso(),
-                actor,
-                note,
-            ),
-        )
-
-    def _record_audit(
-        self,
-        cur: sqlite3.Cursor,
-        *,
-        entity_type: str,
-        entity_id: str,
-        action: str,
-        detail: dict[str, object],
-        actor: str = _DEFAULT_ACTOR,
-        note: str = "",
-    ) -> None:
-        cur.execute(
-            """
-            INSERT INTO audit_log (entity_type, entity_id, action, detail, created_at, actor, note)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                entity_type,
-                entity_id,
-                action,
-                json.dumps(detail, ensure_ascii=False, default=str),
-                self._now_iso(),
-                actor,
-                note,
-            ),
-        )
-
-    def document_history(self, doc_id: str, limit: int = 50) -> list[dict[str, object]]:
-        rows = self._conn.execute(
-            """
-            SELECT version_id, doc_id, action, snapshot, created_at, actor, note
-            FROM document_versions
-            WHERE doc_id = ?
-            ORDER BY version_id DESC
-            LIMIT ?
-            """,
-            (doc_id, limit),
-        ).fetchall()
-        out: list[dict[str, object]] = []
-        for row in rows:
-            out.append(
-                {
-                    "version_id": row["version_id"],
-                    "doc_id": row["doc_id"],
-                    "action": row["action"],
-                    "snapshot": json.loads(row["snapshot"]),
-                    "created_at": row["created_at"],
-                    "actor": row["actor"],
-                    "note": row["note"],
-                }
-            )
-        return out
-
-    def audit_log(self, limit: int = 100) -> list[dict[str, object]]:
-        rows = self._conn.execute(
-            """
-            SELECT audit_id, entity_type, entity_id, action, detail, created_at, actor, note
-            FROM audit_log
-            ORDER BY audit_id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        out: list[dict[str, object]] = []
-        for row in rows:
-            out.append(
-                {
-                    "audit_id": row["audit_id"],
-                    "entity_type": row["entity_type"],
-                    "entity_id": row["entity_id"],
-                    "action": row["action"],
-                    "detail": json.loads(row["detail"] or "{}"),
-                    "created_at": row["created_at"],
-                    "actor": row["actor"],
-                    "note": row["note"],
-                }
-            )
-        return out
-
-    # ---- history / audit / restore -------------------------------------
-
-    def _fetch_version(self, doc_id: str, version_id: int) -> dict[str, object] | None:
-        row = self._conn.execute(
-            """
-            SELECT version_id, doc_id, action, snapshot, created_at, actor, note
-            FROM document_versions
-            WHERE doc_id = ? AND version_id = ?
-            """,
-            (doc_id, version_id),
-        ).fetchone()
-        if row is None:
-            return None
-        return {
-            "version_id": row["version_id"],
-            "doc_id": row["doc_id"],
-            "action": row["action"],
-            "snapshot": json.loads(row["snapshot"]),
-            "created_at": row["created_at"],
-            "actor": row["actor"],
-            "note": row["note"],
-        }
-
-    def restore(self, doc_id: str, version_id: int | None = None) -> Document:
-        """Restore a document to a previous version.
-
-        If ``version_id`` is None, restores to the most recent version.
-        Creates a new version snapshot before applying the restore.
-        """
-        # Check the document exists (including deleted)
-        self.get(doc_id, include_deleted=True)
-
-        if version_id is not None:
-            entry = self._fetch_version(doc_id, version_id)
-            if entry is None:
-                raise NotFoundError(f"version {version_id} for {doc_id!r}")
-        else:
-            history = self.document_history(doc_id, limit=1)
-            if not history:
-                raise NotFoundError(f"no versions found for {doc_id!r}")
-            entry = history[0]
-
-        snapshot = entry["snapshot"]  # type: dict[str, object]
-        # Ensure id is correct (snapshot may have been serialised with it)
-        snapshot["id"] = doc_id
-        restored_doc = Document.model_validate(snapshot)
-
-        # Apply via update — this records the restore as a new version
-        fields: dict[str, object] = {}
-        for f in ("title", "body", "tags", "source"):
-            fields[f] = getattr(restored_doc, f, None)
-        return self.update(doc_id, **fields)
-
-    def diff(
-        self,
-        doc_id: str,
-        version_a: int,
-        version_b: int,
-    ) -> dict[str, object]:
-        """Compare two document versions.
-
-        Returns ``{added, removed, changed}``.
-        """
-        entry_a = self._fetch_version(doc_id, version_a)
-        if entry_a is None:
-            raise NotFoundError(f"version {version_a} for {doc_id!r}")
-        entry_b = self._fetch_version(doc_id, version_b)
-        if entry_b is None:
-            raise NotFoundError(f"version {version_b} for {doc_id!r}")
-
-        snap_a: dict[str, object] = entry_a["snapshot"]  # type: ignore[assignment]
-        snap_b: dict[str, object] = entry_b["snapshot"]
-
-        keys_a = set(snap_a.keys())
-        keys_b = set(snap_b.keys())
-
-        added: dict[str, object] = {}
-        removed: dict[str, object] = {}
-        changed: dict[str, dict[str, object]] = {}
-
-        for k in keys_b - keys_a:
-            added[k] = snap_b[k]
-        for k in keys_a - keys_b:
-            removed[k] = snap_a[k]
-        for k in keys_a & keys_b:
-            if snap_a[k] != snap_b[k]:
-                changed[k] = {"from": snap_a[k], "to": snap_b[k]}
-
-        return {
-            "doc_id": doc_id,
-            "version_a": version_a,
-            "version_b": version_b,
-            "added": added,
-            "removed": removed,
-            "changed": changed,
-        }
-
-    def restore_deleted(self, doc_id: str) -> Document:
-        """Restore a soft-deleted document.
-
-        Raises ValidationError if the document is not soft-deleted.
-        """
-        doc = self.get(doc_id, include_deleted=True)
-        if doc.deleted_at is None:
-            raise ValidationError(f"document {doc_id!r} is not deleted")
-        now = self._now_iso()
-        with self._txn() as cur:
-            cur.execute(
-                "UPDATE documents SET deleted_at = NULL, updated_at = ? WHERE id = ?",
-                (now, doc_id),
-            )
-            restored_doc = doc.model_copy(update={"deleted_at": None})
-            self._record_doc_version(cur, restored_doc, action="restore")
-            self._record_audit(
-                cur,
-                entity_type="document",
-                entity_id=doc_id,
-                action="restore",
-                detail={"title": doc.title, "type": doc.type},
-            )
-        # Re-index in FTS and vec
-        self._index_embedding(restored_doc)
-        return self.get(doc_id)
-
     # ---- aliases --------------------------------------------------------
 
     def _write_aliases(self, doc_id: str, aliases: list[str]) -> None:
-        """Replace all aliases for a document."""
         self._conn.execute("DELETE FROM doc_aliases WHERE doc_id = ?", (doc_id,))
         if not aliases:
             return
@@ -431,7 +171,6 @@ class SqliteStore:
                     (alias, doc_id, now),
                 )
             except sqlite3.IntegrityError:
-                # Alias already taken by another doc — skip (best-effort)
                 continue
 
     def _read_aliases(self, doc_id: str) -> list[str]:
@@ -447,6 +186,8 @@ class SqliteStore:
         ).fetchone()
         return row["doc_id"] if row else None
 
+    # ---- read -----------------------------------------------------------
+
     def get(self, doc_id: str, include_deleted: bool = False) -> Document:
         """Fetch a document by id. Also resolves aliases."""
         sql = "SELECT * FROM documents WHERE id = ?"
@@ -454,18 +195,43 @@ class SqliteStore:
             sql += " AND deleted_at IS NULL"
         row = self._conn.execute(sql, (doc_id,)).fetchone()
         if row is None:
-            # Try alias resolution
             resolved = self.resolve_alias(doc_id)
             if resolved:
                 return self.get(resolved, include_deleted=include_deleted)
             raise NotFoundError(doc_id)
-        doc = self._row_to_doc(row)
-        return doc
+        return self._row_to_doc(row)
+
+    def list(
+        self,
+        type: str | None = None,
+        tags: List[str] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_deleted: bool = False,
+    ) -> List[Document]:
+        if limit < 1 or limit > 1000:
+            raise ValidationError("limit must be in 1..1000")
+        if offset < 0:
+            raise ValidationError("offset must be >= 0")
+        sql = "SELECT * FROM documents WHERE 1=1"
+        params: List[object] = []
+        if not include_deleted:
+            sql += " AND deleted_at IS NULL"
+        if type:
+            sql += " AND type = ?"
+            params.append(type)
+        sql += " ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        rows = self._conn.execute(sql, params).fetchall()
+        docs = [self._row_to_doc(r) for r in rows]
+        if tags:
+            wanted = set(tags)
+            docs = [d for d in docs if wanted.issubset(set(d.tags))]
+        return docs
 
     # ---- write ----------------------------------------------------------
 
     def add(self, doc: Document) -> str:
-        # If the caller left id blank, generate one from type+title.
         if not doc.id:
             from kb_mcp_lite.schema import make_id
 
@@ -500,9 +266,6 @@ class SqliteStore:
             if "UNIQUE constraint failed: documents.id" in msg or "PRIMARY KEY" in msg:
                 raise DuplicateError(doc.id) from e
             raise IntegrityError(msg) from e
-        # Best-effort: write embedding if embedder is configured. Errors
-        # here MUST NOT break the add (the lexical path is more
-        # important), so we log and move on.
         self._write_aliases(doc.id, doc.aliases)
         self._index_embedding(doc)
         return doc.id
@@ -513,7 +276,6 @@ class SqliteStore:
             raise ValidationError(f"cannot update fields: {sorted(bad)}")
         if not fields:
             raise ValidationError("update requires at least one field")
-
         existing = self.get(doc_id, include_deleted=True)
         merged = existing.model_dump()
         for k, v in fields.items():
@@ -521,7 +283,6 @@ class SqliteStore:
                 if v is None:
                     merged["tags"] = []
                 elif isinstance(v, str):
-                    # accept "a,b,c" comma-list form too
                     merged["tags"] = [t.strip() for t in v.split(",") if t.strip()]
                 elif isinstance(v, list):
                     merged["tags"] = list(v)
@@ -533,7 +294,6 @@ class SqliteStore:
                 merged[k] = v
         merged["updated_at"] = datetime.now(timezone.utc)
         new_doc = Document.model_validate(merged)
-
         row = new_doc.to_row()
         with self._txn() as cur:
             cur.execute(
@@ -553,34 +313,24 @@ class SqliteStore:
                 action="update",
                 detail={"fields": sorted(fields.keys())},
             )
-        # Write aliases if provided
         if "aliases" in fields:
-            self._write_aliases(doc_id, fields["aliases"])  # type: ignore[arg-type]
-        # Re-embed if title or body changed (cheap heuristic; tag-only
-        # changes don't really need re-embedding, but the cost is small).
+            self._write_aliases(doc_id, fields["aliases"])
         if "title" in fields or "body" in fields:
             self._index_embedding(new_doc)
         return self.get(doc_id)
 
     def delete(self, doc_id: str) -> None:
-        """Soft-delete.
-
-        Idempotent: deleting an already soft-deleted document is a no-op
-        (no error). Deleting a never-existed document raises
-        :class:`NotFoundError`.
-        """
         active = self._conn.execute(
             "SELECT 1 FROM documents WHERE id = ? AND deleted_at IS NULL",
             (doc_id,),
         ).fetchone()
         if active is None:
-            # Either never existed, or already soft-deleted.
             exists = self._conn.execute(
                 "SELECT 1 FROM documents WHERE id = ?", (doc_id,)
             ).fetchone()
             if exists is None:
                 raise NotFoundError(doc_id)
-            return  # already deleted — no-op
+            return
         now = self._now_iso()
         doc = self.get(doc_id, include_deleted=True)
         deleted_doc = doc.model_copy(update={"deleted_at": self._parse_dt(now)})
@@ -597,362 +347,7 @@ class SqliteStore:
                 action="delete",
                 detail={"title": doc.title, "type": doc.type},
             )
-        # Note: we do NOT touch docs_fts / docs_fts_trgm here. FTS5
-        # with ``content='documents'`` is a projection of the
-        # documents table, so soft-deleted rows remain visible to
-        # ``SELECT rowid FROM docs_fts``; they're excluded from
-        # search results by the ``WHERE d.deleted_at IS NULL`` filter
-        # in every _search_fts query. Touching the FTS table here
-        # would require the FTS5 internal "delete-all-tokens" command
-        # which is unreliable for external-content tables — better to
-        # filter at the search layer.
-        # Remove the vector too — soft-deleted docs should not surface
-        # in semantic search.
         self._remove_embedding(doc_id)
-
-    # ---- read -----------------------------------------------------------
-
-    def get(self, doc_id: str, include_deleted: bool = False) -> Document:
-        sql = "SELECT * FROM documents WHERE id = ?"
-        if not include_deleted:
-            sql += " AND deleted_at IS NULL"
-        row = self._conn.execute(sql, (doc_id,)).fetchone()
-        if row is None:
-            raise NotFoundError(doc_id)
-        return self._row_to_doc(row)
-
-    def list(
-        self,
-        type: str | None = None,  # noqa: A002
-        tags: List[str] | None = None,
-        limit: int = 100,
-        offset: int = 0,
-        include_deleted: bool = False,
-    ) -> List[Document]:
-        if limit < 1 or limit > 1000:
-            raise ValidationError("limit must be in 1..1000")
-        if offset < 0:
-            raise ValidationError("offset must be >= 0")
-
-        sql = "SELECT * FROM documents WHERE 1=1"
-        params: List[object] = []
-        if not include_deleted:
-            sql += " AND deleted_at IS NULL"
-        if type:
-            sql += " AND type = ?"
-            params.append(type)
-        sql += " ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-        rows = self._conn.execute(sql, params).fetchall()
-        docs = [self._row_to_doc(r) for r in rows]
-
-        if tags:
-            wanted = set(tags)
-            docs = [d for d in docs if wanted.issubset(set(d.tags))]
-        return docs
-
-    def search(
-        self,
-        query: str,
-        type: str | None = None,  # noqa: A002
-        tags: List[str] | None = None,
-        limit: int = 10,
-        mode: str = "lexical",
-    ) -> List[SearchHit]:
-        """Full-text search via the backend's FTS engine.
-
-        ``mode`` selects the scoring strategy:
-
-        - ``"lexical"`` (default): exact-token BM25 on ``docs_fts``.
-          Best for known-vocabulary queries. Lowest recall but highest
-          precision; cheap.
-        - ``"fuzzy"``: trigram BM25 on ``docs_fts_trgm``. Tolerates
-          typos (``sqlit`` → ``sqlitte``), prefix matches, and
-          separator differences (``fastech-energy`` ↔ ``fastech``).
-          Slower; slightly noisier.
-        - ``"hybrid"``: union of both, with exact-token hits ranked
-          above trigram-only hits. Combines precision of ``lexical``
-          with recall of ``fuzzy``.
-
-        Returns ranked results with snippets. Empty query returns ``[]``.
-
-        ``limit`` is capped at 100.
-
-        Raises:
-            ValidationError: if ``query`` is empty after stripping,
-                ``limit`` is out of range, or ``mode`` is unknown.
-        """
-        query = (query or "").strip()
-        if not query:
-            raise ValidationError("query must not be empty")
-        if limit < 1 or limit > 100:
-            raise ValidationError("limit must be in 1..100")
-        if mode not in ("lexical", "fuzzy", "semantic", "hybrid"):
-            raise ValidationError(
-                f"mode must be 'lexical', 'fuzzy', 'semantic', or 'hybrid' (got {mode!r})"
-            )
-
-        if mode == "lexical":
-            return self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts")
-        if mode == "fuzzy":
-            return self._search_fts(
-                query, type=type, tags=tags, limit=limit, table="docs_fts_trgm"
-            )
-        if mode == "semantic":
-            return self._search_semantic(query, type=type, tags=tags, limit=limit)
-        # hybrid: union of exact + fuzzy + semantic
-        return self._search_hybrid(query, type=type, tags=tags, limit=limit)
-
-    def _search_fts(
-        self,
-        query: str,
-        type: str | None,
-        tags: List[str] | None,
-        limit: int,
-        table: str,
-    ) -> List[SearchHit]:
-        """Run a single FTS5 query and return SearchHit list.
-
-        ``table`` must be either ``"docs_fts"`` (unicode61 tokenizer,
-        exact) or ``"docs_fts_trgm"`` (trigram tokenizer, fuzzy).
-
-        For ``docs_fts`` (lexical) we keep the v0.1 strict AND-of-tokens
-        semantics. For ``docs_fts_trgm`` (fuzzy/hybrid) we use an
-        OR-of-prefix expression so that partial tokens still hit.
-        """
-        if table == "docs_fts_trgm":
-            fts_q = self._escape_fts(query)
-        else:
-            fts_q = self._escape_fts_lexical(query)
-        sql = f"""
-            SELECT d.*,
-                   snippet({table}, 1, '<b>', '</b>', '…', 12) AS snip,
-                   bm25({table}) AS score
-            FROM {table}
-            JOIN documents d ON d.rowid = {table}.rowid
-            WHERE {table} MATCH ?
-              AND d.deleted_at IS NULL
-        """
-        params: List[object] = [fts_q]
-        if type:
-            sql += " AND d.type = ?"
-            params.append(type)
-        sql += " ORDER BY score LIMIT ?"
-        params.append(limit)
-
-        try:
-            rows = self._conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as e:
-            raise ValidationError(f"invalid FTS query {query!r}: {e}") from e
-
-        hits: List[SearchHit] = []
-        for r in rows:
-            d = dict(r)
-            snippet_text = d.pop("snip", "") or ""
-            score = float(d.pop("score", 0.0))
-            doc = self._row_to_doc_dict(d)
-            hits.append(SearchHit(doc=doc, snippet=snippet_text, score=score))
-
-        if tags:
-            wanted: set[str] = set(tags)
-            hits = [h for h in hits if wanted.issubset(set(h.doc.tags))]
-        return hits
-
-    def _search_hybrid(
-        self,
-        query: str,
-        type: str | None,
-        tags: List[str] | None,
-        limit: int,
-    ) -> List[SearchHit]:
-        """Combine exact + trigram + semantic results, exact wins.
-
-        Strategy:
-        1. Fetch up to ``limit`` exact hits from ``docs_fts``.
-        2. Fetch up to ``limit * 2`` fuzzy hits from ``docs_fts_trgm``
-           that are NOT already in (1).
-        3. Fetch up to ``limit * 2`` semantic hits (vec0) that are NOT
-           in (1) or (2). Semantic is best-effort — embedder errors
-           fall back to lexical+fuzzy only.
-        4. Concatenate (exact first, then fuzzy-only, then
-           semantic-only), truncate to ``limit``.
-        """
-        exact = self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts")
-        seen = {h.doc.id for h in exact}
-
-        fuzzy = self._search_fts(
-            query, type=type, tags=tags, limit=limit * 2, table="docs_fts_trgm"
-        )
-        fuzzy_only = [h for h in fuzzy if h.doc.id not in seen]
-        seen.update(h.doc.id for h in fuzzy_only)
-
-        try:
-            semantic = self._search_semantic(
-                query, type=type, tags=tags, limit=limit * 2
-            )
-        except Exception:
-            # Semantic retrieval is opportunistic in hybrid mode. Any
-            # embedder/config/runtime failure should degrade to
-            # lexical+fuzzy rather than fail the whole search.
-            semantic = []
-        semantic_only = [h for h in semantic if h.doc.id not in seen]
-
-        return (exact + fuzzy_only + semantic_only)[:limit]
-
-    def _search_semantic(
-        self,
-        query: str,
-        type: str | None,
-        tags: List[str] | None,
-        limit: int,
-    ) -> List[SearchHit]:
-        """Vector similarity search via the vec0 ``docs_vec`` table.
-
-        Requires an enabled embedder (otherwise raises
-        :class:`ValidationError`). Returns ``[]`` when the KB has no
-        vectors yet (cold start) or when vec0 extension is not loaded.
-        """
-        emb = getattr(self, "_embedder", None)
-        if emb is None or not getattr(emb, "enabled", False):
-            raise ValidationError(
-                "semantic search requires an enabled embedder; "
-                "configure auxiliary.embedding in ~/.hermes/config.yaml"
-            )
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            raise ValidationError(
-                "vec0 extension not available; semantic search disabled"
-            )
-        try:
-            from sqlite_vec import serialize_float32
-        except ImportError as e:
-            raise ValidationError(
-                "sqlite-vec not installed; run: pip install 'kb-mcp[vec]'"
-            ) from e
-
-        query_vec = emb.embed(query)
-
-        # vec0 KNN query. We use the rowid from documents so we can join
-        # back to the doc. vec0 does NOT accept standard ``LIMIT``; it
-        # requires the special ``k = N`` predicate to bound result count.
-        sql = """
-            SELECT d.*, v.distance AS vec_distance
-            FROM docs_vec v
-            JOIN documents d ON d.rowid = v.rowid
-            WHERE v.embedding MATCH ?
-              AND k = ?
-              AND d.deleted_at IS NULL
-        """
-        params: List[object] = [serialize_float32(query_vec), limit * 4]
-        if type:
-            sql += " AND d.type = ?"
-            params.append(type)
-        sql += " ORDER BY v.distance"
-
-        try:
-            rows = vec_conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as e:
-            raise ValidationError(f"vec0 query failed: {e}") from e
-
-        # rows come from vec_conn. May be Row (dict-like) or tuple
-        # depending on row-factory compatibility with pysqlite3.
-        row_is_tuple = getattr(self, "_vec_row_is_tuple", False)
-        # Cache the column order for the vec0 KNN query so we can read
-        # by position when rows are tuples.
-        # SELECT d.*, v.distance AS vec_distance
-        # d.* expands to: id, type, title, body, tags, source,
-        #                 created_at, updated_at, deleted_at (9 cols)
-        # plus vec_distance at index 9.
-        if row_is_tuple:
-            doc_col_index = 0  # id
-            distance_col_index = 9
-        else:
-            doc_col_index = None
-            distance_col_index = "vec_distance"
-
-        hits: List[SearchHit] = []
-        for r in rows:
-            if row_is_tuple:
-                doc = self.get(r[doc_col_index])
-                vec_distance = float(r[distance_col_index] or 0.0)
-            else:
-                d = dict(r)
-                vec_distance = float(d.pop("vec_distance", 0.0) or 0.0)
-                doc = self._row_to_doc_dict(d)
-            # Convert cosine distance to a BM25-style "lower = better"
-            # score. vec0's cosine returns 0.0 for identical vectors
-            # and ~2.0 for opposite. We negate so that semantic score
-            # ordering matches lexical (both ascending on
-            # "more-relevant-first").
-            score = -vec_distance
-            snippet = (doc.body[:120] + "…") if len(doc.body) > 120 else doc.body
-            hits.append(SearchHit(doc=doc, snippet=snippet, score=score))
-
-        if tags:
-            wanted: set[str] = set(tags)
-            hits = [h for h in hits if wanted.issubset(set(h.doc.tags))]
-        return hits[:limit]
-
-    def _row_to_doc_dict(self, d: dict) -> Document:
-        """Same as :meth:`_row_to_doc` but accepts a plain dict (used
-        after we already materialised a Row via ``dict(r)``)."""
-        d = dict(d)
-        if "tags" in d and isinstance(d["tags"], str):
-            d["tags"] = json.loads(d["tags"] or "[]")
-        for k in ("created_at", "updated_at", "deleted_at"):
-            if isinstance(d.get(k), str):
-                d[k] = self._parse_dt(d[k])
-        # 'snip' and 'score' are search-only columns; drop them.
-        d.pop("snip", None)
-        d.pop("score", None)
-        return Document.model_construct(**d)
-
-    @staticmethod
-    def _escape_fts(query: str) -> str:
-        """Build an FTS5 expression tolerant to typos and word boundaries.
-
-        For each whitespace-separated token of length ≥ 3 we emit a
-        prefix pattern (``tok*``); tokens of length 1–2 are emitted
-        verbatim (FTS5 trigram cannot match sub-3-char tokens). The
-        tokens are joined with ``OR`` (not ``AND``) so that noisy queries
-        still produce some hits.
-
-        This is the heuristic the v0.2 fuzzy/hybrid path uses. Pure
-        ``lexical`` mode uses :meth:`_escape_fts_lexical` instead.
-
-        The original whitespace-tokenising behaviour with double-quote
-        wrapping is preserved for short tokens to keep the unicode61
-        path on ``docs_fts`` (hybrid mode) working as expected.
-        """
-        tokens: List[str] = []
-        for tok in query.split():
-            tok_clean = tok.strip().replace('"', '""')
-            if not tok_clean:
-                continue
-            if len(tok_clean) >= 3:
-                # FTS5 prefix match — combines with the trigram index
-                # for typo tolerance and works on the unicode61 index
-                # for prefix-completion.
-                tokens.append(f'"{tok_clean}"*')
-            else:
-                tokens.append(f'"{tok_clean}"')
-        return " OR ".join(tokens) if tokens else '""'
-
-    @staticmethod
-    def _escape_fts_lexical(query: str) -> str:
-        """Strict AND-of-tokens FTS5 expression for ``lexical`` mode.
-
-        Identical behaviour to the v0.1 escape: each token is wrapped in
-        double quotes so that FTS5 special characters are treated
-        literally. Tokens are joined with whitespace, which is FTS5's
-        implicit AND.
-        """
-        tokens: List[str] = []
-        for tok in query.split():
-            tok = tok.replace('"', '""')
-            if tok:
-                tokens.append(f'"{tok}"')
-        return " ".join(tokens) if tokens else '""'
 
     # ---- links ----------------------------------------------------------
 
@@ -962,10 +357,8 @@ class SqliteStore:
             raise ValidationError("rel must be non-empty")
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]*$", rel):
             raise ValidationError(f"rel must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ (got {rel!r})")
-        # Verify both endpoints exist (active).
         self.get(from_id)
         self.get(to_id)
-
         now = self._now_iso()
         with self._txn() as cur:
             cur.execute(
@@ -986,15 +379,10 @@ class SqliteStore:
                 action="create",
                 detail={"from_id": from_id, "to_id": to_id, "rel": rel},
             )
-        assert row is not None  # just inserted
+        assert row is not None
         return self._row_to_link(row)
 
-    def unlink(
-        self,
-        from_id: str,
-        to_id: str,
-        rel: str | None = None,
-    ) -> int:
+    def unlink(self, from_id: str, to_id: str, rel: str | None = None) -> int:
         sql = "DELETE FROM links WHERE from_id = ? AND to_id = ?"
         params: List[object] = [from_id, to_id]
         if rel is not None:
@@ -1039,10 +427,8 @@ class SqliteStore:
                         (doc.source,),
                     ).fetchone()
                     if row is not None:
-                        existing_id = row["id"]
-                        # Update mutable fields; keep id/created_at.
                         self.update(
-                            existing_id,
+                            row["id"],
                             **{
                                 k: v for k, v in doc.model_dump().items() if k in _UPDATEABLE_FIELDS
                             },
@@ -1063,443 +449,6 @@ class SqliteStore:
         sql += " ORDER BY id"
         rows = self._conn.execute(sql).fetchall()
         return [self._row_to_doc(r) for r in rows]
-
-    # ---- maintenance ----------------------------------------------------
-
-    def doctor(self) -> DoctorReport:
-        checks: List[DoctorCheck] = []
-
-        # 1. PRAGMA integrity_check
-        row = self._conn.execute("PRAGMA integrity_check").fetchone()
-        ok = bool(row) and row[0] == "ok"
-        checks.append(
-            DoctorCheck(name="integrity_check", ok=ok, detail=str(row[0]) if row else "no result")
-        )
-
-        # 2. FTS row count == active document count.
-        # FTS5 with ``content='documents'`` is a projection of the
-        # documents table: ``SELECT rowid FROM docs_fts`` returns ALL
-        # rows from documents, including soft-deleted ones (FTS5 has
-        # no way to mark individual rows as "out of the index" when
-        # the backing table is still there). Soft-deleted docs are
-        # excluded from search via the ``WHERE d.deleted_at IS NULL``
-        # filter in the actual search queries. For the doctor check
-        # we therefore count FTS rows that correspond to active docs.
-        n_docs = self._conn.execute(
-            "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL"
-        ).fetchone()[0]
-        n_fts = self._conn.execute(
-            "SELECT COUNT(*) FROM docs_fts d "
-            "JOIN documents m ON m.rowid = d.rowid "
-            "WHERE m.deleted_at IS NULL"
-        ).fetchone()[0]
-        checks.append(
-            DoctorCheck(
-                name="fts_sync",
-                ok=n_docs == n_fts,
-                detail=f"active_docs={n_docs} active_fts_rows={n_fts}",
-            )
-        )
-
-        # 3. No orphan links (link endpoint missing)
-        n_orphans = self._conn.execute(
-            """
-            SELECT COUNT(*) FROM links l
-            LEFT JOIN documents d ON d.id = l.to_id
-            WHERE d.id IS NULL
-            """
-        ).fetchone()[0]
-        checks.append(
-            DoctorCheck(name="no_orphan_links", ok=n_orphans == 0, detail=f"{n_orphans} orphans")
-        )
-
-        # 4. All docs have non-empty type and title
-        n_invalid = self._conn.execute(
-            "SELECT COUNT(*) FROM documents WHERE type = '' OR title = ''"
-        ).fetchone()[0]
-        checks.append(
-            DoctorCheck(name="valid_type_title", ok=n_invalid == 0, detail=f"{n_invalid} invalid")
-        )
-
-        return DoctorReport(ok=all(c.ok for c in checks), checks=checks)
-
-    def prune(self, older_than: timedelta = timedelta(days=30)) -> int:
-        cutoff = (datetime.now(timezone.utc) - older_than).isoformat()
-        # Find doc_ids to hard-delete first so we can also clean their
-        # vectors (vec0 doesn't have ON DELETE CASCADE because it's a
-        # virtual table; we manage it manually here).
-        to_delete = [
-            r["id"]
-            for r in self._conn.execute(
-                "SELECT id FROM documents WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-                (cutoff,),
-            ).fetchall()
-        ]
-        for doc_id in to_delete:
-            self._remove_embedding(doc_id)
-        cur = self._conn.execute(
-            "DELETE FROM documents WHERE deleted_at IS NOT NULL AND deleted_at < ?", (cutoff,)
-        )
-        return cur.rowcount
-
-    def reindex(self) -> None:
-        """Rebuild the FTS5 index from scratch. Use after :meth:`doctor`
-        reports FTS drift, or after bulk-importing outside :meth:`import_many`."""
-        with self._txn() as cur:
-            cur.execute("INSERT INTO docs_fts(docs_fts) VALUES('rebuild')")
-
-    # ---- embedding / similarity helpers ---------------------------------
-
-    def similar_docs(
-        self, doc_id: str, limit: int = 10
-    ) -> list[tuple[Document, float]]:
-        """Return documents most similar to ``doc_id`` by embedding
-        cosine distance, sorted nearest-first.
-
-        Returns ``[]`` when the embedder is disabled, vec0 unavailable,
-        or the source doc has no embedding.
-        """
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            return []
-
-        row = self._conn.execute(
-            "SELECT rowid FROM documents WHERE id = ? AND deleted_at IS NULL",
-            (doc_id,),
-        ).fetchone()
-        if row is None:
-            raise NotFoundError(doc_id)
-
-        # Fetch the source document's embedding vector from the vec0 side
-        # connection (it may be a different connection from self._conn).
-        # vec0 stores embeddings as serialized float32 bytes, so we pass
-        # them directly to the MATCH clause — do NOT re-serialize.
-        try:
-            emb_row = vec_conn.execute(
-                "SELECT embedding FROM docs_vec WHERE rowid = ?",
-                (row[0],),
-            ).fetchone()
-        except Exception:  # noqa: BLE001
-            return []
-        if emb_row is None:
-            return []  # source doc has no embedding
-        query_vec = emb_row[0]  # already serialized float32 bytes
-
-        try:
-            cursor = vec_conn.execute(
-                """
-                SELECT d.id, d.type, d.title, d.body, d.tags, d.source,
-                       d.created_at, d.updated_at, d.deleted_at,
-                       v.distance
-                FROM docs_vec v
-                JOIN documents d ON d.rowid = v.rowid
-                WHERE v.embedding MATCH ?
-                  AND v.rowid != ?
-                  AND d.deleted_at IS NULL
-                  AND k = ?
-                ORDER BY v.distance
-                """,
-                (query_vec, row[0], limit),
-            )
-        except Exception:  # noqa: BLE001
-            return []
-
-        cols = [desc[0] for desc in cursor.description]
-        rows = cursor.fetchall()
-        result: list[tuple[Document, float]] = []
-        for r in rows:
-            d = dict(zip(cols, r))
-            dist = float(d.pop("distance", 0.0))
-            result.append((self._row_to_doc_dict(d), dist))
-        return result
-
-    def suggest_tags(
-        self, doc_id: str, limit: int = 10
-    ) -> list[tuple[str, float]]:
-        """Suggest tags for ``doc_id`` based on similar documents' tags.
-
-        Returns ``[(tag, weight), ...]`` sorted by descending weight.
-        Weight is the sum of ``(1 - distance)`` contributions from each
-        similar document that carries the tag.
-        """
-        sim = self.similar_docs(doc_id, limit=limit * 3)
-        if not sim:
-            return []
-
-        scores: dict[str, float] = {}
-        for doc, dist in sim:
-            weight = 1.0 - dist
-            for tag in doc.tags:
-                scores[tag] = scores.get(tag, 0.0) + weight
-
-        sorted_tags = sorted(scores.items(), key=lambda x: -x[1])
-        return sorted_tags[:limit]
-
-    def suggest_type(
-        self, doc_id: str, limit: int = 10
-    ) -> list[tuple[str, float]]:
-        """Suggest a document type for ``doc_id`` based on similar docs.
-
-        Returns ``[(type, weight), ...]`` sorted by descending weight,
-        where weight is the count of similar docs with that type
-        modulated by similarity ``(1 - distance)``.
-        """
-        sim = self.similar_docs(doc_id, limit=limit * 3)
-        if not sim:
-            return []
-
-        scores: dict[str, float] = {}
-        for doc, dist in sim:
-            weight = 1.0 - dist
-            scores[doc.type] = scores.get(doc.type, 0.0) + weight
-
-        sorted_types = sorted(scores.items(), key=lambda x: -x[1])
-        return sorted_types[:limit]
-
-    def find_duplicates(
-        self, threshold: float = 0.15, limit: int = 50
-    ) -> list[tuple[str, str, float]]:
-        """Scan all documents and find near-duplicate pairs.
-
-        ``threshold`` is the cosine-distance cutoff (0.0 = identical,
-        lower = more similar). Returns ``[(id_a, id_b, distance), ...]``
-        sorted by distance ascending, limited to ``limit`` pairs.
-        """
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            return []
-
-        doc_ids = self._conn.execute(
-            "SELECT id, rowid FROM documents WHERE deleted_at IS NULL ORDER BY rowid"
-        ).fetchall()
-
-        results: list[tuple[str, str, float]] = []
-        for idx, (id_a, rowid_a) in enumerate(doc_ids):
-            # Fetch the embedding vector for this doc first.
-            # vec0 stores embeddings as serialized float32 bytes; pass
-            # them directly to MATCH — do NOT re-serialize.
-            try:
-                emb_row = vec_conn.execute(
-                    "SELECT embedding FROM docs_vec WHERE rowid = ?",
-                    (rowid_a,),
-                ).fetchone()
-            except Exception:  # noqa: BLE001
-                continue
-            if emb_row is None:
-                continue
-            query_vec = emb_row[0]  # already serialized float32 bytes
-
-            try:
-                cursor = vec_conn.execute(
-                    """
-                    SELECT d.id, v.distance
-                    FROM docs_vec v
-                    JOIN documents d ON d.rowid = v.rowid
-                    WHERE v.embedding MATCH ?
-                      AND v.rowid > ?
-                      AND d.deleted_at IS NULL
-                      AND v.distance <= ?
-                      AND k = ?
-                    ORDER BY v.distance
-                    """,
-                    (query_vec, rowid_a, threshold, limit - len(results)),
-                )
-            except Exception:  # noqa: BLE001
-                continue
-
-            for r in cursor.fetchall():
-                id_b, dist = r[0], float(r[1])
-                results.append((id_a, id_b, dist))
-                if len(results) >= limit:
-                    return results
-
-        return results
-
-    # ---- embeddings (vec0) ----------------------------------------------
-
-    def _index_embedding(self, doc: Document) -> None:
-        """Compute and store the embedding for ``doc``.
-
-        Silently no-ops when the embedder is disabled (``dim == 0``) or
-        when the embedder raises. Embedding errors must never break the
-        lexical CRUD path; the FTS indexes already have the document.
-        """
-        emb = getattr(self, "_embedder", None)
-        if emb is None or not getattr(emb, "enabled", False):
-            return
-        try:
-            text = f"{doc.title}\n\n{doc.body}".strip()
-            vector = emb.embed(text)
-        except Exception as e:  # noqa: BLE001 — best-effort
-            import logging
-            logging.getLogger("kb_mcp_lite").warning(
-                "embedding failed for %s: %s", doc.id, e
-            )
-            return
-        try:
-            from sqlite_vec import serialize_float32
-        except ImportError:
-            return
-        # Discard any cached vec connection so it gets rebuilt with
-        # the embedder's actual dim. (The first embed() call may have
-        # lazily probed the dim and the cached conn was built with a
-        # default.)
-        self._vec_conn = None
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            return
-        try:
-            rowid = self._conn.execute(
-                "SELECT rowid FROM documents WHERE id = ?", (doc.id,)
-            ).fetchone()
-            if rowid is None:
-                return
-            # vec0 does not support INSERT OR REPLACE — delete first.
-            vec_conn.execute(
-                "DELETE FROM docs_vec WHERE rowid = ?", (rowid[0],)
-            )
-            vec_conn.execute(
-                "INSERT INTO docs_vec(rowid, embedding) VALUES (?, ?)",
-                (rowid[0], serialize_float32(vector)),
-            )
-        except Exception as e:  # noqa: BLE001
-            import logging
-            logging.getLogger("kb_mcp_lite").debug(
-                "docs_vec write skipped for %s: %s", doc.id, e
-            )
-
-    def _remove_embedding(self, doc_id: str) -> None:
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            return
-        try:
-            vec_conn.execute(
-                "DELETE FROM docs_vec WHERE rowid = "
-                "(SELECT rowid FROM documents WHERE id = ?)",
-                (doc_id,),
-            )
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _vec_conn_lazy(self):
-        """Open the vec0 side connection on first need; cache it.
-
-        Returns ``None`` if vec0 cannot be loaded on this platform.
-        The side connection uses the same DB file; SQLite WAL mode
-        serialises writes across all open connections, so this is safe.
-
-        The vec0 table is created with the embedder's reported dim on
-        first use. If a previously-saved table has a different dim, the
-        side connection will fail at INSERT/query time and this method
-        will return ``None`` — call :meth:`reindex_embeddings` after
-        switching models to rebuild the table.
-        """
-        if self._vec_conn is not None:
-            return self._vec_conn if self._vec_conn is not False else None
-        emb = getattr(self, "_embedder", None)
-        if emb is None or not getattr(emb, "enabled", False):
-            return None
-        try:
-            conn = _make_sqlite_connection(str(self._path))
-        except Exception as e:  # noqa: BLE001
-            import logging
-            logging.getLogger("kb_mcp_lite").debug("vec0 connection not available: %s", e)
-            self._vec_conn = False  # sentinel: tried, failed; don't retry
-            return None
-
-        # Determine the dim to use. Default 1536 (OpenAI ada / text-embedding-3
-        # / most BGE-base / M3E-base models).
-        dim = getattr(emb, "dim", 0) or 1536
-        # Best-effort: try creating the vec0 table if it doesn't exist
-        # yet (only needed if the migration 0003 was skipped).
-        try:
-            conn.execute(
-                f"CREATE VIRTUAL TABLE IF NOT EXISTS docs_vec USING vec0("
-                f"embedding float[{dim}] distance_metric=cosine)"
-            )
-        except Exception as e:  # noqa: BLE001
-            import logging
-            logging.getLogger("kb_mcp_lite").debug("docs_vec table unavailable: %s", e)
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
-            self._vec_conn = False
-            return None
-        self._vec_conn = conn
-        # Don't copy the main conn's row factory. pysqlite3's Cursor
-        # can't be wrapped by stdlib sqlite3.Row, and the embedding
-        # query is small enough that we parse rows positionally in
-        # _search_semantic. Set the flag so the consumer knows.
-        try:
-            conn.execute("PRAGMA foreign_keys=ON")
-        except Exception:  # noqa: BLE001
-            pass
-        self._vec_row_is_tuple = True
-        return conn
-
-    def reindex_embeddings(self) -> int:
-        """Recompute embeddings for all active documents.
-
-        Returns the number of documents that were **successfully**
-        embedded (i.e. whose vector landed in ``docs_vec``). Documents
-        that fail embedding (e.g. the embedder API errors) are silently
-        skipped — see :attr:`last_reindex_report` for the full picture.
-
-        Used by ``kb embed --rebuild`` after switching embedding
-        models, or to backfill vectors that were skipped because the
-        embedder was not configured at write time.
-        """
-        emb = getattr(self, "_embedder", None)
-        if emb is None or not getattr(emb, "enabled", False):
-            raise ValidationError("embedder not configured; cannot reindex")
-        rows = self._conn.execute(
-            "SELECT id, title, body FROM documents WHERE deleted_at IS NULL"
-        ).fetchall()
-        n_ok, n_fail = 0, 0
-        failed_ids: list[str] = []
-        for r in rows:
-            doc = Document(
-                id=r["id"],
-                type="(unknown)",  # not used for embedding
-                title=r["title"],
-                body=r["body"],
-            )
-            # Verify the vector landed in docs_vec (silent failures inside
-            # _index_embedding are caught and logged but not raised).
-            self._index_embedding(doc)
-            if self._count_vec(doc.id) >= 1:
-                n_ok += 1
-            else:
-                n_fail += 1
-                failed_ids.append(doc.id)
-        self.last_reindex_report = {
-            "succeeded": n_ok,
-            "failed": n_fail,
-            "failed_ids": failed_ids,
-            "dim": getattr(emb, "dim", 0),
-            "total": len(rows),
-        }
-        return n_ok
-
-    def _count_vec(self, doc_id: str) -> int:
-        """Return 1 if ``doc_id`` has a row in ``docs_vec``, else 0.
-
-        Uses the vec0 side connection — the main connection (stdlib
-        sqlite3) cannot see virtual tables created by pysqlite3.
-        """
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            return 0
-        try:
-            r = vec_conn.execute(
-                "SELECT rowid FROM docs_vec WHERE rowid = "
-                "(SELECT rowid FROM documents WHERE id = ?)",
-                (doc_id,),
-            ).fetchone()
-            return 1 if r is not None else 0
-        except Exception:  # noqa: BLE001 — vec0 may not exist yet
-            return 0
 
 
 __all__ = ["SqliteStore"]

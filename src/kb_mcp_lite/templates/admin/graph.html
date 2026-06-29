@@ -10,21 +10,56 @@
 </header>
 
 <section class="graph-toolbar">
-  <label class="graph-legend-item">
-    <input type="checkbox" id="toggle-physics" checked />
-    <span>Physics</span>
-  </label>
-  <div class="graph-legend" id="type-legend"></div>
+  <div class="graph-toolbar-left">
+    <form id="subgraph-form" class="graph-search-form">
+      <input
+        type="text"
+        id="graph-search-input"
+        placeholder="Doc id or title…"
+        class="graph-search-input"
+      />
+      <select id="graph-depth-select" class="graph-depth-select">
+        <option value="1">Depth 1</option>
+        <option value="2" selected>Depth 2</option>
+        <option value="3">Depth 3</option>
+        <option value="4">Depth 4</option>
+      </select>
+      <button type="submit" class="button secondary small-button">Focus</button>
+      <button type="button" id="graph-reset-btn" class="button ghost small-button">Reset</button>
+    </form>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+    <label class="graph-legend-item">
+      <input type="checkbox" id="toggle-physics" checked />
+      <span>Physics</span>
+    </label>
+    <div class="graph-legend" id="type-legend"></div>
+  </div>
 </section>
+
+<div id="graph-subgraph-badge" class="graph-subgraph-badge" style="display:none;"></div>
 
 <div id="graph-container"></div>
 
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
-(async () => {
-  const resp = await fetch("/api/graph");
-  const { nodes, edges } = await resp.json();
+let network = null;
+let currentMode = "full"; // "full" or "subgraph"
 
+async function loadGraph(rootId, depth) {
+  let url = "/api/graph";
+  if (rootId) {
+    url += `?root_id=${encodeURIComponent(rootId)}&depth=${depth}`;
+  }
+  const resp = await fetch(url);
+  return resp.json();
+}
+
+function buildNetwork(graphData) {
+  const { nodes, edges } = graphData;
+  const container = document.getElementById("graph-container");
+
+  // Stats
   document.getElementById("graph-stats").innerHTML =
     `<span class="meta-chip">${nodes.length} documents</span>` +
     `<span class="meta-chip">${edges.length} links</span>`;
@@ -43,9 +78,11 @@
     legend.appendChild(chip);
   });
 
-  const container = document.getElementById("graph-container");
+  if (network) {
+    network.destroy();
+  }
 
-  const network = new vis.Network(container, { nodes, edges }, {
+  network = new vis.Network(container, { nodes, edges }, {
     nodes: {
       shape: "dot",
       size: 14,
@@ -63,7 +100,7 @@
       smooth: { type: "continuous" },
     },
     physics: {
-      enabled: true,
+      enabled: document.getElementById("toggle-physics").checked,
       solver: "forceAtlas2Based",
       forceAtlas2Based: {
         gravitationalConstant: -40,
@@ -82,7 +119,7 @@
     },
   });
 
-  // Click node → navigate to document
+  // Click → navigate
   network.on("click", (params) => {
     if (params.nodes.length === 1) {
       const nodeId = params.nodes[0];
@@ -92,18 +129,67 @@
       }
     }
   });
+}
 
-  // Toggle physics
-  document.getElementById("toggle-physics").addEventListener("change", (e) => {
+async function focusSubgraph(rootId, depth) {
+  document.getElementById("graph-subgraph-badge").style.display = "none";
+  const data = await loadGraph(rootId, depth);
+  buildNetwork(data);
+  currentMode = "subgraph";
+  document.getElementById("graph-subgraph-badge").innerHTML =
+    `Subgraph: <strong>${rootId}</strong> (depth ${depth}) &mdash; ${data.nodes.length} docs, ${data.edges.length} links`;
+  document.getElementById("graph-subgraph-badge").style.display = "block";
+}
+
+async function resetGraph() {
+  document.getElementById("graph-subgraph-badge").style.display = "none";
+  const data = await loadGraph();
+  buildNetwork(data);
+  currentMode = "full";
+}
+
+// ── Initial load ──────────────────────────────────────────────────────
+resetGraph();
+
+// ── Subgraph form ─────────────────────────────────────────────────────
+document.getElementById("subgraph-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("graph-search-input").value.trim();
+  if (!input) return;
+
+  const depth = parseInt(document.getElementById("graph-depth-select").value, 10);
+
+  // Try as document id first
+  let rootId = input;
+
+  // If it contains a "/" it's likely a doc id; otherwise search by title
+  if (!input.includes("/")) {
+    try {
+      const searchResp = await fetch(`/api/search?query=${encodeURIComponent(input)}&limit=1`);
+      const searchData = await searchResp.json();
+      if (searchData.items && searchData.items.length > 0) {
+        rootId = searchData.items[0].id;
+      }
+    } catch {}
+  }
+
+  await focusSubgraph(rootId, depth);
+});
+
+document.getElementById("graph-reset-btn").addEventListener("click", resetGraph);
+
+// ── Physics toggle ────────────────────────────────────────────────────
+document.getElementById("toggle-physics").addEventListener("change", (e) => {
+  if (network) {
     network.setOptions({ physics: { enabled: e.target.checked } });
-  });
-})();
+  }
+});
 </script>
 
 <style>
 #graph-container {
   width: 100%;
-  height: calc(100vh - 210px);
+  height: calc(100vh - 240px);
   min-height: 500px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -119,6 +205,67 @@
   gap: 16px;
   margin-bottom: 14px;
   flex-wrap: wrap;
+}
+
+.graph-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.graph-search-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.graph-search-input {
+  width: 220px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.graph-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.graph-depth-select {
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.graph-depth-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.graph-subgraph-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid rgba(99, 102, 241, 0.15);
 }
 
 .graph-legend {

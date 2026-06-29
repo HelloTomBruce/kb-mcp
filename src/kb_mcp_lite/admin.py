@@ -94,8 +94,7 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
                         for type_name, count in payload["type_counts"]
                     ],
                     "tag_counts": [
-                        {"tag": tag, "count": count}
-                        for tag, count in payload["tag_counts"]
+                        {"tag": tag, "count": count} for tag, count in payload["tag_counts"]
                     ],
                     "recent_docs": [_serialize_doc(doc) for doc in payload["recent_docs"]],
                     "doctor_report": {
@@ -238,10 +237,8 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
             )
 
     @app.get("/api/graph")
-    def api_graph() -> JSONResponse:
+    def api_graph(root_id: str | None = None, depth: int = 2) -> JSONResponse:
         with _open_store(app) as store:
-            active_docs = store.export_all(include_deleted=False)
-            links = _list_links(store)
             type_colors = {
                 "project": "#0f62fe",
                 "decision": "#117a37",
@@ -251,24 +248,50 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
                 "faq": "#0891b2",
             }
             default_color = "#62708a"
-            nodes = [
-                {
-                    "id": doc.id,
-                    "label": doc.title,
-                    "type": doc.type,
-                    "color": type_colors.get(doc.type, default_color),
-                    "url": f"/documents/{doc.id}",
-                }
-                for doc in active_docs
-            ]
-            edges = [
-                {
-                    "from": link.from_id,
-                    "to": link.to_id,
-                    "label": link.rel,
-                }
-                for link in links
-            ]
+
+            if root_id:
+                # ── BFS subgraph via store ────────────────────────────
+                sub = store.subgraph(root_id, depth=depth)
+                doc_ids = sub["doc_ids"]
+
+                if doc_ids:
+                    ph = ",".join("?" for _ in doc_ids)
+                    doc_rows = store._conn.execute(
+                        f"SELECT id, title, type FROM documents WHERE id IN ({ph}) AND deleted_at IS NULL",
+                        doc_ids,
+                    ).fetchall()
+                else:
+                    doc_rows = []
+
+                nodes = [
+                    {
+                        "id": r["id"],
+                        "label": r["title"],
+                        "type": r["type"],
+                        "color": type_colors.get(r["type"], default_color),
+                        "url": f"/documents/{r['id']}",
+                    }
+                    for r in doc_rows
+                ]
+                edges = sub["edges"]
+            else:
+                # ── Full graph (all docs + links) ─────────────────────
+                active_docs = store.export_all(include_deleted=False)
+                links = _list_links(store)
+                nodes = [
+                    {
+                        "id": doc.id,
+                        "label": doc.title,
+                        "type": doc.type,
+                        "color": type_colors.get(doc.type, default_color),
+                        "url": f"/documents/{doc.id}",
+                    }
+                    for doc in active_docs
+                ]
+                edges = [
+                    {"from": link.from_id, "to": link.to_id, "label": link.rel} for link in links
+                ]
+
             return JSONResponse({"nodes": nodes, "edges": edges})
 
     @app.get("/api/audit")
@@ -705,6 +728,7 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
             doctor_report = store.doctor()
             embedder = getattr(store, "_embedder", None)
             from kb_mcp_lite.config import config_path, load_config
+
             cfg_path = config_path()
             cfg_content = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
             return render(
@@ -734,17 +758,19 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
         mgr = VaultManager()
         vaults = mgr.list_vaults()
         current = mgr.get_current()
-        return JSONResponse({
-            "current": current,
-            "vaults": [
-                {
-                    "name": v.name,
-                    "description": v.description,
-                    "sync_dir": v.sync_dir,
-                }
-                for v in vaults
-            ],
-        })
+        return JSONResponse(
+            {
+                "current": current,
+                "vaults": [
+                    {
+                        "name": v.name,
+                        "description": v.description,
+                        "sync_dir": v.sync_dir,
+                    }
+                    for v in vaults
+                ],
+            }
+        )
 
     @app.post("/api/vaults/switch")
     def api_vault_switch(payload: dict[str, str]) -> JSONResponse:
@@ -771,20 +797,24 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
             mdir = mgr.md_dir(name)
             import_target = sync_root if sync_root != mdir else mdir
             if not import_target.exists():
-                return JSONResponse({"ok": False, "error": f"import target {import_target} does not exist"})
+                return JSONResponse(
+                    {"ok": False, "error": f"import target {import_target} does not exist"}
+                )
 
             store = SqliteStore(mgr.resolve_path(name))
             try:
                 report = _import_dir(store, import_target)
             finally:
                 store.close()
-            return JSONResponse({
-                "ok": True,
-                "inserted": report.inserted,
-                "updated": report.updated,
-                "skipped": report.skipped,
-                "errors": report.errors[:10],
-            })
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "inserted": report.inserted,
+                    "updated": report.updated,
+                    "skipped": report.skipped,
+                    "errors": report.errors[:10],
+                }
+            )
         except Exception as e:
             return _json_error(str(e), status_code=500)
 
@@ -802,6 +832,7 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
     @app.get("/api/config")
     def api_config_get() -> JSONResponse:
         from kb_mcp_lite.config import config_path
+
         p = config_path()
         if not p.exists():
             return JSONResponse({"ok": False, "error": "config file not found"}, status_code=404)
@@ -813,6 +844,7 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
         if not content:
             return _json_error("content is required", status_code=400)
         from kb_mcp_lite.config import config_path
+
         p = config_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -826,13 +858,15 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
         try:
             n = store.reindex_embeddings()
             report = getattr(store, "last_reindex_report", {}) or {}
-            return JSONResponse({
-                "ok": True,
-                "reindexed": n,
-                "failed": report.get("failed", 0),
-                "dim": report.get("dim", 0),
-                "total": report.get("total", 0),
-            })
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "reindexed": n,
+                    "failed": report.get("failed", 0),
+                    "dim": report.get("dim", 0),
+                    "total": report.get("total", 0),
+                }
+            )
         except Exception as e:
             return _json_error(str(e), status_code=500)
         finally:
@@ -1003,9 +1037,7 @@ def _overview_payload(store: SqliteStore) -> dict[str, Any]:
     doctor_report = store.doctor()
     recent_docs = sorted(active_docs, key=lambda doc: doc.updated_at, reverse=True)[:8]
     orphan_count = sum(
-        1
-        for doc in active_docs
-        if not store.backlinks(doc.id) and not store.outlinks(doc.id)
+        1 for doc in active_docs if not store.backlinks(doc.id) and not store.outlinks(doc.id)
     )
     try:
         embedder = getattr(store, "_embedder", None)

@@ -1,13 +1,16 @@
-"""FastMCP server for kb-mcp (Wave 2A).
+"""FastMCP server for kb-mcp.
 
-Exposes 4 tools over stdio transport (JSON-RPC per MCP spec):
+Exposes tools, Resources, and Prompts over stdio transport:
 
-- ``kb_search(query, type?, tags?, limit?)`` → list of search hits
-- ``kb_get(id)`` → full document or error
-- ``kb_add(type, title, body, tags?, source?)`` → new id or error
-- ``kb_link(from_id, to_id, rel?)`` → success (idempotent)
+**Tools (12):** kb_search, kb_get, kb_add, kb_link, kb_list, kb_update,
+kb_delete, kb_unlink, kb_history, kb_restore, kb_diff, kb_restore_deleted
 
-Error codes follow architecture.md § 4.4:
+**Resources (4):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
+kb://types, kb://stats
+
+**Prompts (2):** new-doc(type), link-analysis(id)
+
+Error codes:
 
 | kb-mcp exception   | MCP code | Meaning          |
 |--------------------|----------|------------------|
@@ -31,7 +34,6 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
 from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
@@ -46,7 +48,7 @@ from kb_mcp_lite.schema import (
     make_id,
 )
 from kb_mcp_lite.store.sqlite import SqliteStore
-from kb_mcp_lite.vault import VaultManager, get_current_vault_name
+from kb_mcp_lite.vault import VaultManager
 
 # ---------------------------------------------------------------------------
 # Pydantic input models (architecture.md § 4.4)
@@ -58,7 +60,8 @@ class KbSearchInput(BaseModel):
     type: str | None = None
     tags: List[str] | None = None
     limit: int = Field(default=10, ge=1, le=100)
-    mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|hybrid)$")
+    mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|hybrid|rrf)$")
+    rrf_k: int = Field(default=60, ge=1, le=200)
 
 
 class KbGetInput(BaseModel):
@@ -210,6 +213,7 @@ def _make_server(vault: str | None = None) -> Any:
         tags: Optional[List[str]] = None,
         limit: int = 10,
         mode: str = "hybrid",
+        rrf_k: int = 60,
     ) -> Any:
         """Full-text search the knowledge base.
 
@@ -219,21 +223,36 @@ def _make_server(vault: str | None = None) -> Any:
             tags: Restrict to documents carrying all listed tags (AND, optional).
             limit: Max results 1..100 (default 10).
             mode: Scoring mode — 'lexical' (exact BM25), 'fuzzy'
-                (trigram BM25, tolerates typos), or 'hybrid' (union,
-                exact wins ties; default).
+                (trigram BM25, tolerates typos), 'hybrid' (default,
+                reciprocal-rank fusion of lexical+fuzzy+semantic),
+                'rrf' (same as hybrid), or 'semantic' (vectors).
+            rrf_k: RRF constant (default 60). Lower = more weight on
+                top ranks. Only used in hybrid/rrf mode.
 
         Returns:
             List of hit dicts: {id, title, type, snippet, score}.
         """
         try:
-            inp = KbSearchInput(query=query, type=type, tags=tags, limit=limit, mode=mode)
+            inp = KbSearchInput(
+                query=query,
+                type=type,
+                tags=tags,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_search query=%r type=%r tags=%r limit=%d mode=%r",
-            inp.query, inp.type, inp.tags, inp.limit, inp.mode,
+            "kb_search query=%r type=%r tags=%r limit=%d mode=%r rrf_k=%d",
+            inp.query,
+            inp.type,
+            inp.tags,
+            inp.limit,
+            inp.mode,
+            inp.rrf_k,
         )
         try:
             hits: List[SearchHit] = store.search(
@@ -242,6 +261,7 @@ def _make_server(vault: str | None = None) -> Any:
                 tags=inp.tags,
                 limit=inp.limit,
                 mode=inp.mode,
+                rrf_k=inp.rrf_k,
             )
             return {
                 "hits": [
@@ -318,8 +338,9 @@ def _make_server(vault: str | None = None) -> Any:
             {id: new_document_id}.
         """
         try:
-            inp = KbAddInput(type=type, title=title, body=body, tags=tags,
-                             aliases=aliases, source=source, id=id)
+            inp = KbAddInput(
+                type=type, title=title, body=body, tags=tags, aliases=aliases, source=source, id=id
+            )
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -412,15 +433,20 @@ def _make_server(vault: str | None = None) -> Any:
             List of document summaries: {id, title, type, tags, updated_at}.
         """
         try:
-            inp = KbListInput(type=type, tags=tags, limit=limit, offset=offset,
-                              include_deleted=include_deleted)
+            inp = KbListInput(
+                type=type, tags=tags, limit=limit, offset=offset, include_deleted=include_deleted
+            )
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
             "kb_list type=%r tags=%r limit=%d offset=%d include_deleted=%s",
-            inp.type, inp.tags, inp.limit, inp.offset, inp.include_deleted,
+            inp.type,
+            inp.tags,
+            inp.limit,
+            inp.offset,
+            inp.include_deleted,
         )
         try:
             docs = store.list(
@@ -476,8 +502,9 @@ def _make_server(vault: str | None = None) -> Any:
             {ok: True, id, updated_at}.
         """
         try:
-            inp = KbUpdateInput(id=id, title=title, body=body, tags=tags,
-                                aliases=aliases, source=source)
+            inp = KbUpdateInput(
+                id=id, title=title, body=body, tags=tags, aliases=aliases, source=source
+            )
         except Exception as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -742,40 +769,6 @@ def _make_server(vault: str | None = None) -> Any:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
-        "kb://search/{query}",
-        name="search",
-        description="Search results as JSON list",
-        mime_type="application/json",
-    )
-    def kb_resource_search(query: str) -> str:
-        """Return search results for a query.
-
-        Args:
-            query: Search query string.
-
-        Returns:
-            JSON list of hit dicts.
-        """
-        logger.info("resource kb://search/%s", query)
-        try:
-            hits: list[SearchHit] = store.search(query=query, limit=10)
-            return json.dumps(
-                [
-                    {
-                        "id": h.doc.id,
-                        "title": h.doc.title,
-                        "type": h.doc.type,
-                        "snippet": h.snippet,
-                        "score": h.score,
-                    }
-                    for h in hits
-                ],
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            return json.dumps({"error": str(e)})
-
-    @mcp.resource(
         "kb://links/{type}/{slug}",
         name="links",
         description="Backlinks and outlinks for a document (JSON)",
@@ -799,14 +792,8 @@ def _make_server(vault: str | None = None) -> Any:
             return json.dumps(
                 {
                     "doc_id": doc_id,
-                    "backlinks": [
-                        {"from_id": l.from_id, "rel": l.rel}
-                        for l in backlinks
-                    ],
-                    "outlinks": [
-                        {"to_id": l.to_id, "rel": l.rel}
-                        for l in outlinks
-                    ],
+                    "backlinks": [{"from_id": lnk.from_id, "rel": lnk.rel} for lnk in backlinks],
+                    "outlinks": [{"to_id": lnk.to_id, "rel": lnk.rel} for lnk in outlinks],
                 },
                 ensure_ascii=False,
             )
@@ -814,30 +801,119 @@ def _make_server(vault: str | None = None) -> Any:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
-        "kb://doctor",
-        name="doctor",
-        description="Knowledge base health check (JSON)",
+        "kb://types",
+        name="types",
+        description="Registered document types with their JSON field schemas",
         mime_type="application/json",
     )
-    def kb_resource_doctor() -> str:
-        """Return the health check report.
+    def kb_resource_types() -> str:
+        """Return the list of registered document types and their pydantic field
+        schemas.
 
         Returns:
-            JSON string of DoctorReport.
+            JSON object: ``{types: [{name, description, fields: [...]}], count: N}``.
         """
-        logger.info("resource kb://doctor")
+        logger.info("resource kb://types")
         try:
-            report = store.doctor()
+            from kb_mcp_lite.schema import default_registry
+
+            types_info = []
+            for name in default_registry.known_types():
+                model = default_registry.model_for(name)
+                fields = []
+                for fname, finfo in model.model_fields.items():
+                    fields.append(
+                        {
+                            "name": fname,
+                            "type": str(finfo.annotation),
+                            "required": finfo.is_required(),
+                            "default": repr(finfo.default) if finfo.default is not None else None,
+                        }
+                    )
+                types_info.append(
+                    {
+                        "name": name,
+                        "description": (model.__doc__ or "").strip(),
+                        "fields": fields,
+                    }
+                )
             return json.dumps(
-                {
-                    "ok": report.ok,
-                    "checks": [
-                        {"name": c.name, "passed": c.ok, "detail": c.detail}
-                        for c in report.checks
-                    ],
-                },
+                {"types": types_info, "count": len(types_info)},
                 ensure_ascii=False,
             )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://stats",
+        name="stats",
+        description="Knowledge base statistics (document counts, links, recent changes)",
+        mime_type="application/json",
+    )
+    def kb_resource_stats() -> str:
+        """Return knowledge base statistics.
+
+        Returns:
+            JSON string of stats dict.
+        """
+        logger.info("resource kb://stats")
+        try:
+            stats = store.stats()
+            return json.dumps(stats, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://graph/{type}/{slug}",
+        name="graph",
+        description="Subgraph centred on a document (depth 2); JSON with nodes and edges",
+        mime_type="application/json",
+    )
+    def kb_resource_graph(type: str, slug: str) -> str:
+        """Return the subgraph (depth 2) centred on a document.
+
+        Args:
+            type: Document type prefix (e.g. "proj").
+            slug: Remainder of the document id.
+
+        Returns:
+            JSON string with node ids and edges.
+        """
+        doc_id = f"{type}/{slug}"
+        logger.info("resource kb://graph/%s", doc_id)
+        try:
+            sub = store.subgraph(doc_id, depth=2)
+            return json.dumps(sub, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://graph/{type}/{slug}/{depth}",
+        name="graph-depth",
+        description="Subgraph centred on a document at a given depth; JSON with nodes and edges",
+        mime_type="application/json",
+    )
+    def kb_resource_graph_depth(type: str, slug: str, depth: str) -> str:
+        """Return the subgraph at a custom depth centred on a document.
+
+        Args:
+            type: Document type prefix (e.g. "proj").
+            slug: Remainder of the document id.
+            depth: Traversal depth (1, 2, 3, …).
+
+        Returns:
+            JSON string with node ids and edges.
+        """
+        doc_id = f"{type}/{slug}"
+        logger.info("resource kb://graph/%s depth=%s", doc_id, depth)
+        try:
+            n = int(depth)
+            if n < 1 or n > 8:
+                return json.dumps({"error": f"depth must be 1..8 (got {depth})"})
+            sub = store.subgraph(doc_id, depth=n)
+            return json.dumps(sub, ensure_ascii=False)
+        except ValueError:
+            return json.dumps({"error": f"invalid depth {depth!r}"})
         except Exception as e:
             return json.dumps({"error": str(e)})
 
@@ -846,44 +922,118 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.prompt(
         name="new-doc",
         title="New Document",
-        description="Guide the agent to create a well-structured knowledge document.",
+        description="Create a new document with a type-specific Markdown template.",
     )
-    def kb_prompt_new_doc() -> str:
-        """Return a prompt template for creating a new document.
+    def kb_prompt_new_doc(type: str = "decision") -> str:
+        """Return a Markdown skeleton for a given document type.
 
-        The agent sees this as a structured writing guide.
+        Args:
+            type: Document type — project, decision, lesson, glossary, person, faq.
+
+        Returns:
+            A fill-in-the-blank Markdown template.
         """
+        templates = {
+            "project": (
+                "# {title}\n\n"
+                "## Purpose\n\n"
+                "(What does this project do? Why does it exist?)\n\n"
+                "## Stack\n\n"
+                "- Language:\n- Framework:\n- Database:\n- Infrastructure:\n\n"
+                "## Status\n\n"
+                "(active / maintenance / archived)\n\n"
+                "## Owners\n\n"
+                "(who maintains this)\n\n"
+                "## Links\n\n"
+                "- Related docs: \n"
+            ),
+            "decision": (
+                "# {title}\n\n"
+                "## Context\n\n"
+                "(What prompted this decision? What problem does it solve?)\n\n"
+                "## Options Considered\n\n"
+                "- Option A: \n- Option B: \n\n"
+                "## Decision\n\n"
+                "(Chosen option and why)\n\n"
+                "## Consequences\n\n"
+                "(What does this decision affect? Any follow-up work?)\n\n"
+            ),
+            "lesson": (
+                "# {title}\n\n"
+                "## What Happened\n\n"
+                "(Description of the situation)\n\n"
+                "## Root Cause\n\n"
+                "(Why did it happen?)\n\n"
+                "## Resolution\n\n"
+                "(How was it fixed or mitigated?)\n\n"
+                "## Prevention\n\n"
+                "(How to avoid this in the future)\n\n"
+            ),
+            "glossary": (
+                "# {title}\n\n"
+                "## Definition\n\n"
+                "(One-sentence definition of the term)\n\n"
+                "## Details\n\n"
+                "(Elaboration, examples, or context)\n\n"
+                "## Related Terms\n\n"
+                "- \n\n"
+            ),
+            "person": (
+                "# {title}\n\n"
+                "## Role\n\n"
+                "(Title / responsibility)\n\n"
+                "## Expertise\n\n"
+                "- \n\n"
+                "## Projects\n\n"
+                "- \n\n"
+            ),
+            "faq": (
+                "# {title}\n\n"
+                "## Answer\n\n"
+                "(Concise answer to the question)\n\n"
+                "## References\n\n"
+                "- \n\n"
+            ),
+        }
+        skeleton = templates.get(type, templates["decision"])
         return (
-            "You are about to add a new document to the knowledge base. "
-            "Choose the appropriate document type from: project, decision, "
-            "lesson, glossary, person, faq.\n\n"
-            "Structure your document with:\n"
-            "- A clear, specific title (non-empty, max 512 chars)\n"
-            "- Relevant tags (lowercase, no spaces)\n"
-            "- A well-organized Markdown body\n\n"
-            "Call kb_add with: type, title, body, and optional tags."
+            f"You are adding a **{type}** document to the knowledge base.\n\n"
+            "Fill in this template:\n\n"
+            f"{skeleton}\n\n"
+            "After filling, call kb_add with type, title, body, and optional tags."
         )
 
     @mcp.prompt(
-        name="search-expert",
-        title="Search Expert",
-        description="Guide the agent to search the knowledge base effectively.",
+        name="link-analysis",
+        title="Link Analysis",
+        description="Analyse a document's link graph and suggest missing connections.",
     )
-    def kb_prompt_search_expert() -> str:
-        """Return a prompt template for deep search.
+    def kb_prompt_link_analysis(id: str) -> str:
+        """Analyse the link graph around a document and suggest missing links.
 
-        The agent sees strategies for finding information.
+        Args:
+            id: Document id to analyse (e.g. "proj/kb-mcp").
+
+        Returns:
+            A multi-step analysis workflow the agent can execute.
         """
         return (
-            "You are searching the knowledge base. Use these strategies:\n\n"
-            "1. **Exact match** — use kb_search with mode='lexical' for "
-            "precise queries (product names, specific terms)\n"
-            "2. **Fuzzy match** — use mode='fuzzy' when you're unsure of "
-            "exact spelling or token boundaries\n"
-            "3. **Hybrid** — use mode='hybrid' (default) to combine "
-            "exact + fuzzy + semantic results\n\n"
-            "Tip: Start broad, then narrow with type/tags filters. "
-            "Use kb_get to read full documents from search results."
+            f"Analyse the link graph for document **{id}**.\n\n"
+            "1. **Read the document** — call kb_get to fetch the full body.\n"
+            "2. **Check backlinks** — use the kb://links/ resource to see "
+            "which documents link to this one.\n"
+            "3. **Check outlinks** — same resource; does this document "
+            "reference other documents by id?\n"
+            "4. **Search for related docs** — use kb_search with key terms "
+            "from the body to find documents that should be linked but aren't.\n"
+            "5. **Suggest new links** — call kb_link(from_id, to_id, "
+            "rel='relates-to') for each missing connection.\n\n"
+            "Consider especially:\n"
+            "- Decisions that mention this context but aren't linked to it\n"
+            "- Lessons learned that reference the same component\n"
+            "- FAQ entries whose answer involves this document\n"
+            "- Person documents listing this under their projects\n\n"
+            "When done, summarise how many links were added."
         )
 
     return mcp
@@ -912,8 +1062,17 @@ def run(vault: str | None = None) -> None:
     mcp.run(transport="stdio")
 
 
-__all__ = ["run", "KbSearchInput", "KbGetInput", "KbAddInput", "KbLinkInput",
-          "KbListInput", "KbUpdateInput", "KbDeleteInput", "KbUnlinkInput"]
+__all__ = [
+    "run",
+    "KbSearchInput",
+    "KbGetInput",
+    "KbAddInput",
+    "KbLinkInput",
+    "KbListInput",
+    "KbUpdateInput",
+    "KbDeleteInput",
+    "KbUnlinkInput",
+]
 
 
 # Allow ``python -m kb_mcp_lite.mcp_server`` to start the server directly
