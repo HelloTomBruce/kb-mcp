@@ -5,10 +5,13 @@ Exposes tools, Resources, and Prompts over stdio transport:
 **Tools (12):** kb_search, kb_get, kb_add, kb_link, kb_list, kb_update,
 kb_delete, kb_unlink, kb_history, kb_restore, kb_diff, kb_restore_deleted
 
-**Resources (4):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
-kb://types, kb://stats
+**Resources (12):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
+kb://types, kb://stats, kb://graph/{type}/{slug}/{depth},
+kb://list[/{type}], kb://changes, kb://history/{id},
+kb://search/{query}, kb://export/{id}, kb://help/{doc}
 
-**Prompts (2):** new-doc(type), link-analysis(id)
+**Prompts (7):** new-doc(type), link-analysis(id), search-guide, import-docs,
+doctor, maintenance, onboarding
 
 Error codes:
 
@@ -917,6 +920,193 @@ def _make_server(vault: str | None = None) -> Any:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    # ---- Resource: kb://list ------------------------------------------------
+
+    @mcp.resource(
+        "kb://list",
+        name="list",
+        description="List all documents, sorted by updated_at DESC (JSON)",
+        mime_type="application/json",
+    )
+    def kb_resource_list() -> str:
+        """Return a summary list of all active documents."""
+        logger.info("resource kb://list")
+        try:
+            docs = store.list(limit=1000)
+            return json.dumps(
+                {
+                    "documents": [
+                        {
+                            "id": d.id,
+                            "type": d.type,
+                            "title": d.title,
+                            "tags": d.tags,
+                            "updated_at": d.updated_at.isoformat(),
+                        }
+                        for d in docs
+                    ],
+                    "count": len(docs),
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource(
+        "kb://list/{type}",
+        name="list-type",
+        description="List documents of a specific type (JSON)",
+        mime_type="application/json",
+    )
+    def kb_resource_list_type(type: str) -> str:
+        """Return a summary list of documents filtered by type."""
+        logger.info("resource kb://list type=%r", type)
+        try:
+            docs = store.list(type=type, limit=1000)
+            return json.dumps(
+                {
+                    "type": type,
+                    "documents": [
+                        {
+                            "id": d.id,
+                            "type": d.type,
+                            "title": d.title,
+                            "tags": d.tags,
+                            "updated_at": d.updated_at.isoformat(),
+                        }
+                        for d in docs
+                    ],
+                    "count": len(docs),
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ---- Resource: kb://changes --------------------------------------------
+
+    @mcp.resource(
+        "kb://changes",
+        name="changes",
+        description="Recent changes to the knowledge base (audit log, JSON)",
+        mime_type="application/json",
+    )
+    def kb_resource_changes() -> str:
+        """Return the most recent audit log entries."""
+        logger.info("resource kb://changes")
+        try:
+            log = store.audit_log(limit=50)
+            return json.dumps(
+                {"changes": log, "count": len(log)},
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ---- Resource: kb://history --------------------------------------------
+
+    @mcp.resource(
+        "kb://history/{id}",
+        name="history",
+        description="Version history for a document (JSON)",
+        mime_type="application/json",
+    )
+    def kb_resource_history(id: str) -> str:
+        """Return the version history for a document."""
+        logger.info("resource kb://history id=%r", id)
+        try:
+            history = store.document_history(id)
+            return json.dumps(
+                {"id": id, "history": history, "count": len(history)},
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ---- Resource: kb://search ---------------------------------------------
+
+    @mcp.resource(
+        "kb://search/{query}",
+        name="search",
+        description="Search results for a query (JSON, hybrid mode)",
+        mime_type="application/json",
+    )
+    def kb_resource_search(query: str) -> str:
+        """Return search results for a query using hybrid mode."""
+        logger.info("resource kb://search query=%r", query)
+        try:
+            hits = store.search(query, limit=20, mode="hybrid")
+            return json.dumps(
+                {
+                    "query": query,
+                    "hits": [
+                        {
+                            "id": h.doc.id,
+                            "title": h.doc.title,
+                            "type": h.doc.type,
+                            "snippet": h.snippet,
+                            "score": h.score,
+                        }
+                        for h in hits
+                    ],
+                    "count": len(hits),
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ---- Resource: kb://export ---------------------------------------------
+
+    @mcp.resource(
+        "kb://export/{id}",
+        name="export",
+        description="Full document body as Markdown",
+        mime_type="text/markdown",
+    )
+    def kb_resource_export(id: str) -> str:
+        """Return the document body rendered as Markdown."""
+        logger.info("resource kb://export id=%r", id)
+        try:
+            doc = store.get(id)
+            header = f"# {doc.title}\n\n"
+            if doc.tags:
+                header += f"Tags: {', '.join(doc.tags)}\n\n"
+            if doc.source:
+                header += f"Source: {doc.source}\n\n"
+            return header + doc.body
+        except Exception as e:
+            return f"# Error\n\nCould not export document {id!r}: {e}"
+
+    # ---- Resource: kb://help -----------------------------------------------
+
+    @mcp.resource(
+        "kb://help/{doc}",
+        name="help",
+        description="Built-in documentation (e.g. quickstart, architecture) — Markdown",
+        mime_type="text/markdown",
+    )
+    def kb_resource_help(doc: str) -> str:
+        """Return a built-in help document from the docs/ directory."""
+        logger.info("resource kb://help doc=%r", doc)
+        try:
+            from pathlib import Path
+
+            pkg_dir = Path(__file__).resolve().parent  # src/kb_mcp_lite/
+            docs_dir = pkg_dir.parent.parent / "docs"  # project root / docs/
+            doc_file = docs_dir / f"{doc}.md"
+            if not doc_file.exists():
+                available = sorted(
+                    p.name.replace(".md", "") for p in docs_dir.glob("*.md")
+                )
+                return (
+                    f"# Not Found\n\nHelp document `{doc}` not found."
+                    f"\n\nAvailable documents: {', '.join(available)}"
+                )
+            return doc_file.read_text(encoding="utf-8")
+        except Exception as e:
+            return f"# Error\n\nCould not read help document: {e}"
+
     # ---- Prompts ---------------------------------------------------------
 
     @mcp.prompt(
@@ -1034,6 +1224,185 @@ def _make_server(vault: str | None = None) -> Any:
             "- FAQ entries whose answer involves this document\n"
             "- Person documents listing this under their projects\n\n"
             "When done, summarise how many links were added."
+        )
+
+    # ---- Prompt: search-guide ----------------------------------------------
+
+    @mcp.prompt(
+        name="search-guide",
+        title="Search Guide",
+        description="Guide on how to search the knowledge base effectively.",
+    )
+    def kb_prompt_search_guide() -> str:
+        """Return a guide on effective search strategies."""
+        return (
+            "## Knowledge Base Search Guide\n\n"
+            "The knowledge base supports multiple search modes:\n\n"
+            "### Search Modes\n"
+            "- **`lexical`**: Exact token BM25 (AND-of-tokens). Best for precise queries.\n"
+            "- **`fuzzy`**: Trigram BM25 — tolerates typos and partial words.\n"
+            "- **`hybrid`** (default): Reciprocal-rank fusion of lexical + fuzzy + semantic.\n"
+            "- **`rrf`**: Same as hybrid, with configurable RRF constant.\n"
+            "- **`semantic`**: Vector similarity (requires an embedder).\n\n"
+            "### Tips\n"
+            "- Use **`kb_search`** tool with `mode=\"hybrid\"` for best results.\n"
+            "- Filter by `type` (e.g. `\"decision\"`, `\"project\"`) to narrow down.\n"
+            "- Filter by `tags` to focus on a specific domain.\n"
+            "- For browsing, use **`kb_list`** tool or the `kb://list/` resource.\n"
+            "- For reading a single document, use the `kb://doc/{type}/{slug}` resource.\n"
+            "- To walk the link graph, use `kb://graph/{type}/{slug}/{depth}`.\n"
+            "- To understand available document types, read `kb://types`.\n\n"
+            "### When to use what\n"
+            "- **I know the exact id** → `kb://doc/...` resource or `kb_get` tool\n"
+            "- **I know keywords** → `kb_search` with `mode=\"hybrid\"`\n"
+            "- **I want to explore** → `kb_list` or `kb://list/` resource\n"
+            "- **I want related docs** → `kb://graph/...` resource\n"
+        )
+
+    # ---- Prompt: import-docs -----------------------------------------------
+
+    @mcp.prompt(
+        name="import-docs",
+        title="Import Documents",
+        description="Import documents from Markdown files into the knowledge base.",
+    )
+    def kb_prompt_import_docs() -> str:
+        """Return a guide for importing documents."""
+        return (
+            "## Importing Documents\n\n"
+            "You can import Markdown documents with YAML frontmatter into the knowledge base.\n\n"
+            "### File Format\n"
+            "Each `.md` file should have YAML frontmatter:\n\n"
+            "```markdown\n"
+            "---\n"
+            "type: decision\n"
+            "title: Use SQLite for storage\n"
+            "tags: [database, sqlite]\n"
+            "---\n"
+            "Body content here...\n"
+            "```\n\n"
+            "### Using the CLI\n"
+            "Run `kb import <directory>` to batch-import all `.md` files in a directory.\n"
+            "Run `kb import <directory> --dry-run` to preview without writing.\n\n"
+            "### Using kb_add\n"
+            "For a single document, use the `kb_add` tool:\n"
+            "```\n"
+            "kb_add(type=\"decision\", title=\"...\", body=\"...\", tags=[\"...\"])\n"
+            "```\n\n"
+            "### Idempotent Re-import\n"
+            "If a file has a `source` field matching an existing document's source, "
+            "the import updates rather than duplicates.\n\n"
+            "### What to import\n"
+            "- Architecture Decision Records (ADRs)\n"
+            "- Post-mortems and lessons learned\n"
+            "- Project READMEs and onboarding docs\n"
+            "- Glossary terms and definitions\n"
+            "- FAQ entries\n"
+        )
+
+    # ---- Prompt: doctor ----------------------------------------------------
+
+    @mcp.prompt(
+        name="doctor",
+        title="Health Check",
+        description="Run a health check on the knowledge base to detect issues.",
+    )
+    def kb_prompt_doctor() -> str:
+        """Return a guide for running knowledge base health checks."""
+        return (
+            "## Knowledge Base Health Check\n\n"
+            "Run a health check to detect issues like:\n\n"
+            "### Checks performed\n"
+            "1. **Integrity check** — SQLite PRAGMA integrity_check\n"
+            "2. **FTS sync** — FTS5 row count matches active documents\n"
+            "3. **Orphan links** — No links pointing to non-existent documents\n"
+            "4. **Valid type/title** — All documents have non-empty type and title\n\n"
+            "### How to run\n"
+            "Use the `kb doctor` CLI command, or:\n"
+            "1. read `kb://types` to verify document types are registered\n"
+            "2. read `kb://stats` to see document counts and trends\n"
+            "3. read `kb://changes` to review recent modifications\n\n"
+            "### Common issues and fixes\n"
+            "- **Orphan links**: A document was deleted but links pointing to it remain.\n"
+            "  Use `kb_unlink` to clean them up.\n"
+            "- **FTS mismatch**: Run `kb reindex` via the CLI to rebuild the search index.\n"
+            "- **Soft-deleted clutter**: Run `kb prune` to hard-delete old soft-deleted documents.\n"
+        )
+
+    # ---- Prompt: maintenance -----------------------------------------------
+
+    @mcp.prompt(
+        name="maintenance",
+        title="Maintenance",
+        description="Guide for maintaining the knowledge base: prune, reindex, duplicate detection.",
+    )
+    def kb_prompt_maintenance() -> str:
+        """Return a guide for knowledge base maintenance operations."""
+        return (
+            "## Knowledge Base Maintenance\n\n"
+            "### Prune old soft-deleted documents\n"
+            "Run `kb prune` (CLI) to hard-delete documents that were soft-deleted "
+            "more than 30 days ago. This recovers space and keeps the audit log clean.\n\n"
+            "### Rebuild the search index\n"
+            "Run `kb reindex` (CLI) if the FTS index gets out of sync with the document table. "
+            "This is rare — check with `kb doctor` first.\n\n"
+            "### Find near-duplicate documents\n"
+            "The store supports `similar_docs()` and `find_duplicates()` for detection.\n"
+            "Use `kb://types` and `kb://list/` to review the knowledge base for overlap.\n\n"
+            "### Compact the database\n"
+            "Run `VACUUM` via the SQLite CLI to reclaim space after a large prune or delete:\n"
+            "```\n"
+            "sqlite3 ~/.local/share/kb-mcp/default/kb.db \"VACUUM;\"\n"
+            "```\n\n"
+            "### Export / backup\n"
+            "Run `kb export <directory>` to dump all documents as Markdown files.\n"
+            "This is useful for version control integration or manual review.\n\n"
+            "### Merge duplicate documents\n"
+            "1. Find duplicates with `find_duplicates()` or manual review.\n"
+            "2. Merge content from the duplicate into the canonical document via `kb_update`.\n"
+            "3. Re-link edges: use `kb_link` to point references to the canonical id.\n"
+            "4. Soft-delete the duplicate with `kb_delete`.\n"
+        )
+
+    # ---- Prompt: onboarding ------------------------------------------------
+
+    @mcp.prompt(
+        name="onboarding",
+        title="Knowledge Base Onboarding",
+        description="Get an overview of what this knowledge base contains and how to use it.",
+    )
+    def kb_prompt_onboarding() -> str:
+        """Return an onboarding overview for a new AI session."""
+        return (
+            "## Knowledge Base Onboarding\n\n"
+            "This MCP server manages a **structured knowledge base** — "
+            "a collection of Markdown documents with typed relationships.\n\n"
+            "### Document Types\n"
+            "- **project** — A project, repo, or initiative\n"
+            "- **decision** — Architecture Decision Record (ADR)\n"
+            "- **lesson** — Post-mortem / lessons learned\n"
+            "- **glossary** — Term definition\n"
+            "- **person** — A person the agent should recognise\n"
+            "- **faq** — Frequently asked question\n\n"
+            "### Quick Start\n"
+            "1. Read `kb://stats` for an overview of what's stored.\n"
+            "2. Read `kb://types` to see the full field schemas.\n"
+            "3. List documents: `kb://list/` or `kb://list/{type}`.\n"
+            "4. Search: `kb://search/{query}` resource or `kb_search` tool.\n"
+            "5. Read a document: `kb://doc/{type}/{slug}` resource or `kb_get` tool.\n"
+            "6. Explore relationships: `kb://graph/{type}/{slug}/{depth}`.\n"
+            "7. Check recent changes: `kb://changes` resource.\n\n"
+            "### Key Capabilities\n"
+            "- **Full-text search** with lexical, fuzzy, semantic, and hybrid modes\n"
+            "- **Linked graph** of typed relationships between documents\n"
+            "- **Version history** — every change is tracked and revertible\n"
+            "- **Similarity** — find related documents by semantic similarity\n"
+            "- **Multi-vault** — isolate knowledge bases for different contexts\n\n"
+            "### Need help?\n"
+            "- Run the `search-guide` prompt for search tips.\n"
+            "- Run the `doctor` prompt to check knowledge base health.\n"
+            "- Run `kb://help/quickstart` for the quickstart guide.\n"
+            "- Run `kb://help/architecture` for the architecture docs.\n"
         )
 
     return mcp
