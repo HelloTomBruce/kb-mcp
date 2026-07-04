@@ -70,6 +70,18 @@ class VersioningMixin:
             ),
         )
 
+    def get_versions(self, doc_id: str) -> list[dict[str, object]]:
+        """Get version history for a document. Alias for document_history."""
+        return self.document_history(doc_id)
+
+    def diff_versions(self, doc_id: str, v1: int, v2: int) -> dict[str, object]:
+        """Show field-level diff between two versions. Alias for diff."""
+        return self.diff(doc_id, v1, v2)
+
+    def restore_version(self, doc_id: str, version_id: int) -> Document:
+        """Restore a document to a previous version. Alias for restore."""
+        return self.restore(doc_id, version_id=version_id)
+
     def document_history(self, doc_id: str, limit: int = 50) -> list[dict[str, object]]:
         rows = self._conn.execute(
             """

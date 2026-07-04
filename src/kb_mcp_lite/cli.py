@@ -488,15 +488,23 @@ def history(ctx: click.Context, doc_id: str, as_json: bool) -> None:
     store = _get_store(ctx)
     versions = store.get_versions(doc_id)
     if as_json:
-        _emit_json([v.model_dump(mode="json") for v in versions])
+        _emit_json([v if isinstance(v, dict) else v.model_dump(mode="json") for v in versions])
     else:
         if not versions:
             click.echo("(no history)")
             return
         for v in versions:
-            click.echo(f"Version {v.version}: {v.created_at.isoformat()}")
-            if v.message:
-                click.echo(f"  {v.message}")
+            if isinstance(v, dict):
+                version_id = v.get("version_id", "?")
+                created_at = v.get("created_at", "")
+                message = v.get("note", "") or v.get("message", "")
+            else:
+                version_id = v.version
+                created_at = v.created_at
+                message = getattr(v, "message", "")
+            click.echo(f"Version {version_id}: {created_at}")
+            if message:
+                click.echo(f"  {message}")
             click.echo()
 
 

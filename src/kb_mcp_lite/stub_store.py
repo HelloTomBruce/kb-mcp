@@ -357,6 +357,12 @@ class StubStore(_Store):
             del self._links[k]
         return len(to_remove)
 
+    def outgoing_links(self, doc_id: str) -> List[Link]:
+        return self.outlinks(doc_id)
+
+    def incoming_links(self, doc_id: str) -> List[Link]:
+        return self.backlinks(doc_id)
+
     def backlinks(self, doc_id: str) -> List[Link]:
         # ``__exit__`` callers may pass a soft-deleted id; we don't raise.
         return [lk for lk in self._links.values() if lk.to_id == doc_id]
