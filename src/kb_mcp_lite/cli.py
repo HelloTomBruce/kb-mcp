@@ -721,14 +721,18 @@ def prune(ctx: click.Context, older_than: int, as_json: bool) -> None:
 
 
 @cli.command()
-@click.option("--transport", default="stdio", type=click.Choice(["stdio", "http"]), show_default=True)
-@click.option("--port", default=8000, help="HTTP server port (only for http transport).")
+@click.option("--log-level", default="INFO", show_default=True, help="Log level.")
+@click.option("--vault", help="Vault name to serve.")
 @click.pass_context
 @_handle_errors
-def serve(ctx: click.Context, transport: str, port: int) -> None:
-    """Start the MCP server."""
-    store = _get_store(ctx)
-    run_mcp_server(store, transport=transport, port=port)
+def serve(ctx: click.Context, log_level: str, vault: str | None) -> None:
+    """Start the MCP server on stdio."""
+    from kb_mcp_lite.mcp_server import run as run_mcp_server
+    if log_level:
+        os.environ["KB_MCP_LOG_LEVEL"] = log_level
+    if vault:
+        os.environ["KB_MCP_VAULT"] = vault
+    run_mcp_server()
 
 
 # ---- vault commands ----------------------------------------------------------
@@ -854,7 +858,7 @@ def admin_start(ctx: click.Context, port: int) -> None:
     """Start the web administration interface."""
     from kb_mcp_lite.admin import run_admin
     store = _get_store(ctx)
-    run_admin(store, port=port)
+    run_admin(store=store, port=port)
 
 
 def main() -> None:

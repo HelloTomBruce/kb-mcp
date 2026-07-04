@@ -563,10 +563,11 @@ class TestPrune:
 
 
 class TestServe:
-    def test_serve_needs_store(self, runner: CliRunner) -> None:
-        """serve without injected store fails gracefully."""
-        result = runner.invoke(cli, ["serve"])
-        assert result.exit_code != EXIT_OK
+    def test_serve_exists(self, runner: CliRunner) -> None:
+        """serve command exists and accepts --help."""
+        result = runner.invoke(cli, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "MCP" in result.output or "stdio" in result.output
 
 
 # ---------------------------------------------------------------------------

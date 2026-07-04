@@ -541,6 +541,10 @@ class StubStore(_Store):
         """Rebuild search index (no-op for StubStore)."""
         pass
 
+    def reindex_embeddings(self, progress_callback=None) -> int:
+        """Recompute embeddings (no-op for StubStore)."""
+        return 0
+
     def document_history(
         self, doc_id: str, limit: int = 50
     ) -> list[dict[str, object]]:
