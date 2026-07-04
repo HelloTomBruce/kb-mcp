@@ -119,6 +119,10 @@ class StubStore(_Store):
 
     # ---- write ----------------------------------------------------------
 
+    def init(self) -> None:
+        """Initialize the store (no-op for StubStore)."""
+        pass
+
     def add(self, doc: Document) -> str:
         """Insert a new document; auto-generate id when empty.
 
@@ -227,6 +231,8 @@ class StubStore(_Store):
         self,
         type: str | None = None,  # noqa: A002
         tags: List[str] | None = None,
+        link_to: str | None = None,
+        link_from: str | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
@@ -243,6 +249,14 @@ class StubStore(_Store):
                 continue
             if tags and not all(t in doc.tags for t in tags):
                 continue
+            if link_to is not None:
+                links_from = [lk for lk in self._links.values() if lk.from_id == doc.id and lk.to_id == link_to]
+                if not links_from:
+                    continue
+            if link_from is not None:
+                links_to = [lk for lk in self._links.values() if lk.to_id == doc.id and lk.from_id == link_from]
+                if not links_to:
+                    continue
             results.append(doc)
         # Sort by updated_at DESC, then by id ASC for determinism.
         results.sort(key=lambda d: (d.updated_at, d.id), reverse=False)
@@ -255,16 +269,17 @@ class StubStore(_Store):
         type: str | None = None,  # noqa: A002
         tags: List[str] | None = None,
         limit: int = 10,
-        mode: str = "lexical",
+        fuzzy: bool = False,
+        **kwargs: object,
     ) -> List[SearchHit]:
         if not query or not query.strip():
             raise ValidationError("query must be non-empty")
         if limit < 1 or limit > 100:
             raise ValidationError(f"limit must be 1..100 (got {limit})")
-        if mode not in ("lexical", "fuzzy", "hybrid"):
-            raise ValidationError(
-                f"mode must be 'lexical', 'fuzzy', or 'hybrid' (got {mode!r})"
-            )
+        if fuzzy:
+            mode = "fuzzy"
+        else:
+            mode = kwargs.get("mode", "lexical")
         lower_q = query.lower().strip()
         # fuzzy/hybrid: also match any token substring of length >= 3.
         # This is a rough approximation of the trigram FTS; good enough
@@ -489,6 +504,36 @@ class StubStore(_Store):
             "actor": "admin",
             "note": "",
         })
+
+    def get_versions(self, doc_id: str) -> list[dict[str, object]]:
+        """Alias for document_history (returns list of version dicts)."""
+        return self.document_history(doc_id)
+
+    def diff_versions(self, doc_id: str, v1: int, v2: int) -> dict[str, object]:
+        """Alias for diff."""
+        return self.diff(doc_id, v1, v2)
+
+    def restore_version(self, doc_id: str, version_id: int) -> Document:
+        """Alias for restore."""
+        return self.restore(doc_id, version_id=version_id)
+
+    def stats(self) -> dict[str, object]:
+        """Return basic statistics."""
+        active = [d for d in self._docs.values() if d.deleted_at is None]
+        deleted = [d for d in self._docs.values() if d.deleted_at is not None]
+        from collections import Counter
+        type_counts = Counter(d.type for d in active)
+        return {
+            "total_docs": len(active),
+            "total_links": len(self._links),
+            "soft_deleted": len(deleted),
+            "recent_changes": 0,
+            "docs_by_type": dict(type_counts),
+        }
+
+    def reindex(self) -> None:
+        """Rebuild search index (no-op for StubStore)."""
+        pass
 
     def document_history(
         self, doc_id: str, limit: int = 50

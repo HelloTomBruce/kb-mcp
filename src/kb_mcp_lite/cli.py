@@ -80,13 +80,17 @@ def cli(ctx: click.Context, vault: str | None) -> None:
     config = get_config()
     vault_manager = VaultManager()
     selected_vault = vault or config.get("default_vault", "default")
-    from kb_mcp_lite.store import SqliteStore
-    db_path = vault_manager.resolve_path(selected_vault)
-    store = SqliteStore(db_path)
     ctx.ensure_object(dict)
-    ctx.obj["store"] = store
-    ctx.obj["config"] = config
-    ctx.obj["vault_manager"] = vault_manager
+    # Use injected store from test if present; otherwise create a new one
+    if "store" not in ctx.obj:
+        from kb_mcp_lite.store import SqliteStore
+        db_path = vault_manager.resolve_path(selected_vault)
+        ctx.obj["store"] = SqliteStore(db_path)
+    # Use injected config/vault_manager if present; otherwise set them up
+    if "config" not in ctx.obj:
+        ctx.obj["config"] = config
+    if "vault_manager" not in ctx.obj:
+        ctx.obj["vault_manager"] = vault_manager
 
 
 def _emit_json(obj: Any) -> None:
@@ -269,7 +273,7 @@ def search(
     """Search the knowledge base."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    results = store.search(query, type=doc_type, tags=tag_list, fuzzy=fuzzy, limit=limit)
+    results = store.search(query, type=doc_type, tags=tag_list, mode="fuzzy" if fuzzy else "lexical", limit=limit)
     if as_json:
         _emit_json([
             {
@@ -668,7 +672,7 @@ def vault_list(ctx: click.Context, as_json: bool) -> None:
     vm = ctx.obj["vault_manager"]
     vaults = vm.list_vaults()
     if as_json:
-        _emit_json(vaults)
+        _emit_json([{"name": v.name, "path": v.path, "description": v.description, "sync_dir": v.sync_dir} for v in vaults])
     else:
         default_vault = ctx.obj["config"].get("default_vault", "default")
         click.echo(f"Default vault: {default_vault}")
@@ -688,11 +692,11 @@ def vault_list(ctx: click.Context, as_json: bool) -> None:
 def vault_create(ctx: click.Context, name: str, desc: str | None, as_json: bool) -> None:
     """Create a new vault."""
     vm = ctx.obj["vault_manager"]
-    vault_path = vm.create_vault(name, description=desc)
+    vault_path = vm.create(name, description=desc)
     if as_json:
-        _emit_json({"name": name, "path": vault_path})
+        _emit_json({"name": name, "path": str(vault_path.path)})
     else:
-        click.echo(f"Created vault {name} at {vault_path}")
+        click.echo(f"Created vault {name} at {vault_path.path}")
 
 
 @vault_group.command(name="switch")
@@ -701,6 +705,9 @@ def vault_create(ctx: click.Context, name: str, desc: str | None, as_json: bool)
 @_handle_errors
 def vault_switch(ctx: click.Context, name: str) -> None:
     """Set the default vault."""
+    vm = ctx.obj["vault_manager"]
+    # Validate the vault exists
+    vm.switch(name)
     config = ctx.obj["config"]
     config["default_vault"] = name
     click.echo(f"Default vault set to {name}")
