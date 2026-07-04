@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import functools
+from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import click
@@ -535,7 +536,7 @@ def diff(ctx: click.Context, doc_id: str, v1: int, v2: int, as_json: bool) -> No
 def import_cmd(ctx: click.Context, directory: str, dry_run: bool, as_json: bool) -> None:
     """Import Markdown files from a directory into the knowledge base."""
     store = _get_store(ctx)
-    report = import_dir(store, directory, dry_run=dry_run)
+    report = import_dir(store, Path(directory), dry_run=dry_run)
     if as_json:
         _emit_json(report.model_dump(mode="json"))
     else:
@@ -560,7 +561,7 @@ def import_cmd(ctx: click.Context, directory: str, dry_run: bool, as_json: bool)
 def export(ctx: click.Context, directory: str, force: bool, as_json: bool) -> None:
     """Export all documents as Markdown files to a directory."""
     store = _get_store(ctx)
-    export_dir(store, directory, force=force)
+    export_dir(store, Path(directory), force=force)
     if as_json:
         _emit_json({"exported_to": directory})
     else:
