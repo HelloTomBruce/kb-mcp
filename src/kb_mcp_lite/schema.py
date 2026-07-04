@@ -6,7 +6,7 @@ If you change a field name or a validation rule, you change it here and
 propagate — never duplicate.
 
 Built-in types: ``project``, ``decision``, ``lesson``, ``glossary``,
-``person``, ``faq``. Users can add custom types via :class:`TypeRegistry`.
+``person``, ``faq``, ``api``, ``runbook``, ``release``. Users can add custom types via :class:`TypeRegistry`.
 
 Conventions
 -----------
@@ -50,6 +50,9 @@ class DocumentType(str, Enum):
     GLOSSARY = "glossary"
     PERSON = "person"
     FAQ = "faq"
+    API = "api"
+    RUNBOOK = "runbook"
+    RELEASE = "release"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +104,9 @@ _TYPE_PREFIX = {
     DocumentType.GLOSSARY: "glossary",
     DocumentType.PERSON: "person",
     DocumentType.FAQ: "faq",
+    DocumentType.API: "api",
+    DocumentType.RUNBOOK: "runbook",
+    DocumentType.RELEASE: "release",
 }
 
 
@@ -278,12 +284,22 @@ class Document(BaseModel):
     def from_row(cls, row: dict[str, Any]) -> "Document":
         """Inverse of :meth:`to_row`."""
         import json
+        from datetime import datetime
 
         data = dict(row)
         tags_raw = data.get("tags") or "[]"
         if isinstance(tags_raw, str):
             data["tags"] = json.loads(tags_raw)
-        return cls.model_validate(data)
+        # Parse datetime fields from ISO strings
+        for k in ("created_at", "updated_at", "deleted_at"):
+            v = data.get(k)
+            if isinstance(v, str):
+                s = v.replace("Z", "+00:00")
+                try:
+                    data[k] = datetime.fromisoformat(s)
+                except ValueError:
+                    pass
+        return cls.model_construct(**data)
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +380,7 @@ class DoctorReport(BaseModel):
 class TypeRegistry:
     """Registry of known document types and their default behaviours.
 
-    The six built-in types are pre-registered. Users can register custom
+    The built-in types are pre-registered. Users can register custom
     types to:
 
     - constrain which fields are allowed on a document,
@@ -386,6 +402,9 @@ class TypeRegistry:
             "glossary": Glossary,
             "person": Person,
             "faq": Faq,
+            "api": Api,
+            "runbook": Runbook,
+            "release": Release,
         }
 
     def register(self, type_name: str, model: type[Document]) -> None:
@@ -409,13 +428,13 @@ class TypeRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Per-type subclasses (v0.1: metadata only; no extra fields yet)
+# Per-type subclasses
 # ---------------------------------------------------------------------------
 
 
 class Project(Document):
     """A project / repo / initiative. Body typically summarises purpose,
-    stack, status, owners. Tag convention: ``<lang>``, ``<framework>``,
+    stack, status, owners, repository and deployment URLs. Tag convention: ``<lang>``, ``<framework>``,
     ``<domain>``."""
 
     type: Literal["project"] = "project"
@@ -452,7 +471,31 @@ class Faq(Document):
     """A frequently asked question. Title is the question; body is the
     answer."""
 
-    type: Literal["faq"] = "faq"  # noqa: F821
+    type: Literal["faq"] = "faq"
+
+
+class Api(Document):
+    """An API endpoint documentation. Body typically includes endpoint path,
+    HTTP method, request/response examples, authentication requirements.
+    Tag convention: ``<service>``, ``<http-method>``, ``<version>``."""
+
+    type: Literal["api"] = "api"
+
+
+class Runbook(Document):
+    """An operational runbook / SOP. Body typically includes step-by-step
+    instructions for routine operations, incident response, deployment procedures.
+    Tag convention: ``<operation>``, ``<environment>``, ``<service>``."""
+
+    type: Literal["runbook"] = "runbook"
+
+
+class Release(Document):
+    """A release / changelog entry. Body typically includes version number,
+    release date, change list, impact, rollback steps.
+    Tag convention: ``<version>``, ``<environment>``, ``<service>``."""
+
+    type: Literal["release"] = "release"
 
 
 # Module-level singleton for convenience
@@ -475,6 +518,9 @@ __all__ = [
     "Glossary",
     "Person",
     "Faq",
+    "Api",
+    "Runbook",
+    "Release",
     # registry
     "TypeRegistry",
     "default_registry",

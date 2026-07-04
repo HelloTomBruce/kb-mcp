@@ -74,6 +74,65 @@ class MaintenanceMixin:
             )
         )
 
+        # 5-7: Project-specific checks (only when projects exist and doc count > 1)
+        n_projects = self._conn.execute("""
+            SELECT COUNT(*) FROM documents WHERE type = 'project' AND deleted_at IS NULL
+        """).fetchone()[0]
+        n_total = self._conn.execute("""
+            SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL
+        """).fetchone()[0]
+        
+        if n_total > 1 and n_projects > 0:
+            # 5. No duplicate project documents (same title)
+            duplicate_projects = self._conn.execute("""
+                SELECT title, COUNT(*) as cnt FROM documents
+                WHERE type = 'project' AND deleted_at IS NULL
+                GROUP BY title HAVING cnt > 1
+            """).fetchall()
+            n_duplicate = len(duplicate_projects)
+            detail = f"{n_duplicate} duplicate projects: {', '.join(r['title'] for r in duplicate_projects)}" if n_duplicate else "no duplicates"
+            checks.append(
+                DoctorCheck(
+                    name="no_duplicate_projects",
+                    ok=n_duplicate == 0,
+                    detail=detail,
+                )
+            )
+
+            # 6. Project documents have sufficient metadata (informational)
+            empty_projects = self._conn.execute("""
+                SELECT COUNT(*) FROM documents
+                WHERE type = 'project' AND deleted_at IS NULL AND body = ''
+            """).fetchone()[0]
+            detail = f"{empty_projects} project(s) with empty body" if empty_projects else "all projects have body content"
+            checks.append(
+                DoctorCheck(
+                    name="project_metadata_complete",
+                    ok=True,
+                    detail=detail,
+                )
+            )
+
+            # 7. No orphan documents (not linked to any project)
+            n_orphan_docs = self._conn.execute("""
+                SELECT COUNT(DISTINCT d.id) FROM documents d
+                WHERE d.deleted_at IS NULL
+                  AND d.type != 'project'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM links l
+                    WHERE l.from_id = d.id AND l.to_id LIKE 'proj/%'
+                       OR l.to_id = d.id AND l.from_id LIKE 'proj/%'
+                  )
+            """).fetchone()[0]
+            detail = f"{n_orphan_docs} documents not linked to any project" if n_orphan_docs else "all documents are linked to a project"
+            checks.append(
+                DoctorCheck(
+                    name="no_orphan_documents",
+                    ok=n_orphan_docs == 0,
+                    detail=detail,
+                )
+            )
+
         return DoctorReport(ok=all(c.ok for c in checks), checks=checks)
 
     def prune(self, older_than: timedelta = timedelta(days=30)) -> int:

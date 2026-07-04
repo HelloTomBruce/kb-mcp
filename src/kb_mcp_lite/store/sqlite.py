@@ -1,97 +1,93 @@
-"""SQLite implementation of the :class:`~kb_mcp_lite.store.Store` Protocol.
-
-Threading: a single ``SqliteStore`` instance is **not** thread-safe; use
-one per thread or serialise calls. Multi-process access to the same
-DB file is supported via WAL mode.
-
-Soft delete: :meth:`delete` sets ``deleted_at``. Reads filter
-``deleted_at IS NULL``. :meth:`prune` hard-deletes after a grace period.
-
-Failure modes: every method either returns the documented value or
-raises one of the documented exceptions from :mod:`kb_mcp_lite.schema`.
-"""
-
+"""SQLite storage implementation."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
-import sqlite3 as _stdlib_sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterable, Iterator, List
+from typing import Any, Dict, Iterable, List, Optional, Tuple, TypeVar, Iterator
 
-from kb_mcp_lite.migrations import apply_migrations
 from kb_mcp_lite.schema import (
     Document,
-    DuplicateError,
-    ImportReport,
-    IntegrityError,
     Link,
+    SearchHit,
+    DoctorReport,
+    ImportReport,
     NotFoundError,
+    DuplicateError,
     ValidationError,
 )
+from kb_mcp_lite.store.maintenance import MaintenanceMixin
 from kb_mcp_lite.store.search import SearchMixin
 from kb_mcp_lite.store.versioning import VersioningMixin
 from kb_mcp_lite.store.embedding import EmbeddingMixin
-from kb_mcp_lite.store.maintenance import MaintenanceMixin
 
 
-def _make_sqlite_connection(path: str):
-    """Open a sqlite3 connection that supports vec0 if possible."""
-    try:
-        import pysqlite3 as _psql
-
-        conn = _psql.connect(path, isolation_level=None)
-        conn.enable_load_extension(True)
-        _try_load_vec0(conn)
-        return conn
-    except ImportError:
-        pass
-    return _stdlib_sqlite3.connect(path, isolation_level=None)
+T = TypeVar("T")
 
 
-def _try_load_vec0(conn) -> None:
-    """Best-effort load of the vec0 SQLite extension. No-op on failure."""
-    import logging
-
-    log = logging.getLogger("kb_mcp_lite")
-    try:
-        import sqlite_vec
-
-        sqlite_vec.load(conn)
-    except Exception as e:
-        log.debug("vec0 extension not loaded (%s); semantic search disabled", e)
+def _sqlite_row_factory(cursor: sqlite3.Cursor, row: Tuple[Any, ...]) -> sqlite3.Row:
+    return sqlite3.Row(cursor, row)
 
 
-_UPDATEABLE_FIELDS = frozenset({"title", "body", "tags", "source", "aliases"})
-_DEFAULT_ACTOR = "admin"
+class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin):
+    """SQLite-based storage implementation.
+    
+    Combines functionality from multiple mixins:
+    - MaintenanceMixin: Health checks, stats, pruning, reindexing
+    - SearchMixin: Full-text and semantic search
+    - VersioningMixin: Document version history, diff, restore
+    - EmbeddingMixin: Vector storage and semantic search support
+    """
 
-
-class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin):
-    """SQLite-backed :class:`~kb_mcp_lite.store.Store` implementation."""
-
-    def __init__(
-        self,
-        db_path: Path | str,
-        embedder: object | None = None,
-    ) -> None:
-        self._path = Path(db_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = _stdlib_sqlite3.connect(str(self._path), isolation_level=None)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        apply_migrations(self._conn)
+    def __init__(self, db_path: str, embedder: Any | None = None) -> None:
+        self.db_path = db_path
+        self._conn = self._open_connection()
+        self._vec_conn = None
+        self._init_db()
         if embedder is None:
             from kb_mcp_lite.embedder import make_embedder
-
             embedder = make_embedder()
         self._embedder = embedder
-        self._vec_conn = None
 
-    # ---- context manager + close ---------------------------------------
+    def _open_connection(self) -> sqlite3.Connection:
+        """Open a connection to the SQLite database."""
+        dir_path = os.path.dirname(self.db_path)
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.row_factory = _sqlite_row_factory
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        return conn
+
+    def _init_db(self) -> None:
+        """Initialize database schema and run migrations."""
+        from kb_mcp_lite.migrations import apply_migrations
+        apply_migrations(self._conn)
+        self._conn.commit()
+
+    @property
+    def path(self):
+        """Return the path to the database file (compatibility alias for db_path)."""
+        return self.db_path
+
+    def init(self) -> None:
+        """Initialize a new empty knowledge base."""
+        # Already handled by migrations
+        pass
+
+    def close(self) -> None:
+        """Close the database connection."""
+        try:
+            self._conn.close()
+        except (sqlite3.ProgrammingError, Exception):
+            pass
 
     def __enter__(self) -> "SqliteStore":
         return self
@@ -99,104 +95,67 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def close(self) -> None:
-        try:
-            self._conn.close()
-        except sqlite3.ProgrammingError:
-            pass
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    # ---- helpers --------------------------------------------------------
-
     @contextmanager
     def _txn(self) -> Iterator[sqlite3.Cursor]:
+        """Start a transaction and yield a cursor. Commits on success, rolls back on error."""
         cur = self._conn.cursor()
-        cur.execute("BEGIN")
         try:
             yield cur
-            cur.execute("COMMIT")
+            self._conn.commit()
         except Exception:
             try:
-                cur.execute("ROLLBACK")
+                self._conn.rollback()
             except sqlite3.OperationalError:
                 pass
             raise
+        finally:
+            cur.close()
+
+    def _row_to_doc(self, row: Dict[str, Any]) -> Document:
+        """Convert a database row to a Document object."""
+        return Document.from_row(row)
+
+    @staticmethod
+    def _row_to_link(row: Dict[str, Any]) -> Link:
+        """Convert a database row to a Link object."""
+        return Link(**row)
 
     @staticmethod
     def _now_iso() -> str:
+        """Return the current UTC time as an ISO-8601 string."""
         return datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _parse_dt(value: str | None) -> datetime | None:
+        """Parse an ISO-8601 string to datetime, or return None."""
         if not value:
             return None
         s = value.replace("Z", "+00:00")
         try:
             return datetime.fromisoformat(s)
-        except ValueError as e:
-            raise IntegrityError(f"unparseable datetime {value!r}: {e}") from e
+        except ValueError:
+            return None
 
-    def _row_to_doc(self, row: sqlite3.Row) -> Document:
-        d = dict(row)
-        d["tags"] = json.loads(d.get("tags") or "[]")
-        for k in ("created_at", "updated_at", "deleted_at"):
-            if d.get(k):
-                d[k] = self._parse_dt(d[k])
-        return Document.model_construct(**d)
-
-    def _row_to_link(self, row: sqlite3.Row) -> Link:
-        return Link(
-            from_id=row["from_id"],
-            to_id=row["to_id"],
-            rel=row["rel"],
-            created_at=self._parse_dt(row["created_at"]) or datetime.now(timezone.utc),
-        )
-
-    # ---- aliases --------------------------------------------------------
-
-    def _write_aliases(self, doc_id: str, aliases: list[str]) -> None:
-        self._conn.execute("DELETE FROM doc_aliases WHERE doc_id = ?", (doc_id,))
-        if not aliases:
-            return
-        now = self._now_iso()
-        for alias in aliases:
-            if not alias:
-                continue
-            try:
-                self._conn.execute(
-                    "INSERT INTO doc_aliases (alias, doc_id, created_at) VALUES (?, ?, ?)",
-                    (alias, doc_id, now),
-                )
-            except sqlite3.IntegrityError:
-                continue
-
-    def _read_aliases(self, doc_id: str) -> list[str]:
-        rows = self._conn.execute(
-            "SELECT alias FROM doc_aliases WHERE doc_id = ? ORDER BY alias",
-            (doc_id,),
-        ).fetchall()
-        return [r["alias"] for r in rows]
-
-    def resolve_alias(self, alias: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT doc_id FROM doc_aliases WHERE alias = ?", (alias,)
-        ).fetchone()
-        return row["doc_id"] if row else None
-
-    # ---- read -----------------------------------------------------------
+    # ---- read operations ------------------------------------------------------
 
     def get(self, doc_id: str, include_deleted: bool = False) -> Document:
-        """Fetch a document by id. Also resolves aliases."""
+        """Get a document by ID.
+        
+        Raises NotFoundError if the document doesn't exist.
+        """
         sql = "SELECT * FROM documents WHERE id = ?"
+        params: List[Any] = [doc_id]
         if not include_deleted:
             sql += " AND deleted_at IS NULL"
-        row = self._conn.execute(sql, (doc_id,)).fetchone()
-        if row is None:
-            resolved = self.resolve_alias(doc_id)
-            if resolved:
+        
+        row = self._conn.execute(sql, params).fetchone()
+        if not row:
+            # Try resolving alias via doc_aliases table
+            alias_row = self._conn.execute(
+                "SELECT doc_id FROM doc_aliases WHERE alias = ?", (doc_id,)
+            ).fetchone()
+            if alias_row:
+                resolved = alias_row["doc_id"]
                 return self.get(resolved, include_deleted=include_deleted)
             raise NotFoundError(doc_id)
         return self._row_to_doc(row)
@@ -205,141 +164,223 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
         self,
         type: str | None = None,
         tags: List[str] | None = None,
+        link_to: str | None = None,
+        link_from: str | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
     ) -> List[Document]:
+        """List documents with optional filtering.
+        
+        Args:
+            type: Filter by document type
+            tags: Filter by tags (all tags must be present)
+            link_to: Filter documents that link to the given document ID
+            link_from: Filter documents that are linked from the given document ID
+            limit: Maximum number of results to return (1-1000)
+            offset: Number of results to skip for pagination
+            include_deleted: Include soft-deleted documents in results
+        """
         if limit < 1 or limit > 1000:
             raise ValidationError("limit must be in 1..1000")
         if offset < 0:
             raise ValidationError("offset must be >= 0")
-        sql = "SELECT * FROM documents WHERE 1=1"
+        
+        sql_parts = ["SELECT DISTINCT d.* FROM documents d"]
         params: List[object] = []
+        joins = []
+        conditions = ["1=1"]
+        
         if not include_deleted:
-            sql += " AND deleted_at IS NULL"
+            conditions.append("d.deleted_at IS NULL")
+        
         if type:
-            sql += " AND type = ?"
+            conditions.append("d.type = ?")
             params.append(type)
-        sql += " ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?"
+        
+        if link_to:
+            joins.append("LEFT JOIN links l_to ON l_to.from_id = d.id")
+            conditions.append("l_to.to_id = ?")
+            params.append(link_to)
+        
+        if link_from:
+            joins.append("LEFT JOIN links l_from ON l_from.to_id = d.id")
+            conditions.append("l_from.from_id = ?")
+            params.append(link_from)
+        
+        if joins:
+            sql_parts.extend(joins)
+        
+        sql_parts.append("WHERE " + " AND ".join(conditions))
+        sql_parts.append("ORDER BY d.updated_at DESC, d.id ASC LIMIT ? OFFSET ?")
         params.extend([limit, offset])
+        
+        sql = " ".join(sql_parts)
         rows = self._conn.execute(sql, params).fetchall()
         docs = [self._row_to_doc(r) for r in rows]
+        
         if tags:
             wanted = set(tags)
             docs = [d for d in docs if wanted.issubset(set(d.tags))]
+        
         return docs
 
-    # ---- write ----------------------------------------------------------
+    # ---- write operations ------------------------------------------------------
 
     def add(self, doc: Document) -> str:
+        """Add a new document.
+        
+        Returns the generated document ID.
+        Raises DuplicateError if a document with the same (type, title) already exists.
+        Raises ValidationError if the ID format is invalid.
+        """
+        # Generate ID if not provided
         if not doc.id:
-            from kb_mcp_lite.schema import make_id
-
-            doc = doc.model_copy(update={"id": make_id(doc.type, doc.title)})
+            doc.id = make_id(doc.type, doc.title)
         elif not re.match(r"^[a-z0-9][a-z0-9/_-]*$", doc.id):
             raise ValidationError(f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {doc.id!r})")
-
-        row = doc.to_row()
+        
+        # Check for duplicate
         try:
-            with self._txn() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO documents
-                        (id, type, title, body, tags, source,
-                         created_at, updated_at, deleted_at)
-                    VALUES
-                        (:id, :type, :title, :body, :tags, :source,
-                         :created_at, :updated_at, :deleted_at)
-                    """,
-                    row,
-                )
-                self._record_doc_version(cur, doc, action="create")
-                self._record_audit(
-                    cur,
-                    entity_type="document",
-                    entity_id=doc.id,
-                    action="create",
-                    detail={"title": doc.title, "type": doc.type},
-                )
-        except sqlite3.IntegrityError as e:
-            msg = str(e)
-            if "UNIQUE constraint failed: documents.id" in msg or "PRIMARY KEY" in msg:
-                raise DuplicateError(doc.id) from e
-            raise IntegrityError(msg) from e
-        self._write_aliases(doc.id, doc.aliases)
-        self._index_embedding(doc)
-        return doc.id
+            existing = self.get(doc.id, include_deleted=True)
+            raise DuplicateError(doc.id, existing.id)
+        except NotFoundError:
+            pass
 
-    def update(self, doc_id: str, **fields: object) -> Document:
-        bad = set(fields.keys()) - _UPDATEABLE_FIELDS
-        if bad:
-            raise ValidationError(f"cannot update fields: {sorted(bad)}")
-        if not fields:
-            raise ValidationError("update requires at least one field")
-        existing = self.get(doc_id, include_deleted=True)
-        merged = existing.model_dump()
-        for k, v in fields.items():
-            if k == "tags":
-                if v is None:
-                    merged["tags"] = []
-                elif isinstance(v, str):
-                    merged["tags"] = [t.strip() for t in v.split(",") if t.strip()]
-                elif isinstance(v, list):
-                    merged["tags"] = list(v)
-                else:
-                    raise ValidationError(
-                        f"tags must be List[str] or comma string (got {type(v).__name__})"
-                    )
-            else:
-                merged[k] = v
-        merged["updated_at"] = datetime.now(timezone.utc)
-        new_doc = Document.model_validate(merged)
-        row = new_doc.to_row()
+        now = datetime.now(timezone.utc)
+        doc.created_at = now
+        doc.updated_at = now
+
         with self._txn() as cur:
             cur.execute(
                 """
-                UPDATE documents SET
-                    title=:title, body=:body, tags=:tags, source=:source,
-                    type=:type, updated_at=:updated_at
-                WHERE id=:id
+                INSERT INTO documents (
+                    id, type, title, body, tags, source, created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                row,
+                (
+                    doc.id,
+                    doc.type,
+                    doc.title,
+                    doc.body,
+                    json.dumps(doc.tags, ensure_ascii=False),
+                    doc.source,
+                    doc.created_at.isoformat(),
+                    doc.updated_at.isoformat(),
+                    doc.deleted_at.isoformat() if doc.deleted_at else None,
+                ),
             )
-            self._record_doc_version(cur, new_doc, action="update")
+            # Add to FTS index
+            cur.execute(
+                """
+                INSERT INTO docs_fts (rowid, title, body)
+                VALUES (last_insert_rowid(), ?, ?)
+                """,
+                (doc.title, doc.body),
+            )
+            # Create version entry
+            self._record_doc_version(cur, doc, action="create")
+            self._record_audit(
+                cur,
+                entity_type="document",
+                entity_id=doc.id,
+                action="create",
+                detail={"title": doc.title, "type": doc.type},
+            )
+
+        return doc.id
+
+    def update(self, doc_id: str, **kwargs: Any) -> Document:
+        """Update fields on an existing document.
+        
+        Supported fields: title, body, tags, source, aliases.
+        Raises NotFoundError if the document doesn't exist.
+        Raises ValidationError if disallowed fields are passed or no fields given.
+        """
+        doc = self.get(doc_id)
+        allowed_fields = {"title", "body", "tags", "source", "aliases"}
+        bad = set(kwargs.keys()) - allowed_fields
+        if bad:
+            raise ValidationError(f"cannot update fields: {sorted(bad)}")
+        if not kwargs:
+            raise ValidationError("update requires at least one field")
+        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
+
+        # Update fields
+        for k, v in updates.items():
+            if k == "tags":
+                if isinstance(v, str):
+                    doc.tags = [t.strip() for t in v.split(",") if t.strip()]
+                else:
+                    doc.tags = list(v)
+            else:
+                setattr(doc, k, v)
+
+        doc.updated_at = datetime.now(timezone.utc)
+
+        with self._txn() as cur:
+            cur.execute(
+                """
+                UPDATE documents
+                SET title = ?, body = ?, tags = ?, source = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    doc.title,
+                    doc.body,
+                    json.dumps(doc.tags, ensure_ascii=False),
+                    doc.source,
+                    doc.updated_at.isoformat(),
+                    doc.id,
+                ),
+            )
+            # Update FTS index
+            cur.execute(
+                """
+                UPDATE docs_fts
+                SET title = ?, body = ?
+                WHERE rowid = (SELECT rowid FROM documents WHERE id = ?)
+                """,
+                (doc.title, doc.body, doc.id),
+            )
+            # Create version entry
+            self._record_doc_version(cur, doc, action="update")
             self._record_audit(
                 cur,
                 entity_type="document",
                 entity_id=doc_id,
                 action="update",
-                detail={"fields": sorted(fields.keys())},
+                detail={"fields": sorted(kwargs.keys())},
             )
-        if "aliases" in fields:
-            self._write_aliases(doc_id, fields["aliases"])
-        if "title" in fields or "body" in fields:
-            self._index_embedding(new_doc)
-        return self.get(doc_id)
+
+        return doc
 
     def delete(self, doc_id: str) -> None:
-        active = self._conn.execute(
-            "SELECT 1 FROM documents WHERE id = ? AND deleted_at IS NULL",
-            (doc_id,),
-        ).fetchone()
-        if active is None:
-            exists = self._conn.execute(
-                "SELECT 1 FROM documents WHERE id = ?", (doc_id,)
+        """Soft-delete a document.
+        
+        Raises NotFoundError if the document doesn't exist.
+        Idempotent: deleting an already-deleted doc is a no-op.
+        """
+        # Check if the document exists and is not already deleted
+        try:
+            doc = self.get(doc_id)
+        except NotFoundError:
+            # Check if it exists but is already deleted (idempotent)
+            existing = self._conn.execute(
+                "SELECT deleted_at FROM documents WHERE id = ?", (doc_id,)
             ).fetchone()
-            if exists is None:
-                raise NotFoundError(doc_id)
-            return
-        now = self._now_iso()
-        doc = self.get(doc_id, include_deleted=True)
-        deleted_doc = doc.model_copy(update={"deleted_at": self._parse_dt(now)})
+            if existing and existing["deleted_at"] is not None:
+                return  # already deleted, no-op
+            raise
+        
+        now = datetime.now(timezone.utc)
         with self._txn() as cur:
             cur.execute(
-                "UPDATE documents SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
-                (now, doc_id),
+                "UPDATE documents SET deleted_at = ?, updated_at = ? WHERE id = ?",
+                (now.isoformat(), now.isoformat(), doc_id),
             )
-            self._record_doc_version(cur, deleted_doc, action="delete")
+            # Create version entry
+            self._record_doc_version(cur, doc, action="delete")
             self._record_audit(
                 cur,
                 entity_type="document",
@@ -347,29 +388,61 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
                 action="delete",
                 detail={"title": doc.title, "type": doc.type},
             )
-        self._remove_embedding(doc_id)
 
-    # ---- links ----------------------------------------------------------
+    def restore_deleted(self, doc_id: str) -> Document:
+        """Restore a soft-deleted document.
+        
+        Raises NotFoundError if the document doesn't exist or is not deleted.
+        """
+        doc = self.get(doc_id, include_deleted=True)
+        if not doc.deleted_at:
+            raise ValidationError(f"Document {doc_id} is not deleted")
+        
+        now = datetime.now(timezone.utc)
+        doc.deleted_at = None
+        doc.updated_at = now
+
+        with self._txn() as cur:
+            cur.execute(
+                "UPDATE documents SET deleted_at = NULL, updated_at = ? WHERE id = ?",
+                (now.isoformat(), doc_id),
+            )
+            # Create version entry
+            self._record_doc_version(cur, doc, action="restore")
+
+        return doc
+
+    # ---- link operations ------------------------------------------------------
 
     def link(self, from_id: str, to_id: str, rel: str = "relates-to") -> Link:
+        """Create a typed link between two documents.
+        
+        Raises NotFoundError if either document doesn't exist.
+        Raises ValidationError if rel is empty or invalid.
+        Returns the created (or existing) Link.
+        """
         rel = (rel or "").strip()
         if not rel:
             raise ValidationError("rel must be non-empty")
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]*$", rel):
             raise ValidationError(f"rel must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ (got {rel!r})")
+        # Check both documents exist
         self.get(from_id)
         self.get(to_id)
-        now = self._now_iso()
+
+        now = datetime.now(timezone.utc)
         with self._txn() as cur:
             cur.execute(
                 """
-                INSERT OR IGNORE INTO links (from_id, to_id, rel, created_at)
+                INSERT INTO links (from_id, to_id, rel, created_at)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT (from_id, to_id, rel) DO NOTHING
                 """,
-                (from_id, to_id, rel, now),
+                (from_id, to_id, rel, now.isoformat()),
             )
+            # Retrieve the link (either just inserted or existing)
             row = cur.execute(
-                "SELECT from_id, to_id, rel, created_at FROM links WHERE from_id=? AND to_id=? AND rel=?",
+                "SELECT * FROM links WHERE from_id=? AND to_id=? AND rel=?",
                 (from_id, to_id, rel),
             ).fetchone()
             self._record_audit(
@@ -379,17 +452,27 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
                 action="create",
                 detail={"from_id": from_id, "to_id": to_id, "rel": rel},
             )
+            
         assert row is not None
-        return self._row_to_link(row)
+        return Link(**row)
 
     def unlink(self, from_id: str, to_id: str, rel: str | None = None) -> int:
-        sql = "DELETE FROM links WHERE from_id = ? AND to_id = ?"
-        params: List[object] = [from_id, to_id]
-        if rel is not None:
-            sql += " AND rel = ?"
-            params.append(rel)
+        """Remove a link between two documents.
+        
+        If rel is specified, only remove links with that relation type.
+        Returns the number of removed links.
+        """
         with self._txn() as cur:
-            cur.execute(sql, params)
+            if rel:
+                cur.execute(
+                    "DELETE FROM links WHERE from_id = ? AND to_id = ? AND rel = ?",
+                    (from_id, to_id, rel),
+                )
+            else:
+                cur.execute(
+                    "DELETE FROM links WHERE from_id = ? AND to_id = ?",
+                    (from_id, to_id),
+                )
             removed = cur.rowcount
             if removed:
                 self._record_audit(
@@ -399,25 +482,43 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
                     action="delete",
                     detail={"from_id": from_id, "to_id": to_id, "rel": rel},
                 )
-            return removed
+            
+        return removed
+
+    def outgoing_links(self, doc_id: str) -> List[Link]:
+        """Get all outgoing links from a document."""
+        rows = self._conn.execute(
+            "SELECT * FROM links WHERE from_id = ? ORDER BY created_at DESC",
+            (doc_id,),
+        ).fetchall()
+        return [Link(**row) for row in rows]
+
+    def incoming_links(self, doc_id: str) -> List[Link]:
+        """Get all incoming links to a document."""
+        rows = self._conn.execute(
+            "SELECT * FROM links WHERE to_id = ? ORDER BY created_at DESC",
+            (doc_id,),
+        ).fetchall()
+        return [Link(**row) for row in rows]
+
+    # ---- compatibility aliases (backlinks / outlinks) -------------------------
 
     def backlinks(self, doc_id: str) -> List[Link]:
-        rows = self._conn.execute(
-            "SELECT from_id, to_id, rel, created_at FROM links WHERE to_id = ? ORDER BY created_at",
-            (doc_id,),
-        ).fetchall()
-        return [self._row_to_link(r) for r in rows]
+        """Alias for :meth:`incoming_links`."""
+        return self.incoming_links(doc_id)
 
     def outlinks(self, doc_id: str) -> List[Link]:
-        rows = self._conn.execute(
-            "SELECT from_id, to_id, rel, created_at FROM links WHERE from_id = ? ORDER BY created_at",
-            (doc_id,),
-        ).fetchall()
-        return [self._row_to_link(r) for r in rows]
+        """Alias for :meth:`outgoing_links`."""
+        return self.outgoing_links(doc_id)
 
-    # ---- bulk / io ------------------------------------------------------
+    # ---- bulk / io ------------------------------------------------------------
 
     def import_many(self, docs: Iterable[Document]) -> ImportReport:
+        """Bulk-import documents. Uses source-based idempotent upsert.
+        
+        When a document has a ``source`` field, a matching document
+        (same source, not deleted) is updated instead of inserted.
+        """
         report = ImportReport()
         for doc in docs:
             try:
@@ -429,9 +530,7 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
                     if row is not None:
                         self.update(
                             row["id"],
-                            **{
-                                k: v for k, v in doc.model_dump().items() if k in _UPDATEABLE_FIELDS
-                            },
+                            **{k: v for k, v in doc.model_dump().items() if k in {"title", "body", "tags", "source", "aliases"}},
                         )
                         report.updated += 1
                         continue
@@ -443,6 +542,7 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
         return report
 
     def export_all(self, include_deleted: bool = False) -> List[Document]:
+        """Export all documents, optionally including soft-deleted ones."""
         sql = "SELECT * FROM documents"
         if not include_deleted:
             sql += " WHERE deleted_at IS NULL"
@@ -450,5 +550,8 @@ class SqliteStore(SearchMixin, VersioningMixin, EmbeddingMixin, MaintenanceMixin
         rows = self._conn.execute(sql).fetchall()
         return [self._row_to_doc(r) for r in rows]
 
+
+# Import make_id at the end to avoid circular import
+from kb_mcp_lite.schema import make_id
 
 __all__ = ["SqliteStore"]

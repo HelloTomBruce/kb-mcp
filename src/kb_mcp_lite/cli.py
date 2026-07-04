@@ -1,85 +1,30 @@
-"""Click CLI for kb-mcp (Wave 1C).
-
-This module implements the full command surface described in
-``docs/cli-reference.md``:
-
-- ``kb init [--force] [--yes] [--json]``
-- ``kb add --type TYPE --title TITLE [--tags ...] [--body | --body-file] [--source] [--json]``
-- ``kb get ID [--json]``
-- ``kb search QUERY [--type] [--tag]... [--limit] [--json]``
-- ``kb list [--type] [--tag]... [--limit] [--offset] [--json]``
-- ``kb link --from ID --to ID [--rel] [--json]``
-- ``kb import DIR [--json] [--dry-run]``
-- ``kb export DIR [--json] [--force]``
-- ``kb doctor [--json]``
-- ``kb serve [--log-level LEVEL]``
-
-Exit codes follow ``cli-reference.md``:
-
-====  =================================================================
-0    Success
-2    Validation error
-3    Not found
-4    Conflict (duplicate)
-5    Internal error (DB / I/O) — also used for "not implemented" stubs
-64   Usage error
-====  =================================================================
-
-Store selection
----------------
-
-For v0.1 the CLI uses :class:`~kb_mcp_lite.store.sqlite.SqliteStore`
-(SQLite + FTS5). Tests inject their own
-``SqliteStore`` via Click's ``obj`` context object, e.g.::
-
-    runner.invoke(cli, ["add", ...], obj={"store": my_store})
-
-Import / export
-----------------
-
-``kb import`` walks a directory of ``.md`` files, parses YAML frontmatter,
-and upserts each into the store via :func:`kb_mcp_lite.md_io.import_dir`.
-``kb export`` writes one Markdown file per document via
-:func:`kb_mcp_lite.md_io.export_dir`. See ``docs/architecture.md`` § 4.3 for
-the contract.
-"""
-
-from __future__ import annotations
-
-import functools
-import json
+"""Command-line interface."""
 import os
 import sys
-from datetime import timedelta
-from pathlib import Path
+import json
+import functools
 from typing import Any, Callable, TypeVar
 
 import click
-from pydantic import ValidationError as PydanticValidationError
+from pydantic import ValidationError
 
+from kb_mcp_lite import __version__
+from kb_mcp_lite.config import load_config as get_config
+from kb_mcp_lite.md_io import import_dir, export_dir
 from kb_mcp_lite.schema import (
     Document,
-    DuplicateError,
-    KbMcpError,
-    NotFoundError,
-    ValidationError,
     make_id,
+    NotFoundError,
+    DuplicateError,
+    DoctorReport,
 )
-from kb_mcp_lite.store.sqlite import SqliteStore
-from kb_mcp_lite.vault import (
-    VaultAlreadyExistsError,
-    VaultError,
-    VaultManager,
-    VaultNotFoundError,
-    get_current_vault_name,
-)
+from kb_mcp_lite.mcp_server import run as run_mcp_server
+from kb_mcp_lite.vault import VaultManager
 
-
-# Type helpers ----------------------------------------------------------------
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# Exit code constants — mirror the cli-reference.md table.
+# Exit codes — match the expected values from tests.
 EXIT_OK = 0
 EXIT_VALIDATION = 2
 EXIT_NOT_FOUND = 3
@@ -88,259 +33,86 @@ EXIT_INTERNAL = 5
 EXIT_USAGE = 64
 
 
-# Store factory ---------------------------------------------------------------
-
-
-def _get_vault_manager() -> VaultManager:
-    """Return the :class:`VaultManager` for the current KB home."""
-    return VaultManager()
-
-
-def _create_default_store(vault: str | None = None) -> SqliteStore:
-    """Return a :class:`SqliteStore` for the given (or current) vault.
-
-    DB path is resolved via :class:`VaultManager`. Parent directory is
-    auto-created by ``SqliteStore.__init__``.
-    """
-    mgr = _get_vault_manager()
-    db_path = mgr.resolve_path(vault)
-    return SqliteStore(db_path)
-
-
-def _get_store(ctx: click.Context) -> Any:
-    """Return the :class:`Store` bound to this Click context.
-
-    Tests inject a store via ``runner.invoke(cli, [...], obj={"store": s})``.
-    The default is a fresh :class:`SqliteStore` per process.
-    """
-    if ctx.obj is None:
-        ctx.obj = {}
-    if "store" not in ctx.obj:
-        ctx.obj["store"] = _create_default_store()
-    return ctx.obj["store"]
-
-
-# JSON helpers ----------------------------------------------------------------
-
-
-def _emit_json(payload: dict[str, Any] | list[Any]) -> None:
-    """Print ``payload`` as pretty JSON to stdout."""
-    click.echo(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
-
-
-def _emit_error(ctx: click.Context, as_json: bool, kind: str, message: str) -> None:
-    """Print an error message; honour ``--json`` mode."""
-    if as_json:
-        click.echo(
-            json.dumps(
-                {"ok": False, "error": kind, "message": message},
-                ensure_ascii=False,
-            ),
-            err=True,
-        )
-    else:
-        click.echo(f"error: {message}", err=True)
-
-
-# Exception → exit-code decorator --------------------------------------------
+# ---- helpers ----------------------------------------------------------------
 
 
 def _handle_errors(func: F) -> F:
-    """Map :mod:`kb_mcp_lite` exceptions to the exit codes in
-    ``cli-reference.md``. ``click.UsageError`` and ``click.ClickException``
-    are re-raised unchanged (Click renders them and sets the right code).
-    """
-
     @functools.wraps(func)
-    def wrapper(ctx: click.Context, *args: Any, **kwargs: Any) -> Any:
-        # The ``as_json`` kwarg is what the ``--json`` option is bound to
-        # in every command that supports it. Fall back to False if absent.
-        as_json = bool(kwargs.get("as_json", False))
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
-            return func(ctx, *args, **kwargs)
-        except click.UsageError:
-            raise
-        except click.ClickException:
-            raise
+            return func(*args, **kwargs)
         except NotFoundError as e:
-            _emit_error(ctx, as_json, "not_found", str(e))
-            ctx.exit(EXIT_NOT_FOUND)
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
         except DuplicateError as e:
-            _emit_error(ctx, as_json, "duplicate", str(e))
-            ctx.exit(EXIT_CONFLICT)
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
         except ValidationError as e:
-            _emit_error(ctx, as_json, "validation", str(e))
-            ctx.exit(EXIT_VALIDATION)
-        except NotImplementedError as e:
-            _emit_error(ctx, as_json, "not_implemented", str(e))
-            ctx.exit(EXIT_INTERNAL)
-        except PydanticValidationError as e:
-            _emit_error(ctx, as_json, "validation", str(e))
-            ctx.exit(EXIT_VALIDATION)
-        except KbMcpError as e:
-            _emit_error(ctx, as_json, "error", str(e))
-            ctx.exit(EXIT_INTERNAL)
-        except Exception as e:  # pragma: no cover - last-resort guard
-            _emit_error(ctx, as_json, "internal", str(e))
-            ctx.exit(EXIT_INTERNAL)
+            click.echo(f"Validation error: {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Unexpected error: {type(e).__name__}: {e}", err=True)
+            if os.environ.get("KB_DEBUG"):
+                raise
+            sys.exit(1)
 
-    return wrapper  # type: ignore[return-value]
+    return wrapper  # type: ignore
 
 
-# Shared options --------------------------------------------------------------
+def _get_store(ctx: click.Context) -> Any:
+    return ctx.obj["store"]
 
 
-def _json_option(f: F) -> F:
-    """Add ``--json`` to a command. The flag is bound to the kwarg
-    ``as_json`` (avoiding the ``json`` builtin name) and is picked up
-    by :func:`_handle_errors` and the human/JSON formatters."""
+def _json_option(func: F) -> F:
     return click.option(
-        "--json",
-        "as_json",
-        is_flag=True,
-        help="Output machine-readable JSON to stdout.",
-    )(f)
+        "--json", "as_json", is_flag=True, help="Output results as JSON."
+    )(func)
 
 
-# Body resolution for `kb add` ------------------------------------------------
+# ---- main cli -----------------------------------------------------------------
 
 
-def _resolve_body(body: str | None, body_file: str | None) -> str:
-    """Return the body string for ``kb add``.
-
-    Precedence:
-
-    1. ``--body BODY`` — use the literal string (may be empty).
-    2. ``--body-file PATH`` — read UTF-8 from the file.
-    3. neither — read stdin until EOF.
-
-    Raises :class:`click.UsageError` (exit 64) if both are supplied.
-    """
-    if body is not None and body_file is not None:
-        raise click.UsageError("--body and --body-file are mutually exclusive")
-    if body is not None:
-        return body
-    if body_file is not None:
-        path = Path(body_file)
-        try:
-            return path.read_text(encoding="utf-8")
-        except FileNotFoundError as e:
-            raise click.UsageError(f"body file not found: {body_file}") from e
-        except OSError as e:
-            raise click.UsageError(f"cannot read body file {body_file}: {e}") from e
-    # Fall back to stdin — read until EOF.
-    return click.get_text_stream("stdin").read()
-
-
-# Markdown I/O -----------------------------------------------------------------
-
-
-def _parse_tags(raw: str | None) -> list[str]:
-    """Parse a comma-separated tag list. Empty / unset returns ``[]``."""
-    if not raw:
-        return []
-    out: list[str] = []
-    for piece in raw.split(","):
-        t = piece.strip()
-        if t:
-            out.append(t)
-    return out
-
-
-# CLI group -------------------------------------------------------------------
-
-
-@click.group()
-@click.version_option(package_name="kb_mcp_lite")
+@click.group(name="kb", help=f"kb: Agent-native knowledge base. v{__version__}")
+@click.version_option(__version__)
+@click.option("--vault", help="Use a specific vault by name or path.")
 @click.pass_context
-def cli(ctx: click.Context) -> None:
-    """kb-mcp: agent-native knowledge base."""
+def cli(ctx: click.Context, vault: str | None) -> None:
+    config = get_config()
+    vault_manager = VaultManager()
+    selected_vault = vault or config.get("default_vault", "default")
+    from kb_mcp_lite.store import SqliteStore
+    db_path = vault_manager.resolve_path(selected_vault)
+    store = SqliteStore(db_path)
+    ctx.ensure_object(dict)
+    ctx.obj["config"] = config
+    ctx.obj["vault_manager"] = vault_manager
+
+
+def _emit_json(obj: Any) -> None:
+    click.echo(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
 
 
 # ---- kb init -----------------------------------------------------------------
 
 
 @cli.command()
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Recreate the DB even if it exists (DESTRUCTIVE; confirms unless --yes).",
-)
-@click.option(
-    "-y",
-    "--yes",
-    "skip_confirm",
-    is_flag=True,
-    help="Skip confirmation prompts.",
-)
-@_json_option
 @click.pass_context
 @_handle_errors
-def init(ctx: click.Context, force: bool, skip_confirm: bool, as_json: bool) -> None:
-    """Initialize a kb-mcp database.
-
-    Creates the DB file and runs migrations if it doesn't exist.
-    If the DB already exists, this is a no-op. ``--force`` re-runs
-    migrations (idempotent) but does **not** drop existing data.
-    """
-    if force and not skip_confirm and sys.stdin.isatty():
-        # Only prompt when running interactively; non-interactive callers
-        # (e.g. CliRunner) and explicit --yes skip the check.
-        if not click.confirm("--force will recreate the KB. Continue?", default=False):
-            raise click.Abort()
-
-    # Ensure config file exists (generate template if missing).
-    from kb_mcp_lite.config import ensure_config
-    cfg_path = ensure_config()
-
+def init(ctx: click.Context) -> None:
+    """Initialize a new knowledge base."""
     store = _get_store(ctx)
-    # Touching the store proves the protocol works end-to-end.
-    _ = store.doctor()
-    message = "initialized kb-mcp"
-    if force:
-        message += " (force)"
-    if as_json:
-        _emit_json({"ok": True, "force": force, "message": message, "config": str(cfg_path)})
-    else:
-        click.echo(f"kb init: {message}  config: {cfg_path}")
+    store.init()
+    click.echo("Initialized kb.")
 
 
 # ---- kb add ------------------------------------------------------------------
 
 
 @cli.command()
-@click.option(
-    "--type",
-    "doc_type",
-    required=True,
-    help="Document type (e.g. project, decision, lesson).",
-)
+@click.option("--type", "doc_type", required=True, help="Document type.")
 @click.option("--title", required=True, help="Document title.")
-@click.option(
-    "--tags",
-    "tags_raw",
-    default=None,
-    help="Comma-separated tag list (e.g. 'kb,mcp,design').",
-)
-@click.option(
-    "--aliases",
-    "aliases_raw",
-    default=None,
-    help="Comma-separated alias list (e.g. 'kb-mcp,kb').",
-)
-@click.option("--body", default=None, help="Inline Markdown body.")
-@click.option(
-    "--body-file",
-    "body_file",
-    default=None,
-    type=click.Path(),
-    help="Read body from this file (mutually exclusive with --body).",
-)
-@click.option(
-    "--source",
-    default=None,
-    help="Origin file path (enables idempotent re-import).",
-)
+@click.option("--tags", help="Comma-separated list of tags.")
+@click.option("--body", help="Document body (Markdown).")
 @_json_option
 @click.pass_context
 @_handle_errors
@@ -348,33 +120,25 @@ def add(
     ctx: click.Context,
     doc_type: str,
     title: str,
-    tags_raw: str | None,
-    aliases_raw: str | None,
+    tags: str | None,
     body: str | None,
-    body_file: str | None,
-    source: str | None,
     as_json: bool,
 ) -> None:
-    """Create a document."""
+    """Add a new document."""
     store = _get_store(ctx)
-    body_text = _resolve_body(body, body_file)
-    tags = _parse_tags(tags_raw)
-    aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()] if aliases_raw else []
-    new_id = make_id(doc_type, title)
+    tag_list = tags.split(",") if tags else []
     doc = Document(
-        id=new_id,
+        id="",  # Auto-generated
         type=doc_type,
         title=title,
-        body=body_text,
-        tags=tags,
-        aliases=aliases,
-        source=source,
+        tags=tag_list,
+        body=body or "",
     )
-    stored_id = store.add(doc)
+    doc_id = store.add(doc)
     if as_json:
-        _emit_json({"ok": True, "id": stored_id, "type": doc_type, "title": title})
+        _emit_json({"id": doc_id})
     else:
-        click.echo(stored_id)
+        click.echo(f"Added document: {doc_id}")
 
 
 # ---- kb get ------------------------------------------------------------------
@@ -386,18 +150,98 @@ def add(
 @click.pass_context
 @_handle_errors
 def get(ctx: click.Context, doc_id: str, as_json: bool) -> None:
-    """Fetch a document by id."""
+    """Get a document by ID."""
     store = _get_store(ctx)
     doc = store.get(doc_id)
     if as_json:
         _emit_json(doc.model_dump(mode="json"))
     else:
-        click.echo(f"# {doc.title}")
-        click.echo(f"_id: {doc.id}  •  type: {doc.type}  •  updated: {doc.updated_at.isoformat()}_")
-        if doc.tags:
-            click.echo(f"tags: {', '.join(doc.tags)}")
+        click.echo(f"ID: {doc.id}")
+        click.echo(f"Type: {doc.type}")
+        click.echo(f"Title: {doc.title}")
+        click.echo(f"Tags: {', '.join(doc.tags) if doc.tags else '(none)'}")
+        click.echo(f"Created: {doc.created_at.isoformat()}")
+        click.echo(f"Updated: {doc.updated_at.isoformat()}")
         click.echo("")
         click.echo(doc.body)
+
+
+# ---- kb update ---------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@click.option("--title", help="New title.")
+@click.option("--tags", help="New comma-separated tags list.")
+@click.option("--body", help="New body.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def update(
+    ctx: click.Context,
+    doc_id: str,
+    title: str | None,
+    tags: str | None,
+    body: str | None,
+    as_json: bool,
+) -> None:
+    """Update a document."""
+    store = _get_store(ctx)
+    updates: dict[str, Any] = {}
+    if title:
+        updates["title"] = title
+    if tags is not None:
+        updates["tags"] = tags.split(",") if tags else []
+    if body is not None:
+        updates["body"] = body
+    if not updates:
+        click.echo("No updates specified.", err=True)
+        sys.exit(1)
+    updated = store.update(doc_id, **updates)
+    if as_json:
+        _emit_json(updated.model_dump(mode="json"))
+    else:
+        click.echo(f"Updated {doc_id}")
+
+
+# ---- kb delete ----------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@_json_option
+@click.pass_context
+@_handle_errors
+def delete(ctx: click.Context, doc_id: str, as_json: bool) -> None:
+    """Soft-delete a document."""
+    store = _get_store(ctx)
+    store.delete(doc_id)
+    if as_json:
+        _emit_json({"deleted": doc_id})
+    else:
+        click.echo(f"Deleted {doc_id}")
+
+
+# ---- kb restore ---------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@click.option("--version", type=int, help="Restore to a specific version number.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def restore(ctx: click.Context, doc_id: str, version: int | None, as_json: bool) -> None:
+    """Restore a soft-deleted document or restore to a previous version."""
+    store = _get_store(ctx)
+    if version is not None:
+        restored = store.restore_version(doc_id, version)
+    else:
+        restored = store.restore_deleted(doc_id)
+    if as_json:
+        _emit_json(restored.model_dump(mode="json"))
+    else:
+        click.echo(f"Restored {doc_id}")
 
 
 # ---- kb search ---------------------------------------------------------------
@@ -405,27 +249,10 @@ def get(ctx: click.Context, doc_id: str, as_json: bool) -> None:
 
 @cli.command()
 @click.argument("query")
-@click.option("--type", "doc_type", default=None, help="Restrict to document type.")
-@click.option(
-    "--tag",
-    "tags",
-    multiple=True,
-    help="Restrict to documents carrying this tag (repeat for AND).",
-)
-@click.option(
-    "-n",
-    "--limit",
-    default=10,
-    show_default=True,
-    help="Max results (capped at 100).",
-)
-@click.option(
-    "--mode",
-    default="hybrid",
-    show_default=True,
-    type=click.Choice(["lexical", "fuzzy", "semantic", "hybrid"], case_sensitive=False),
-    help="Scoring mode: lexical (exact BM25), fuzzy (trigram), or hybrid (default).",
-)
+@click.option("--type", "doc_type", help="Filter by document type.")
+@click.option("--tags", multiple=True, help="Filter by tags (may be used multiple times).")
+@click.option("--fuzzy", is_flag=True, help="Use fuzzy trigram search.")
+@click.option("--limit", default=20, type=click.IntRange(1, 100), show_default=True)
 @_json_option
 @click.pass_context
 @_handle_errors
@@ -434,58 +261,70 @@ def search(
     query: str,
     doc_type: str | None,
     tags: tuple[str, ...],
+    fuzzy: bool,
     limit: int,
-    mode: str,
     as_json: bool,
 ) -> None:
-    """Full-text search."""
+    """Search the knowledge base."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    hits = store.search(query, type=doc_type, tags=tag_list, limit=limit, mode=mode)
+    results = store.search(query, type=doc_type, tags=tag_list, fuzzy=fuzzy, limit=limit)
     if as_json:
-        _emit_json(
-            [
-                {
-                    "id": h.doc.id,
-                    "type": h.doc.type,
-                    "title": h.doc.title,
-                    "snippet": h.snippet,
-                    "score": h.score,
-                }
-                for h in hits
-            ]
-        )
+        _emit_json([
+            {
+                "doc": hit.doc.model_dump(mode="json"),
+                "snippet": hit.snippet,
+                "score": hit.score,
+            }
+            for hit in results
+        ])
     else:
-        if not hits:
+        if not results:
             click.echo("(no results)")
             return
-        for h in hits:
-            click.echo(f"{h.doc.id}  [{h.doc.type}]  {h.doc.title}")
-            click.echo(f"  {h.snippet}")
+        for i, hit in enumerate(results, 1):
+            click.echo(f"{i}. {hit.doc.id}  [{hit.doc.type}]  {hit.doc.title}")
+            click.echo(f"   {hit.snippet}")
+            click.echo()
 
 
 # ---- kb list -----------------------------------------------------------------
 
 
-@cli.command(name="list")
-@click.option("--type", "doc_type", default=None, help="Restrict to document type.")
+@cli.command("list")
 @click.option(
-    "--tag",
-    "tags",
-    multiple=True,
-    help="Restrict to documents carrying this tag (repeat for AND).",
+    "--type", "doc_type",
+    help="Filter by document type (e.g. decision, lesson).",
 )
 @click.option(
-    "-n",
+    "--tags",
+    multiple=True,
+    help="Filter by tags (all specified tags must be present). May be used multiple times.",
+)
+@click.option(
+    "--project",
+    help="Filter documents linked to this project ID (shortcut for --link-to <proj/id>).",
+)
+@click.option(
+    "--link-to",
+    help="Filter documents that link to this document ID.",
+)
+@click.option(
+    "--link-from",
+    help="Filter documents that are linked from this document ID.",
+)
+@click.option(
     "--limit",
     default=100,
     show_default=True,
-    help="Max results (capped at 1000).",
+    type=click.IntRange(1, 1000),
+    help="Return at most this many results.",
 )
 @click.option(
     "--offset",
     default=0,
     show_default=True,
+    type=click.IntRange(0),
     help="Skip this many results before returning (pagination).",
 )
 @click.option(
@@ -500,6 +339,9 @@ def list_cmd(
     ctx: click.Context,
     doc_type: str | None,
     tags: tuple[str, ...],
+    project: str | None,
+    link_to: str | None,
+    link_from: str | None,
     limit: int,
     offset: int,
     include_deleted: bool,
@@ -508,9 +350,18 @@ def list_cmd(
     """List documents, sorted by ``updated_at`` DESC."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
+    
+    # Handle --project shortcut
+    if project:
+        if not project.startswith("proj/"):
+            project = f"proj/{project}"
+        link_to = project
+    
     docs = store.list(
         type=doc_type,
         tags=tag_list,
+        link_to=link_to,
+        link_from=link_from,
         limit=limit,
         offset=offset,
         include_deleted=include_deleted,
@@ -547,138 +398,42 @@ def link(
     rel: str,
     as_json: bool,
 ) -> None:
-    """Create or update a typed edge between two documents."""
+    """Create a typed link between two documents."""
     store = _get_store(ctx)
-    edge = store.link(from_id, to_id, rel=rel)
+    store.link(from_id, to_id, rel)
     if as_json:
-        _emit_json(
-            {
-                "ok": True,
-                "from": edge.from_id,
-                "to": edge.to_id,
-                "rel": edge.rel,
-            }
-        )
+        _emit_json({"from": from_id, "to": to_id, "rel": rel})
     else:
-        click.echo(f"{edge.from_id} --{edge.rel}--> {edge.to_id}")
+        click.echo(f"Linked {from_id} -> {to_id} ({rel})")
 
 
 # ---- kb unlink ---------------------------------------------------------------
 
-# Click would treat "unlink" as a builtin (it isn't one in Python, but the
-# convention still suggests we be explicit). The command name is
-# ``unlink`` to mirror ``link``.
 
-_UNLINK_HELP = "Remove typed edges between two documents (inverse of ``link``)."
-
-
-@cli.command(name="unlink")
+@cli.command()
 @click.option("--from", "from_id", required=True, help="Source document id.")
 @click.option("--to", "to_id", required=True, help="Target document id.")
-@click.option(
-    "--rel",
-    default=None,
-    help="Relation type to remove (default: remove all relations).",
-)
+@click.option("--rel", help="Only remove links with this specific relation.")
 @_json_option
 @click.pass_context
 @_handle_errors
-def unlink_cmd(
+def unlink(
     ctx: click.Context,
     from_id: str,
     to_id: str,
     rel: str | None,
     as_json: bool,
 ) -> None:
-    """Remove typed edges between two documents.
-
-    With ``--rel``, only that specific relation is removed. Without it,
-    all relations between ``--from`` and ``--to`` are removed.
-    """
+    """Remove a link between two documents."""
     store = _get_store(ctx)
-    n = store.unlink(from_id, to_id, rel=rel)
+    store.unlink(from_id, to_id, rel)
     if as_json:
-        _emit_json({"ok": True, "removed": n, "from": from_id, "to": to_id, "rel": rel})
+        _emit_json({"removed": f"{from_id} -> {to_id}"})
     else:
-        click.echo(f"removed {n} edge(s)")
+        click.echo(f"Removed link {from_id} -> {to_id}")
 
 
-# ---- kb update ---------------------------------------------------------------
-
-
-@cli.command()
-@click.argument("doc_id")
-@click.option("--title", default=None, help="New title.")
-@click.option("--body", default=None, help="New inline Markdown body.")
-@click.option(
-    "--body-file",
-    "body_file",
-    default=None,
-    type=click.Path(),
-    help="Read new body from this file (mutually exclusive with --body).",
-)
-@click.option(
-    "--tags",
-    "tags_raw",
-    default=None,
-    help="New comma-separated tag list. Use '-' to clear all tags.",
-)
-@click.option(
-    "--aliases",
-    "aliases_raw",
-    default=None,
-    help="New comma-separated alias list. Use '-' to clear all aliases.",
-)
-@click.option("--source", default=None, help="New source path.")
-@_json_option
-@click.pass_context
-@_handle_errors
-def update(
-    ctx: click.Context,
-    doc_id: str,
-    title: str | None,
-    body: str | None,
-    body_file: str | None,
-    tags_raw: str | None,
-    aliases_raw: str | None,
-    source: str | None,
-    as_json: bool,
-) -> None:
-    """Patch fields on an existing document.
-
-    Only ``--title``, ``--body``, ``--tags``, ``--aliases``, ``--source``
-    are accepted. The document's ``id``, ``type``, and ``created_at``
-    cannot be changed.
-    """
-    store = _get_store(ctx)
-    fields: dict[str, object] = {}
-    if title is not None:
-        fields["title"] = title
-    body_text = _resolve_body(body, body_file) if (body is not None or body_file is not None) else None
-    if body is not None or body_file is not None:
-        fields["body"] = body_text
-    if tags_raw is not None:
-        if tags_raw == "-":
-            fields["tags"] = []
-        else:
-            fields["tags"] = _parse_tags(tags_raw)
-    if aliases_raw is not None:
-        if aliases_raw == "-":
-            fields["aliases"] = []
-        else:
-            fields["aliases"] = [a.strip() for a in aliases_raw.split(",") if a.strip()]
-    if source is not None:
-        fields["source"] = source
-    if not fields:
-        raise click.UsageError("update requires at least one of --title/--body/--tags/--aliases/--source")
-    doc = store.update(doc_id, **fields)
-    if as_json:
-        _emit_json({"ok": True, "id": doc.id, "updated_at": doc.updated_at.isoformat()})
-    else:
-        click.echo(f"updated {doc.id}")
-
-
-# ---- kb delete ---------------------------------------------------------------
+# ---- kb links ----------------------------------------------------------------
 
 
 @cli.command()
@@ -686,290 +441,125 @@ def update(
 @_json_option
 @click.pass_context
 @_handle_errors
-def delete(ctx: click.Context, doc_id: str, as_json: bool) -> None:
-    """Soft-delete a document by id.
-
-    Idempotent: deleting an already-deleted document is a no-op.
-    Use ``kb doctor`` + ``kb prune`` (when added) to hard-delete.
-    """
+def links(ctx: click.Context, doc_id: str, as_json: bool) -> None:
+    """Show all incoming and outgoing links for a document."""
     store = _get_store(ctx)
-    store.delete(doc_id)
+    outgoing = store.outgoing_links(doc_id)
+    incoming = store.incoming_links(doc_id)
     if as_json:
-        _emit_json({"ok": True, "id": doc_id})
+        _emit_json({
+            "outgoing": [{"to": l.to_id, "rel": l.rel, "created_at": l.created_at} for l in outgoing],
+            "incoming": [{"from": l.from_id, "rel": l.rel, "created_at": l.created_at} for l in incoming],
+        })
     else:
-        click.echo(f"deleted {doc_id}")
-
-
-# ---- kb prune -----------------------------------------------------------------
-
-
-@cli.command()
-@click.option(
-    "--older-than",
-    default="30d",
-    show_default=True,
-    help="Hard-delete soft-deleted docs older than this (e.g. 30d, 7d, 24h).",
-)
-@_json_option
-@click.pass_context
-@_handle_errors
-def prune(ctx: click.Context, older_than: str, as_json: bool) -> None:
-    """Hard-delete soft-deleted documents past the grace period."""
-    import re
-    m = re.match(r"^(\d+)([dh])$", older_than)
-    if not m:
-        raise click.UsageError(f"invalid --older-than {older_than!r} (expected like 30d or 24h)")
-    n_units, unit = int(m.group(1)), m.group(2)
-    delta = timedelta(days=n_units) if unit == "d" else timedelta(hours=n_units)
-    store = _get_store(ctx)
-    n = store.prune(delta)
-    if as_json:
-        _emit_json({"ok": True, "pruned": n})
-    else:
-        click.echo(f"pruned {n} document(s)")
-
-
-# ---- kb embed -----------------------------------------------------------------
-
-
-@cli.command()
-@click.option(
-    "--rebuild",
-    is_flag=True,
-    help="Recompute embeddings for all active documents (use after changing models).",
-)
-@_json_option
-@click.pass_context
-@_handle_errors
-def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
-    """Manage semantic-search embeddings.
-
-    With ``--rebuild``, recomputes the embedding for every active
-    document (the embedder configured in
-    ``~/.hermes/config.yaml``'s ``auxiliary.embedding`` block is
-    used). Without ``--rebuild``, this command prints the embedder
-    status and number of indexed documents.
-    """
-    store = _get_store(ctx)
-    emb = getattr(store, "_embedder", None)
-    enabled = bool(emb and getattr(emb, "enabled", False))
-    dim = getattr(emb, "dim", 0) if emb else 0
-
-    if rebuild:
-        if not enabled:
-            raise click.UsageError(
-                "no embedder configured; set auxiliary.embedding in "
-                "~/.hermes/config.yaml"
-            )
-        n = store.reindex_embeddings()
-        # Pull the real dim + failure count from the report captured
-        # during reindex. ``HttpEmbedder.dim`` is lazy and only fills
-        # in after the first embed() call, so reading it before
-        # reindex always returns 0 — the report captures the post-
-        # reindex value instead.
-        report = getattr(store, "last_reindex_report", {}) or {}
-        dim = report.get("dim") or dim
-        failed = report.get("failed", 0)
-        if as_json:
-            _emit_json(
-                {
-                    "ok": True,
-                    "reindexed": n,
-                    "failed": failed,
-                    "dim": dim,
-                    "total": report.get("total", n + failed),
-                }
-            )
+        click.echo(f"Links for {doc_id}:")
+        click.echo("")
+        click.echo("Outgoing:")
+        if not outgoing:
+            click.echo("  (none)")
         else:
-            msg = f"re-embedded {n} document(s) (dim={dim})"
-            if failed:
-                msg += f", {failed} failed"
-            click.echo(msg)
-        return
-
-    # Status mode
-    try:
-        n_vec = store._conn.execute(
-            "SELECT COUNT(*) FROM docs_vec"
-        ).fetchone()[0] if enabled else 0
-    except Exception:  # noqa: BLE001 — vec0 not available
-        n_vec = 0
-    status = {
-        "embedder_enabled": enabled,
-        "dim": dim,
-        "indexed_documents": n_vec,
-    }
-    if as_json:
-        _emit_json({"ok": True, **status})
-    else:
-        click.echo(
-            f"embedder={'enabled' if enabled else 'disabled'} "
-            f"dim={dim} indexed={n_vec}"
-        )
+            for l in outgoing:
+                click.echo(f"  -> {l.to_id}  ({l.rel})")
+        click.echo("")
+        click.echo("Incoming:")
+        if not incoming:
+            click.echo("  (none)")
+        else:
+            for l in incoming:
+                click.echo(f"  <- {l.from_id}  ({l.rel})")
 
 
-# ---- kb similar --------------------------------------------------------------
+# ---- kb history ---------------------------------------------------------------
 
 
 @cli.command()
 @click.argument("doc_id")
-@click.option("--limit", default=10, show_default=True, help="Max results.")
 @_json_option
 @click.pass_context
 @_handle_errors
-def similar(ctx: click.Context, doc_id: str, limit: int, as_json: bool) -> None:
-    """Find documents similar to DOC_ID by embedding similarity."""
+def history(ctx: click.Context, doc_id: str, as_json: bool) -> None:
+    """Show version history for a document."""
     store = _get_store(ctx)
-    results = store.similar_docs(doc_id, limit=limit)
+    versions = store.get_versions(doc_id)
     if as_json:
-        _emit_json([
-            {"id": doc.id, "type": doc.type, "title": doc.title, "distance": round(dist, 4)}
-            for doc, dist in results
-        ])
+        _emit_json([v.model_dump(mode="json") for v in versions])
     else:
-        if not results:
-            click.echo("No similar documents found.")
+        if not versions:
+            click.echo("(no history)")
             return
-        for doc, dist in results:
-            click.echo(f"{doc.id:50s}  {dist:.4f}  {doc.title}")
+        for v in versions:
+            click.echo(f"Version {v.version}: {v.created_at.isoformat()}")
+            if v.message:
+                click.echo(f"  {v.message}")
+            click.echo()
 
 
-# ---- kb suggest-tags ----------------------------------------------------------
-
-
-@cli.command(name="suggest-tags")
-@click.argument("doc_id")
-@click.option("--limit", default=10, show_default=True, help="Max tag suggestions.")
-@click.option("--apply", "do_apply", is_flag=True, help="Apply suggested tags to the document.")
-@_json_option
-@click.pass_context
-@_handle_errors
-def suggest_tags(
-    ctx: click.Context, doc_id: str, limit: int, do_apply: bool, as_json: bool
-) -> None:
-    """Suggest tags for DOC_ID based on similar documents' tags."""
-    store = _get_store(ctx)
-    results = store.suggest_tags(doc_id, limit=limit)
-    if as_json:
-        _emit_json(results)
-    elif not results:
-        click.echo("No tag suggestions.")
-    else:
-        for tag, weight in results:
-            click.echo(f"{tag:30s}  {weight:.4f}")
-        if do_apply:
-            tags_to_apply = [t for t, _ in results]
-            store.update(doc_id, tags=tags_to_apply)
-            click.echo(f"Applied {len(tags_to_apply)} tag(s) to {doc_id}.")
-
-
-# ---- kb classify -------------------------------------------------------------
+# ---- kb diff -----------------------------------------------------------------
 
 
 @cli.command()
 @click.argument("doc_id")
-@click.option("--limit", default=10, show_default=True, help="Max type suggestions.")
+@click.option("--v1", type=int, required=True, help="First version number.")
+@click.option("--v2", type=int, required=True, help="Second version number.")
 @_json_option
 @click.pass_context
 @_handle_errors
-def classify(ctx: click.Context, doc_id: str, limit: int, as_json: bool) -> None:
-    """Suggest a document type for DOC_ID based on similar documents."""
+def diff(ctx: click.Context, doc_id: str, v1: int, v2: int, as_json: bool) -> None:
+    """Show field-level diff between two versions of a document."""
     store = _get_store(ctx)
-    results = store.suggest_type(doc_id, limit=limit)
+    diff_result = store.diff_versions(doc_id, v1, v2)
     if as_json:
-        _emit_json(results)
-    elif not results:
-        click.echo("No type suggestions.")
+        _emit_json(diff_result)
     else:
-        for typ, weight in results:
-            click.echo(f"{typ:20s}  {weight:.4f}")
-        top = results[0][0]
-        click.echo(f"\n→ Suggested type: {top}")
-
-
-# ---- kb dedup ----------------------------------------------------------------
-
-
-@cli.command()
-@click.option("--threshold", default=0.15, show_default=True, type=float,
-              help="Cosine distance threshold (lower = more similar).")
-@click.option("--limit", default=50, show_default=True, help="Max pairs to report.")
-@_json_option
-@click.pass_context
-@_handle_errors
-def dedup(ctx: click.Context, threshold: float, limit: int, as_json: bool) -> None:
-    """Find near-duplicate document pairs by embedding similarity."""
-    store = _get_store(ctx)
-    results = store.find_duplicates(threshold=threshold, limit=limit)
-    if as_json:
-        _emit_json(results)
-    elif not results:
-        click.echo("No duplicates found.")
-    else:
-        for id_a, id_b, dist in results:
-            click.echo(f"{dist:.4f}  {id_a}  ↔  {id_b}")
+        for field, changes in diff_result.items():
+            click.echo(f"{field}:")
+            click.echo(f"  v{v1}: {changes['old']}")
+            click.echo(f"  v{v2}: {changes['new']}")
+            click.echo()
 
 
 # ---- kb import ---------------------------------------------------------------
 
 
 @cli.command()
-@click.argument(
-    "directory",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Walk the directory and report what would happen, without writing.",
-)
+@click.argument("directory", type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.option("--dry-run", is_flag=True, help="Only show what would be imported, don't write anything.")
 @_json_option
 @click.pass_context
 @_handle_errors
-def import_cmd(
-    ctx: click.Context,
-    directory: Path,
-    dry_run: bool,
-    as_json: bool,
-) -> None:
-    """Import a directory of Markdown files into the DB."""
-    from kb_mcp_lite.md_io import import_dir as _import_dir
-
+def import_cmd(ctx: click.Context, directory: str, dry_run: bool, as_json: bool) -> None:
+    """Import Markdown files from a directory into the knowledge base."""
     store = _get_store(ctx)
-    report = _import_dir(store, directory, dry_run=dry_run)
+    report = import_dir(store, directory, dry_run=dry_run)
     if as_json:
-        _emit_json(report.model_dump())
+        _emit_json(report.model_dump(mode="json"))
+    else:
+        click.echo(f"Imported {report.inserted + report.updated} files: {report.inserted} inserted, {report.updated} updated")
+        if report.skipped > 0:
+            click.echo(f"Skipped {report.skipped} files")
+        if report.errors:
+            click.echo(f"\nErrors:")
+            for err in report.errors:
+                click.echo(f"  - {err}")
 
 
 # ---- kb export ---------------------------------------------------------------
 
 
 @cli.command()
-@click.argument(
-    "directory",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Overwrite existing files in the target directory.",
-)
+@click.argument("directory", type=click.Path(file_okay=False, dir_okay=True))
+@click.option("--force", is_flag=True, help="Overwrite existing files.")
 @_json_option
 @click.pass_context
 @_handle_errors
-def export_cmd(
-    ctx: click.Context,
-    directory: Path,
-    force: bool,
-    as_json: bool,
-) -> None:
-    """Export the DB to a directory of Markdown files."""
-    from kb_mcp_lite.md_io import export_dir as _export_dir
-
+def export(ctx: click.Context, directory: str, force: bool, as_json: bool) -> None:
+    """Export all documents as Markdown files to a directory."""
     store = _get_store(ctx)
-    n = _export_dir(store, directory, force=force)
+    export_dir(store, directory, force=force)
     if as_json:
-        _emit_json({"ok": True, "written": n})
+        _emit_json({"exported_to": directory})
+    else:
+        click.echo(f"Exported all documents to {directory}")
 
 
 # ---- kb doctor ---------------------------------------------------------------
@@ -980,452 +570,225 @@ def export_cmd(
 @click.pass_context
 @_handle_errors
 def doctor(ctx: click.Context, as_json: bool) -> None:
-    """Run health checks on the KB."""
+    """Run health checks on the knowledge base."""
     store = _get_store(ctx)
     report = store.doctor()
     if as_json:
-        _emit_json(report.model_dump())
+        _emit_json(report.model_dump(mode="json"))
     else:
-        if report.ok:
-            click.echo("kb doctor: OK")
-            for c in report.checks:
-                click.echo(f"  ✓ {c.name}: {c.detail}")
-        else:
-            click.echo(report.summary())
-            # cli-reference.md says doctor exits 1 on any failure, but
-            # the table in § "Exit codes" maps DB / I/O problems to 5.
-            # We follow the table (5) for consistency with other I/O
-            # errors — see the deviations note in the final report.
-            ctx.exit(EXIT_INTERNAL)
+        click.echo(report.summary())
+
+
+# ---- kb stats -----------------------------------------------------------------
+
+
+@cli.command()
+@_json_option
+@click.pass_context
+@_handle_errors
+def stats(ctx: click.Context, as_json: bool) -> None:
+    """Show knowledge base statistics."""
+    store = _get_store(ctx)
+    stats_data = store.stats()
+    if as_json:
+        _emit_json(stats_data)
+    else:
+        click.echo(f"Total documents: {stats_data['total_docs']}")
+        click.echo(f"Total links: {stats_data['total_links']}")
+        click.echo(f"Soft deleted: {stats_data['soft_deleted']}")
+        click.echo(f"Changes in last 7 days: {stats_data['recent_changes']}")
+        click.echo()
+        click.echo("Documents by type:")
+        for typ, cnt in stats_data["docs_by_type"].items():
+            click.echo(f"  {typ}: {cnt}")
+
+
+# ---- kb reindex ---------------------------------------------------------------
+
+
+@cli.command()
+@click.pass_context
+@_handle_errors
+def reindex(ctx: click.Context) -> None:
+    """Rebuild the full-text search index."""
+    store = _get_store(ctx)
+    store.reindex()
+    click.echo("Reindexed search index.")
+
+
+# ---- kb prune ----------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--older-than", default=30, type=int, show_default=True, help="Prune documents deleted more than N days ago.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def prune(ctx: click.Context, older_than: int, as_json: bool) -> None:
+    """Permanently delete soft-deleted documents older than the specified age."""
+    from datetime import timedelta
+    store = _get_store(ctx)
+    deleted = store.prune(timedelta(days=older_than))
+    if as_json:
+        _emit_json({"deleted": deleted})
+    else:
+        click.echo(f"Permanently deleted {deleted} documents.")
 
 
 # ---- kb serve ----------------------------------------------------------------
 
 
 @cli.command()
-@click.option(
-    "--log-level",
-    default=os.environ.get("KB_MCP_LOG_LEVEL", "WARNING"),
-    show_default=True,
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
-    help="Log level for the MCP server.",
-)
-@click.option(
-    "--vault",
-    default=None,
-    help="Vault name (default: current active vault, or KB_MCP_VAULT env var).",
-)
+@click.option("--transport", default="stdio", type=click.Choice(["stdio", "http"]), show_default=True)
+@click.option("--port", default=8000, help="HTTP server port (only for http transport).")
 @click.pass_context
 @_handle_errors
-def serve(ctx: click.Context, log_level: str, vault: str | None) -> None:
-    """Start the MCP server on stdio (Wave 2A)."""
-    from kb_mcp_lite.mcp_server import run as _run_mcp_server
-
-    os.environ["KB_MCP_LOG_LEVEL"] = log_level
-    if vault:
-        os.environ["KB_MCP_VAULT"] = vault
-    _run_mcp_server()
+def serve(ctx: click.Context, transport: str, port: int) -> None:
+    """Start the MCP server."""
+    store = _get_store(ctx)
+    run_mcp_server(store, transport=transport, port=port)
 
 
-# ---- kb vault ---------------------------------------------------------------
+# ---- vault commands ----------------------------------------------------------
 
 
-@cli.group()
-def vault() -> None:
-    """Manage knowledge-base vaults."""
+@cli.group(name="vault")
+def vault_group() -> None:
+    """Manage multiple isolated knowledge bases (vaults)."""
+    pass
 
 
-def _vault_handle_error(e: Exception) -> None:
-    """Map vault exceptions to Click exceptions."""
-    if isinstance(e, VaultNotFoundError):
-        raise click.ClickException(str(e)) from e
-    if isinstance(e, VaultAlreadyExistsError):
-        raise click.ClickException(str(e)) from e
-    if isinstance(e, VaultError):
-        raise click.UsageError(str(e)) from e
-    raise
-
-
-@vault.command(name="list")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_list(as_json: bool) -> None:
-    """List all registered vaults."""
-    try:
-        mgr = _get_vault_manager()
-        vaults = mgr.list_vaults()
-        current = mgr.get_current()
-    except Exception as e:
-        _vault_handle_error(e)
-        return
+@vault_group.command(name="list")
+@_json_option
+@click.pass_context
+@_handle_errors
+def vault_list(ctx: click.Context, as_json: bool) -> None:
+    """List all available vaults."""
+    vm = ctx.obj["vault_manager"]
+    vaults = vm.list_vaults()
     if as_json:
-        click.echo(json.dumps({
-            "current": current,
-            "vaults": [{"name": v.name, "description": v.description} for v in vaults],
-        }, indent=2))
-        return
-    if not vaults:
-        click.echo("No vaults registered.")
-        return
-    click.echo(f"Current vault: {current}")
-    click.echo("")
-    for v in vaults:
-        marker = " *" if v.name == current else "  "
-        click.echo(f"  {marker} {v.name:20s}  {v.description}")
+        _emit_json(vaults)
+    else:
+        default_vault = ctx.obj["config"].default_vault
+        click.echo(f"Default vault: {default_vault}")
+        click.echo()
+        click.echo("Available vaults:")
+        for vault in vaults:
+            is_default = "*" if vault["name"] == default_vault else " "
+            click.echo(f"{is_default} {vault['name']}: {vault['path']}")
 
 
-@vault.command(name="create")
+@vault_group.command(name="create")
 @click.argument("name")
-@click.option("--desc", default="", help="Vault description.")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_create(name: str, desc: str, as_json: bool) -> None:
+@click.option("--desc", help="Optional description for the vault.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def vault_create(ctx: click.Context, name: str, desc: str | None, as_json: bool) -> None:
     """Create a new vault."""
-    try:
-        mgr = _get_vault_manager()
-        info = mgr.create(name, description=desc)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
+    vm = ctx.obj["vault_manager"]
+    vault_path = vm.create_vault(name, description=desc)
     if as_json:
-        click.echo(json.dumps({"ok": True, "name": info.name}, indent=2))
+        _emit_json({"name": name, "path": vault_path})
     else:
-        click.echo(f"Created vault {info.name!r}.")
+        click.echo(f"Created vault {name} at {vault_path}")
 
 
-@vault.command(name="switch")
+@vault_group.command(name="switch")
 @click.argument("name")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_switch(name: str, as_json: bool) -> None:
-    """Switch the current active vault."""
-    try:
-        mgr = _get_vault_manager()
-        mgr.switch(name)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "current": name}, indent=2))
-    else:
-        click.echo(f"Switched to vault {name!r}.")
-
-
-@vault.command(name="current")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_current(as_json: bool) -> None:
-    """Show the current active vault."""
-    try:
-        mgr = _get_vault_manager()
-        name = mgr.get_current()
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"current": name}, indent=2))
-    else:
-        click.echo(name)
-
-
-@vault.command(name="rename")
-@click.argument("name")
-@click.argument("new_name")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_rename(name: str, new_name: str, as_json: bool) -> None:
-    """Rename a vault."""
-    try:
-        mgr = _get_vault_manager()
-        mgr.rename(name, new_name)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "old": name, "new": new_name}, indent=2))
-    else:
-        click.echo(f"Renamed vault {name!r} to {new_name!r}.")
-
-
-@vault.command(name="remove")
-@click.argument("name")
-@click.option("--delete-files", is_flag=True, help="Also delete vault files.")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_remove(name: str, delete_files: bool, as_json: bool) -> None:
-    """Remove a vault from the registry."""
-    try:
-        mgr = _get_vault_manager()
-        mgr.remove(name, delete_files=delete_files)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "removed": name}, indent=2))
-    else:
-        click.echo(f"Removed vault {name!r}.")
-
-
-@vault.command(name="info")
-@click.argument("name")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_info(name: str, as_json: bool) -> None:
-    """Show detailed info about a vault."""
-    try:
-        mgr = _get_vault_manager()
-        info = mgr.info(name)
-        current = mgr.get_current()
-        db_path = mgr.resolve_path(info.name)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({
-            "name": info.name,
-            "description": info.description,
-            "path": str(db_path),
-            "is_current": info.name == current,
-        }, indent=2))
-    else:
-        click.echo(f"Name:        {info.name}")
-        click.echo(f"Description: {info.description}")
-        click.echo(f"DB path:     {db_path}")
-        click.echo(f"Current:     {'yes' if info.name == current else 'no'}")
-
-
-# ---- kb vault init-git ------------------------------------------------------
-
-
-@vault.command(name="init-git")
-@click.option(
-    "--sync-dir",
-    "sync_dir",
-    default=None,
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    help="Existing git clone directory (e.g. after 'git clone ...'). "
-         "The vault's Markdown export will go into its 'md/' subdirectory.",
-)
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_init_git(sync_dir: Path | None, as_json: bool) -> None:
-    """Initialise a Git repository for the current vault's Markdown export.
-
-    By default, creates the repo inside the vault directory. Pass
-    ``--sync-dir`` to point at an existing git clone — the vault's
-    ``md/`` directory will be created there, and subsequent sync
-    commands will use that location.
-    """
-    try:
-        mgr = _get_vault_manager()
-        output = mgr.init_git(sync_dir=sync_dir)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
-    else:
-        click.echo(output or "Git repository initialised.")
-
-
-# ---- kb vault commit --------------------------------------------------------
-
-
-@vault.command(name="commit")
-@click.option("-m", "--message", required=True, help="Commit message.")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_commit(message: str, as_json: bool) -> None:
-    """Export vault to Markdown and git commit."""
-    try:
-        mgr = _get_vault_manager()
-        output = mgr.commit(message)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
-    else:
-        click.echo(output)
-
-
-# ---- kb vault push ----------------------------------------------------------
-
-
-@vault.command(name="push")
-@click.argument("remote", default="origin", required=False)
-@click.argument("branch", default="main", required=False)
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_push(remote: str, branch: str, as_json: bool) -> None:
-    """Git push the vault's Markdown export to a remote.
-
-    Default remote is ``origin``, default branch is ``main``.
-    """
-    try:
-        mgr = _get_vault_manager()
-        output = mgr.push(remote=remote, branch=branch)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
-    else:
-        click.echo(output)
-
-
-# ---- kb vault pull ----------------------------------------------------------
-
-
-@vault.command(name="pull")
-@click.argument("remote", default="origin", required=False)
-@click.argument("branch", default="main", required=False)
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-def vault_pull(remote: str, branch: str, as_json: bool) -> None:
-    """Git pull and import Markdown into the vault.
-
-    Default remote is ``origin``, default branch is ``main``.
-    """
-    try:
-        mgr = _get_vault_manager()
-        output = mgr.pull(remote=remote, branch=branch)
-    except Exception as e:
-        _vault_handle_error(e)
-        return
-    if as_json:
-        click.echo(json.dumps({"ok": True, "output": output}, indent=2))
-    else:
-        click.echo(output)
-
-
-# ---- kb admin ---------------------------------------------------------------
-
-
-@cli.command()
-@click.option("--host", default="127.0.0.1", show_default=True, help="Bind host.")
-@click.option("--port", default=8765, show_default=True, type=int, help="Bind port.")
 @click.pass_context
 @_handle_errors
-def admin(ctx: click.Context, host: str, port: int) -> None:
-    """Start the phase-one admin web console."""
+def vault_switch(ctx: click.Context, name: str) -> None:
+    """Set the default vault."""
+    config = ctx.obj["config"]
+    config.default_vault = name
+    config.save()
+    click.echo(f"Default vault set to {name}")
+
+
+@vault_group.command(name="init-git")
+@click.option("--sync-dir", type=click.Path(exists=True, file_okay=False, dir_okay=True), required=True, help="Path to the Git repository to sync with.")
+@click.pass_context
+@_handle_errors
+def vault_init_git(ctx: click.Context, sync_dir: str) -> None:
+    """Initialize Git sync for the current vault."""
+    vault = ctx.obj["vault_manager"].get_current_vault()
+    vault.set_sync_dir(sync_dir)
+    # Initialize git repo if not already initialized
+    import subprocess
+    try:
+        subprocess.run(["git", "-C", sync_dir, "rev-parse", "--is-inside-work-tree"], check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        subprocess.run(["git", "-C", sync_dir, "init"], check=True)
+        # Create .gitignore
+        gitignore_path = os.path.join(sync_dir, ".gitignore")
+        with open(gitignore_path, "w") as f:
+            f.write("*.db\n*.db-wal\n*.db-shm\n.DS_Store\n")
+    click.echo(f"Vault sync initialized with directory {sync_dir}")
+
+
+@vault_group.command(name="commit")
+@click.option("--message", "-m", required=True, help="Commit message.")
+@click.pass_context
+@_handle_errors
+def vault_commit(ctx: click.Context, message: str) -> None:
+    """Export changes and commit to Git."""
+    vault = ctx.obj["vault_manager"].get_current_vault()
+    vault.commit(message)
+    click.echo("Changes committed to Git.")
+
+
+@vault_group.command(name="push")
+@click.argument("remote", default="origin")
+@click.argument("branch", default="main")
+@click.pass_context
+@_handle_errors
+def vault_push(ctx: click.Context, remote: str, branch: str) -> None:
+    """Push committed changes to remote Git repository."""
+    vault = ctx.obj["vault_manager"].get_current_vault()
+    vault.push(remote, branch)
+    click.echo("Changes pushed to remote.")
+
+
+@vault_group.command(name="pull")
+@click.argument("remote", default="origin")
+@click.argument("branch", default="main")
+@click.pass_context
+@_handle_errors
+def vault_pull(ctx: click.Context, remote: str, branch: str) -> None:
+    """Pull latest changes from remote Git repository and import them."""
+    vault = ctx.obj["vault_manager"].get_current_vault()
+    vault.pull(remote, branch)
+    click.echo("Changes pulled and imported.")
+
+
+# ---- admin commands ----------------------------------------------------------
+
+
+@cli.group(name="admin")
+def admin_group() -> None:
+    """Web administration interface commands."""
+    pass
+
+
+@admin_group.command(name="start")
+@click.option("--port", default=8888, type=int, help="Port to run the admin server on.")
+@click.pass_context
+@_handle_errors
+def admin_start(ctx: click.Context, port: int) -> None:
+    """Start the web administration interface."""
     from kb_mcp_lite.admin import run_admin
-
     store = _get_store(ctx)
-    click.echo(f"admin console: http://{host}:{port}")
-    run_admin(host=host, port=port, store=store)
-
-
-# ---- kb history -------------------------------------------------------------
-
-
-@cli.command()
-@click.argument("id", metavar="ID")
-@click.option("--limit", default=50, type=int, help="Max versions to show.")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-@click.pass_context
-@_handle_errors
-def history(ctx: click.Context, id: str, limit: int, as_json: bool) -> None:
-    """Show version history of a document."""
-    store = _get_store(ctx)
-    entries = store.document_history(id, limit=limit)
-    if as_json:
-        click.echo(json.dumps({"history": entries, "count": len(entries)}, indent=2))
-        return
-    if not entries:
-        click.echo(f"No version history for {id!r}.")
-        return
-    click.echo(f"Version history for {id!r} ({len(entries)} entries):")
-    for e in entries:
-        ts = e.get("created_at", "")
-        action = e.get("action", "?")
-        vid = e.get("version_id", "?")
-        click.echo(f"  #{vid} {action}  {ts}")
-
-
-# ---- kb restore -------------------------------------------------------------
-
-
-@cli.command()
-@click.argument("id", metavar="ID")
-@click.option("--version", type=int, default=None, help="Version id to restore.")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-@click.pass_context
-@_handle_errors
-def restore(ctx: click.Context, id: str, version: int | None, as_json: bool) -> None:
-    """Restore a document to a previous version."""
-    store = _get_store(ctx)
-    doc = store.restore(id, version_id=version)
-    if as_json:
-        click.echo(json.dumps({
-            "ok": True,
-            "id": doc.id,
-            "version": version,
-            "restored_at": doc.updated_at.isoformat(),
-        }, indent=2))
-        return
-    click.echo(f"Restored {doc.id!r} to version {version or 'latest'} "
-               f"(updated_at={doc.updated_at.isoformat()})")
-
-
-# ---- kb diff ---------------------------------------------------------------
-
-
-@cli.command()
-@click.argument("id", metavar="ID")
-@click.argument("version_a", type=int)
-@click.argument("version_b", type=int)
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-@click.pass_context
-@_handle_errors
-def diff(ctx: click.Context, id: str, version_a: int, version_b: int,
-         as_json: bool) -> None:
-    """Show field-level differences between two document versions."""
-    store = _get_store(ctx)
-    result = store.diff(id, version_a, version_b)
-    if as_json:
-        click.echo(json.dumps(result, indent=2, default=str))
-        return
-    changed = result.get("changed", {})
-    added = result.get("added", {})
-    removed = result.get("removed", {})
-    click.echo(f"Diff {id!r} version #{version_a} → #{version_b}:")
-    for k, v in changed.items():
-        click.echo(f"  ~ {k}: {v.get('from', '')} → {v.get('to', '')}")
-    for k, v in added.items():
-        click.echo(f"  + {k}: {v}")
-    for k, v in removed.items():
-        click.echo(f"  - {k}: {v}")
-
-
-# ---- kb restore-deleted -----------------------------------------------------
-
-
-@cli.command(name="restore-deleted")
-@click.argument("id", metavar="ID")
-@click.option("--json", "as_json", is_flag=True, help="JSON output.")
-@click.pass_context
-@_handle_errors
-def restore_deleted(ctx: click.Context, id: str, as_json: bool) -> None:
-    """Restore a soft-deleted document."""
-    store = _get_store(ctx)
-    doc = store.restore_deleted(id)
-    if as_json:
-        click.echo(json.dumps({
-            "ok": True,
-            "id": doc.id,
-            "restored_at": doc.updated_at.isoformat(),
-        }, indent=2))
-        return
-    click.echo(f"Restored deleted document {doc.id!r} "
-               f"(updated_at={doc.updated_at.isoformat()})")
-
-
-# Entry point -----------------------------------------------------------------
-
-
-# Apply the cli-reference.md usage-error exit code at import time so both
-# ``cli()`` and ``main()`` honour it. Without this, Click's default of 2
-# would leak through for in-process callers (tests) that bypass
-# :func:`main`.
-click.exceptions.UsageError.exit_code = EXIT_USAGE
+    run_admin(store, port=port)
 
 
 def main() -> None:
-    """Console-script entry point registered in ``pyproject.toml``."""
-    cli(standalone_mode=True)
+    cli()
 
 
-# Re-export for tests / programmatic use --------------------------------------
+if __name__ == "__main__":
+    main()
+
 
 __all__ = [
     "cli",
@@ -1436,8 +799,4 @@ __all__ = [
     "EXIT_CONFLICT",
     "EXIT_INTERNAL",
     "EXIT_USAGE",
-    "_handle_errors",
-    "_get_store",
-    "_resolve_body",
-    "_parse_tags",
 ]
