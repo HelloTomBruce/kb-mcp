@@ -32,6 +32,36 @@ def _sqlite_row_factory(cursor: sqlite3.Cursor, row: Tuple[Any, ...]) -> sqlite3
     return sqlite3.Row(cursor, row)
 
 
+def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
+    """Open a sqlite3 connection that supports vec0 if possible."""
+    try:
+        import pysqlite3 as _psql
+        conn = _psql.connect(db_path, isolation_level=None)
+        conn.enable_load_extension(True)
+        _try_load_vec0(conn)
+        return conn
+    except ImportError:
+        pass
+    try:
+        import sqlite_vec
+        conn = sqlite3.connect(db_path)
+        sqlite_vec.load(conn)
+        return conn
+    except ImportError:
+        pass
+    return sqlite3.connect(db_path)
+
+
+def _try_load_vec0(conn: sqlite3.Connection) -> None:
+    """Best-effort load of vec0 extension."""
+    import logging
+    try:
+        import sqlite_vec
+        sqlite_vec.load(conn)
+    except Exception as e:
+        logging.getLogger("kb_mcp_lite").debug("vec0 not loaded: %s", e)
+
+
 class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin):
     """SQLite-based storage implementation.
     

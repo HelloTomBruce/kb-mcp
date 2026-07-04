@@ -195,7 +195,7 @@ class EmbeddingMixin:
         try:
             from kb_mcp_lite.store.sqlite import _make_sqlite_connection
 
-            conn = _make_sqlite_connection(str(self._path))
+            conn = _make_sqlite_connection(str(self.path))
         except Exception as e:  # noqa: BLE001
             logging.getLogger("kb_mcp_lite").debug("vec0 connection not available: %s", e)
             self._vec_conn = False
