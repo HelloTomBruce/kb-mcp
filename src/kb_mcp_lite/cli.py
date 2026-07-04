@@ -603,7 +603,7 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
         if not enabled:
             click.echo("no embedder configured; set embedding in config file", err=True)
             sys.exit(1)
-        n = store.reindex_embeddings()
+        n = store.reindex_embeddings(progress_callback=lambda i, t: click.echo(f"  [{i}/{t}] embedding...", err=True))
         report = getattr(store, "last_reindex_report", {}) or {}
         dim = report.get("dim") or dim
         failed = report.get("failed", 0)

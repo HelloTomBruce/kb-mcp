@@ -223,8 +223,12 @@ class EmbeddingMixin:
         self._vec_row_is_tuple = True
         return conn
 
-    def reindex_embeddings(self) -> int:
-        """Recompute embeddings for all active documents."""
+    def reindex_embeddings(self, progress_callback=None) -> int:
+        """Recompute embeddings for all active documents.
+
+        Args:
+            progress_callback: Optional callable(processed, total) called after each doc.
+        """
         emb = getattr(self, "_embedder", None)
         if emb is None or not getattr(emb, "enabled", False):
             raise ValidationError("embedder not configured; cannot reindex")
@@ -233,7 +237,8 @@ class EmbeddingMixin:
         ).fetchall()
         n_ok, n_fail = 0, 0
         failed_ids: list[str] = []
-        for r in rows:
+        total = len(rows)
+        for i, r in enumerate(rows):
             doc = Document(
                 id=r["id"],
                 type="(unknown)",
@@ -246,12 +251,14 @@ class EmbeddingMixin:
             else:
                 n_fail += 1
                 failed_ids.append(doc.id)
+            if progress_callback:
+                progress_callback(i + 1, total)
         self.last_reindex_report = {
             "succeeded": n_ok,
             "failed": n_fail,
             "failed_ids": failed_ids,
             "dim": getattr(emb, "dim", 0),
-            "total": len(rows),
+            "total": total,
         }
         return n_ok
 
