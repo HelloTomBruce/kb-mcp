@@ -576,7 +576,75 @@ def export(ctx: click.Context, directory: str, force: bool, as_json: bool) -> No
         click.echo(f"Exported all documents to {directory}")
 
 
-# ---- kb doctor ---------------------------------------------------------------
+# ---- kb embed ---------------------------------------------------------------
+
+
+@cli.command()
+@click.option(
+    "--rebuild",
+    is_flag=True,
+    help="Recompute embeddings for all active documents (use after changing models).",
+)
+@_json_option
+@click.pass_context
+@_handle_errors
+def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
+    """Manage semantic-search embeddings.
+
+    With ``--rebuild``, recomputes the embedding for every active
+    document. Without ``--rebuild``, prints the embedder status.
+    """
+    store = _get_store(ctx)
+    emb = getattr(store, "_embedder", None)
+    enabled = bool(emb and getattr(emb, "enabled", False))
+    dim = getattr(emb, "dim", 0) if emb else 0
+
+    if rebuild:
+        if not enabled:
+            click.echo("no embedder configured; set embedding in config file", err=True)
+            sys.exit(1)
+        n = store.reindex_embeddings()
+        report = getattr(store, "last_reindex_report", {}) or {}
+        dim = report.get("dim") or dim
+        failed = report.get("failed", 0)
+        if as_json:
+            _emit_json({
+                "ok": True,
+                "reindexed": n,
+                "failed": failed,
+                "dim": dim,
+                "total": report.get("total", n + failed),
+            })
+        else:
+            msg = f"re-embedded {n} document(s) (dim={dim})"
+            if failed:
+                msg += f", {failed} failed"
+            click.echo(msg)
+        return
+
+    # Status mode
+    try:
+        if enabled and hasattr(store, "_conn"):
+            row = store._conn.execute(
+                "SELECT COUNT(*) FROM docs_vec"
+            ).fetchone()
+            n_vec = row[0] if row else 0
+        else:
+            n_vec = 0
+    except Exception:
+        n_vec = 0
+    status = {
+        "embedder_enabled": enabled,
+        "dim": dim,
+        "indexed_documents": n_vec,
+    }
+    if as_json:
+        _emit_json(status)
+    else:
+        click.echo(
+            f"embedder={'enabled' if enabled else 'disabled'} "
+            f"dim={dim} indexed={n_vec}"
+        )
 
 
 @cli.command()
