@@ -63,6 +63,18 @@ _DEFAULT_VAULT_NAME = "default"
 _VAULTS_JSON = "vaults.json"
 
 
+def _strip_ssh_warnings(stderr: str) -> str:
+    """Remove common SSH/client warning lines from git stderr."""
+    lines = []
+    for line in stderr.splitlines():
+        if line.startswith("**"):
+            continue
+        stripped = line.strip()
+        if stripped:
+            lines.append(stripped)
+    return "\n".join(lines) if lines else stderr.strip()
+
+
 def get_kb_home() -> Path:
     """Return the KB root directory.
 
@@ -366,7 +378,7 @@ class VaultManager:
             capture_output=True, text=True,
         )
         if result.returncode != 0:
-            raise VaultError(f"git init failed: {result.stderr.strip()}")
+            raise VaultError(f"git init failed: {_strip_ssh_warnings(result.stderr)}")
         return result.stdout.strip()
 
     def commit(
@@ -406,7 +418,7 @@ class VaultManager:
             capture_output=True, text=True,
         )
         if result.returncode != 0:
-            raise VaultError(f"git add failed: {result.stderr.strip()}")
+            raise VaultError(f"git add failed: {_strip_ssh_warnings(result.stderr)}")
 
         result = subprocess.run(
             ["git", "commit", "-m", message],
@@ -416,7 +428,7 @@ class VaultManager:
         if result.returncode != 0:
             if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
                 return "nothing to commit"
-            raise VaultError(f"git commit failed: {result.stderr.strip()}")
+            raise VaultError(f"git commit failed: {_strip_ssh_warnings(result.stderr)}")
         return result.stdout.strip()
 
     def push(
@@ -439,7 +451,7 @@ class VaultManager:
             capture_output=True, text=True,
         )
         if result.returncode != 0:
-            raise VaultError(f"git push failed: {result.stderr.strip()}")
+            raise VaultError(f"git push failed: {_strip_ssh_warnings(result.stderr)}")
         return result.stdout.strip()
 
     def pull(
@@ -471,7 +483,7 @@ class VaultManager:
             capture_output=True, text=True,
         )
         if result.returncode != 0:
-            raise VaultError(f"git pull failed: {result.stderr.strip()}")
+            raise VaultError(f"git pull failed: {_strip_ssh_warnings(result.stderr)}")
         pull_output = result.stdout.strip()
 
         # Import the Markdown files
