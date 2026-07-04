@@ -719,19 +719,10 @@ def vault_switch(ctx: click.Context, name: str) -> None:
 @_handle_errors
 def vault_init_git(ctx: click.Context, sync_dir: str) -> None:
     """Initialize Git sync for the current vault."""
-    vault = ctx.obj["vault_manager"].get_current_vault()
-    vault.set_sync_dir(sync_dir)
-    # Initialize git repo if not already initialized
-    import subprocess
-    try:
-        subprocess.run(["git", "-C", sync_dir, "rev-parse", "--is-inside-work-tree"], check=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        subprocess.run(["git", "-C", sync_dir, "init"], check=True)
-        # Create .gitignore
-        gitignore_path = os.path.join(sync_dir, ".gitignore")
-        with open(gitignore_path, "w") as f:
-            f.write("*.db\n*.db-wal\n*.db-shm\n.DS_Store\n")
-    click.echo(f"Vault sync initialized with directory {sync_dir}")
+    vm = ctx.obj["vault_manager"]
+    name = vm.get_current()
+    output = vm.init_git(name=name, sync_dir=sync_dir)
+    click.echo(output or f"Vault sync initialized with directory {sync_dir}")
 
 
 @vault_group.command(name="commit")
@@ -740,9 +731,10 @@ def vault_init_git(ctx: click.Context, sync_dir: str) -> None:
 @_handle_errors
 def vault_commit(ctx: click.Context, message: str) -> None:
     """Export changes and commit to Git."""
-    vault = ctx.obj["vault_manager"].get_current_vault()
-    vault.commit(message)
-    click.echo("Changes committed to Git.")
+    vm = ctx.obj["vault_manager"]
+    name = vm.get_current()
+    output = vm.commit(message, name=name)
+    click.echo(output or "Changes committed to Git.")
 
 
 @vault_group.command(name="push")
@@ -752,9 +744,10 @@ def vault_commit(ctx: click.Context, message: str) -> None:
 @_handle_errors
 def vault_push(ctx: click.Context, remote: str, branch: str) -> None:
     """Push committed changes to remote Git repository."""
-    vault = ctx.obj["vault_manager"].get_current_vault()
-    vault.push(remote, branch)
-    click.echo("Changes pushed to remote.")
+    vm = ctx.obj["vault_manager"]
+    name = vm.get_current()
+    output = vm.push(remote=remote, branch=branch, name=name)
+    click.echo(output or "Changes pushed to remote.")
 
 
 @vault_group.command(name="pull")
@@ -764,9 +757,10 @@ def vault_push(ctx: click.Context, remote: str, branch: str) -> None:
 @_handle_errors
 def vault_pull(ctx: click.Context, remote: str, branch: str) -> None:
     """Pull latest changes from remote Git repository and import them."""
-    vault = ctx.obj["vault_manager"].get_current_vault()
-    vault.pull(remote, branch)
-    click.echo("Changes pulled and imported.")
+    vm = ctx.obj["vault_manager"]
+    name = vm.get_current()
+    output = vm.pull(remote=remote, branch=branch, name=name)
+    click.echo(output or "Changes pulled and imported.")
 
 
 # ---- admin commands ----------------------------------------------------------
