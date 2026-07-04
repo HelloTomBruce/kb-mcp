@@ -670,13 +670,13 @@ def vault_list(ctx: click.Context, as_json: bool) -> None:
     if as_json:
         _emit_json(vaults)
     else:
-        default_vault = ctx.obj["config"].default_vault
+        default_vault = ctx.obj["config"].get("default_vault", "default")
         click.echo(f"Default vault: {default_vault}")
         click.echo()
         click.echo("Available vaults:")
         for vault in vaults:
-            is_default = "*" if vault["name"] == default_vault else " "
-            click.echo(f"{is_default} {vault['name']}: {vault['path']}")
+            is_default = "*" if vault.name == default_vault else " "
+            click.echo(f"{is_default} {vault.name}: {vault.path}")
 
 
 @vault_group.command(name="create")
@@ -702,8 +702,7 @@ def vault_create(ctx: click.Context, name: str, desc: str | None, as_json: bool)
 def vault_switch(ctx: click.Context, name: str) -> None:
     """Set the default vault."""
     config = ctx.obj["config"]
-    config.default_vault = name
-    config.save()
+    config["default_vault"] = name
     click.echo(f"Default vault set to {name}")
 
 
