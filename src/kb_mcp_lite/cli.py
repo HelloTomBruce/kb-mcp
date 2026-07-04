@@ -79,7 +79,7 @@ def _json_option(func: F) -> F:
 def cli(ctx: click.Context, vault: str | None) -> None:
     config = get_config()
     vault_manager = VaultManager()
-    selected_vault = vault or config.get("default_vault", "default")
+    selected_vault = vault or vault_manager.get_current()
     ctx.ensure_object(dict)
     # Use injected store from test if present; otherwise create a new one
     if "store" not in ctx.obj:
@@ -674,7 +674,7 @@ def vault_list(ctx: click.Context, as_json: bool) -> None:
     if as_json:
         _emit_json([{"name": v.name, "path": v.path, "description": v.description, "sync_dir": v.sync_dir} for v in vaults])
     else:
-        default_vault = ctx.obj["config"].get("default_vault", "default")
+        default_vault = ctx.obj["vault_manager"].get_current()
         click.echo(f"Default vault: {default_vault}")
         click.echo()
         click.echo("Available vaults:")
@@ -706,10 +706,7 @@ def vault_create(ctx: click.Context, name: str, desc: str | None, as_json: bool)
 def vault_switch(ctx: click.Context, name: str) -> None:
     """Set the default vault."""
     vm = ctx.obj["vault_manager"]
-    # Validate the vault exists
     vm.switch(name)
-    config = ctx.obj["config"]
-    config["default_vault"] = name
     click.echo(f"Default vault set to {name}")
 
 
