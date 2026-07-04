@@ -5,7 +5,7 @@
 
 `pip install kb-mcp-lite` — 让任何AI编程助手都拥有结构化、可查询、可同步的团队"第二大脑"
 
-[![PyPI version](https://img.shields.io/badge/pypi-v0.5.1-blue)](https://pypi.org/project/kb-mcp-lite/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.5.10-blue)](https://pypi.org/project/kb-mcp-lite/)
 [![Python](https://img.shields.io/badge/python-≥3.10-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-兼容-purple)](https://modelcontextprotocol.io/)
@@ -37,7 +37,7 @@
 
 ## ✨ 核心能力详解
 ### 1. 📐 强Schema标准化知识结构
-内置6种开箱即用的文档类型，覆盖技术团队90%的知识沉淀场景，所有类型都可以通过Python子类扩展：
+内置9种开箱即用的文档类型，覆盖技术团队90%的知识沉淀场景，所有类型都可以通过Python子类扩展：
 | 文档类型 | ID前缀 | 用途说明 | 使用场景 |
 |---|---|---|---|
 | `project` | `proj` | 项目/仓库说明文档 | 记录项目背景、技术栈、负责人、部署流程等基础信息 |
@@ -46,6 +46,9 @@
 | `glossary` | `glossary` | 术语表 | 统一团队业务/技术术语定义，消除沟通歧义，AI也能理解专有名词 |
 | `person` | `person` | 人员档案 | 记录团队成员技术栈、负责模块、联系方式，AI知道该找谁问问题 |
 | `faq` | `faq` | 常见问题 | 沉淀高频问题和解决方案，减少重复咨询，AI可以直接回答 |
+| `api` | `api` | API接口文档 | 记录接口路径、HTTP方法、请求/响应示例、认证要求 |
+| `runbook` | `runbook` | 运维手册(SOP) | 记录例行操作、故障排查、部署流程的标准化步骤 |
+| `release` | `release` | 发布日志 | 记录版本号、发布日期、变更列表、影响范围、回滚步骤 |
 
 **优势**：
 - 所有文档统一结构，AI不需要理解不同格式的文档
@@ -120,19 +123,33 @@
 | `kb_diff` | 对比版本差异 | AI查看文档修改了什么内容 |
 | `kb_restore_deleted` | 恢复已删除文档 | 误删后恢复 |
 
-#### 4个结构化资源
+#### 13个结构化资源
 | 资源URI | 返回内容 |
 |---|---|
-| `kb://doc/{id}` | 完整文档信息，包含正文、元数据、反向链接 |
-| `kb://search/{query}` | 搜索结果，带相关性评分 |
-| `kb://links/{id}` | 文档的所有入站和出站链接 |
-| `kb://doctor` | 知识库健康检查报告，完整性校验、统计信息 |
+| `kb://doc/{type}/{slug}` | 完整文档信息 |
+| `kb://links/{type}/{slug}` | 文档的所有入站和出站链接 |
+| `kb://types` | 所有文档类型的列表 |
+| `kb://stats` | 知识库统计信息 |
+| `kb://graph/{type}/{slug}` | 以该文档为中心的知识图谱 |
+| `kb://graph/{type}/{slug}/{depth}` | 指定深度的知识图谱 |
+| `kb://list` | 所有文档列表 |
+| `kb://list/{type}` | 按类型筛选的文档列表 |
+| `kb://changes` | 最近变更记录 |
+| `kb://history/{id}` | 指定文档的版本历史 |
+| `kb://search/{query}` | 搜索结果 |
+| `kb://export/{id}` | 导出文档为Markdown |
+| `kb://help/{doc}` | 帮助文档 |
 
-#### 2个交互Prompt
+#### 7个交互Prompt
 | Prompt名称 | 用途 |
 |---|---|
-| `new-doc` | 引导式创建新文档，AI会一步步确认文档类型、标题、内容、标签 |
-| `search-expert` | 智能搜索助手，自动选择最合适的搜索模式和关键词 |
+| `new-doc` | 引导式创建新文档 |
+| `link-analysis` | 分析文档链接关系 |
+| `search-guide` | 智能搜索助手 |
+| `import-docs` | 批量导入文档 |
+| `doctor` | 知识库健康检查 |
+| `maintenance` | 知识库维护指导 |
+| `onboarding` | 新手上手指南 |
 
 ---
 
@@ -154,10 +171,6 @@ kb init
 
 #### 2. 添加第一个文档
 ```bash
-# 交互式添加
-kb add
-
-# 命令行直接添加
 kb add --type project \
        --title "kb-mcp-lite" \
        --tags "mcp,knowledge-base,python" \
@@ -206,7 +219,7 @@ kb history <文档ID>
 kb restore <文档ID> --version 2
 
 # 启动Web管理后台
-kb admin
+kb admin start
 ```
 
 ---
@@ -271,7 +284,7 @@ kb vault push
 ```
 
 #### AI工具自动同步配置
-如果希望AI调用`kb add`添加文档后自动同步到Git，可以配置post-hook脚本，在`~/.kb-mcp/config.yaml`中添加：
+如果希望AI调用`kb add`添加文档后自动同步到Git，可以配置post-hook脚本，在`~/.config/kb-mcp/config.yaml`中添加：
 ```yaml
 hooks:
   post_add: "kb vault commit -m 'AI自动添加文档: {doc_title}' && kb vault push"
@@ -426,7 +439,7 @@ src/kb_mcp_lite/
 | v0.2.0 | 模糊搜索 + 语义搜索支持 + 命令补全 | ✅ 已发布 |
 | v0.3.0 | MCP资源和Prompt支持 + 版本控制 + 别名 | ✅ 已发布 |
 | v0.4.0 | 多vault支持 + Git同步 + vault管理命令 | ✅ 已发布 |
-| v0.5.0 | 本地嵌入模型 + CJK分词优化 + 知识图谱可视化 | 🔄 开发中 |
+| v0.5.0 | CLI重构 + 3种新文档类型 + 项目筛选 + 增强健康检查 | ✅ 已发布 |
 | v0.6.0 | 插件系统 + 外部同步（Notion/GitHub/飞书） | 📋 规划中 |
 | v1.0.0 | PostgreSQL后端支持 + 多用户权限 + 托管模式 | 📋 规划中 |
 
@@ -434,7 +447,7 @@ src/kb_mcp_lite/
 
 ## 📌 状态说明
 当前处于**Beta测试阶段**：
-- API和存储格式从v0.3.0开始已经稳定，不会有破坏性变更
+- API和存储格式从v0.5.0开始已经稳定，不会有破坏性变更
 - 生产环境使用建议锁定版本：`kb-mcp-lite>=0.5,<0.6`
 - 欢迎提交Issue和PR，贡献代码请查看 [CONTRIBUTING.md](./CONTRIBUTING.md)
 
@@ -443,37 +456,4 @@ src/kb_mcp_lite/
 ## 📄 许可证
 MIT License，可自由使用、修改、分发，保留版权声明即可。
 
-## New Features in v0.5.1
 
-### 🆕 Built-in Document Types
-Added 3 new commonly used document types out of the box:
-| Type | ID Prefix | Purpose |
-|---|---|---|
-| `api` | `api` | API endpoint documentation |
-| `runbook` | `runbook` | Operational runbook / SOP for routine tasks and incident response |
-| `release` | `release` | Release notes / changelog entries |
-
-### 🆕 Project-Centric Filtering
-Added shortcut to filter all documents related to a specific project:
-```bash
-# List all documents linked to the shop-frontend project
-kb list --project shop-frontend
-
-# List all decision documents for the shop-frontend project
-kb list --project shop-frontend --type decision
-
-# Full link filtering options
-kb list --link-to proj/shop-frontend  # All docs linking to this project
-kb list --link-from proj/shop-frontend  # All docs this project links to
-```
-
-### 🆕 Enhanced `kb doctor` Health Checks
-Added 3 new project-specific health checks:
-- **no_duplicate_projects**: Detects duplicate project documents with the same title
-- **project_metadata_complete**: Verifies project documents have sufficient metadata
-- **no_orphan_documents**: Finds documents not linked to any project (when projects exist)
-
-Run the doctor to check your knowledge base health:
-```bash
-kb doctor
-```
