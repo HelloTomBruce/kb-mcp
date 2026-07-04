@@ -84,6 +84,7 @@ def cli(ctx: click.Context, vault: str | None) -> None:
     db_path = vault_manager.resolve_path(selected_vault)
     store = SqliteStore(db_path)
     ctx.ensure_object(dict)
+    ctx.obj["store"] = store
     ctx.obj["config"] = config
     ctx.obj["vault_manager"] = vault_manager
 
