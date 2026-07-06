@@ -29,7 +29,7 @@ from kb_mcp_lite.schema import (
     slugify,
 )
 
-__version__ = "0.5.18"
+__version__ = "0.5.19"
 
 __all__ = [
     "__version__",

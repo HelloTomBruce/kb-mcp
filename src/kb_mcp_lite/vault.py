@@ -496,14 +496,17 @@ class VaultManager:
             raise VaultError(f"git pull failed: {_strip_ssh_warnings(result.stderr)}")
         pull_output = result.stdout.strip()
 
-        # Import the Markdown files
-        if import_target.exists():
+        # Import the Markdown files (skip if already up to date)
+        is_up_to_date = "Already up to date" in pull_output or "Already up-to-date" in pull_output
+        if import_target.exists() and not is_up_to_date:
             store = SqliteStore(self.resolve_path(name))
             try:
                 report = _import_dir(store, import_target)
             finally:
                 store.close()
             import_summary = f"imported {report.inserted + report.updated} docs ({report.skipped} skipped)"
+        elif is_up_to_date:
+            import_summary = "already up to date (no files imported)"
         else:
             import_summary = "no md/ directory to import"
 
