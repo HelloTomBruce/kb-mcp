@@ -443,6 +443,10 @@ class VaultManager:
         Returns the git output.
         """
         import os
+
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
