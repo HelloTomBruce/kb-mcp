@@ -318,6 +318,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 detail={"title": doc.title, "type": doc.type},
             )
 
+        self._index_embedding(doc)
         return doc.id
 
     def update(self, doc_id: str, **kwargs: Any) -> Document:
@@ -383,6 +384,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 detail={"fields": sorted(kwargs.keys())},
             )
 
+        self._index_embedding(doc)
         return doc
 
     def delete(self, doc_id: str) -> None:
@@ -419,6 +421,8 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 detail={"title": doc.title, "type": doc.type},
             )
 
+        self._remove_embedding(doc_id)
+
     def restore_deleted(self, doc_id: str) -> Document:
         """Restore a soft-deleted document.
         
@@ -440,6 +444,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             # Create version entry
             self._record_doc_version(cur, doc, action="restore")
 
+        self._index_embedding(doc)
         return doc
 
     # ---- link operations ------------------------------------------------------

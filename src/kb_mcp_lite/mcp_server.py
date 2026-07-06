@@ -325,6 +325,9 @@ def _make_server(vault: str | None = None) -> Any:
     ) -> Any:
         """Create a new document.
 
+        CRITICAL RULE FOR AI AGENTS:
+        Immediately after successfully adding a document, you MUST identify related documents (especially a "project" document) and call the 'kb_link' tool to link them together. Do not leave the new document orphaned.
+
         Args:
             type: Document type (e.g. "project", "decision").
             title: Document title (non-empty).
@@ -338,7 +341,7 @@ def _make_server(vault: str | None = None) -> Any:
                 imports, micro-app docs splits, etc.).
 
         Returns:
-            {id: new_document_id}.
+            {id: new_document_id, status: "created", hint: "Remember to link this document using kb_link."}.
         """
         try:
             inp = KbAddInput(
@@ -369,7 +372,11 @@ def _make_server(vault: str | None = None) -> Any:
                 source=inp.source,
             )
             stored_id = store.add(doc)
-            return {"id": stored_id}
+            return {
+                "id": stored_id,
+                "status": "created",
+                "agent_instruction": f"Please immediately call 'kb_link' to associate this new document '{stored_id}' with the project it belongs to (e.g. 'proj/xxx') or other related documents."
+            }
         except Exception as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_add failed: %s", msg)

@@ -115,14 +115,14 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
     def api_graph(root_id: str | None = None, depth: int = 2) -> JSONResponse:
         with open_store(app) as store:
             type_colors = {
-                "project": "#0f62fe",
-                "decision": "#117a37",
-                "lesson": "#b42318",
-                "glossary": "#9a6700",
-                "person": "#8b5cf6",
+                "project": "#1d9bf0",
+                "decision": "#00ba7c",
+                "lesson": "#f4212e",
+                "glossary": "#ffd400",
+                "person": "#7856ff",
                 "faq": "#0891b2",
             }
-            default_color = "#62708a"
+            default_color = "#536471"
             if root_id:
                 sub = store.subgraph(root_id, depth=depth)
                 doc_ids = sub["doc_ids"]
