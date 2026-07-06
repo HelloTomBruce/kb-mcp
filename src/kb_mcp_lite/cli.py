@@ -844,6 +844,17 @@ def vault_pull(ctx: click.Context, remote: str, branch: str) -> None:
     click.echo(output or "Changes pulled and imported.")
 
 
+@vault_group.command(name="status")
+@click.pass_context
+@_handle_errors
+def vault_status(ctx: click.Context) -> None:
+    """Show the Git status of the current vault."""
+    vm = ctx.obj["vault_manager"]
+    name = vm.get_current()
+    output = vm.status(name=name)
+    click.echo(output)
+
+
 # ---- admin commands ----------------------------------------------------------
 
 

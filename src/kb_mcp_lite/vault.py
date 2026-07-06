@@ -504,6 +504,42 @@ class VaultManager:
 
         return f"{pull_output}\n{import_summary}"
 
+    def status(
+        self,
+        name: str | None = None,
+    ) -> str:
+        """Get the Git status of the vault's sync repository.
+
+        Returns a status report.
+        """
+        import subprocess
+
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+
+        if not (git_dir / ".git").exists():
+            return "Git sync not initialized for this vault. Run `kb vault init-git` to initialize."
+
+        # Get current branch
+        result_branch = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=str(git_dir),
+            capture_output=True, text=True,
+        )
+        branch = result_branch.stdout.strip() if result_branch.returncode == 0 else "unknown"
+
+        # Get status
+        result_status = subprocess.run(
+            ["git", "status"],
+            cwd=str(git_dir),
+            capture_output=True, text=True,
+        )
+        if result_status.returncode != 0:
+            raise VaultError(f"git status failed: {_strip_ssh_warnings(result_status.stderr)}")
+
+        status_output = result_status.stdout.strip()
+        return f"Vault: {name or self.get_current()}\nBranch: {branch}\nGit Directory: {git_dir}\n\n{status_output}"
+
 
 __all__ = [
     "VaultManager",
