@@ -811,6 +811,7 @@ def vault_commit(ctx: click.Context, message: str) -> None:
     """Export changes and commit to Git."""
     vm = ctx.obj["vault_manager"]
     name = vm.get_current()
+    click.echo(f"Exporting vault '{name}' and committing to Git...")
     output = vm.commit(message, name=name)
     click.echo(output or "Changes committed to Git.")
 
@@ -824,6 +825,7 @@ def vault_push(ctx: click.Context, remote: str, branch: str) -> None:
     """Push committed changes to remote Git repository."""
     vm = ctx.obj["vault_manager"]
     name = vm.get_current()
+    click.echo(f"Pushing committed changes to remote '{remote}' (branch: '{branch}')...")
     output = vm.push(remote=remote, branch=branch, name=name)
     click.echo(output or "Changes pushed to remote.")
 
@@ -837,6 +839,7 @@ def vault_pull(ctx: click.Context, remote: str, branch: str) -> None:
     """Pull latest changes from remote Git repository and import them."""
     vm = ctx.obj["vault_manager"]
     name = vm.get_current()
+    click.echo(f"Pulling latest changes from remote '{remote}' (branch: '{branch}')...")
     output = vm.pull(remote=remote, branch=branch, name=name)
     click.echo(output or "Changes pulled and imported.")
 
