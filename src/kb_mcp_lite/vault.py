@@ -441,14 +441,15 @@ class VaultManager:
 
         Returns the git output.
         """
-        import subprocess
-
-        sync_root = self._sync_dir(name)
-        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        import os
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
         result = subprocess.run(
             ["git", "push", remote, branch],
             cwd=str(git_dir),
             capture_output=True, text=True,
+            env=env,
         )
         if result.returncode != 0:
             raise VaultError(f"git push failed: {_strip_ssh_warnings(result.stderr)}")
@@ -476,11 +477,15 @@ class VaultManager:
         if not (git_dir / ".git").exists():
             raise VaultError("vault not initialised for git; run `kb vault init-git` first")
 
-        # git pull
+        import os
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
         result = subprocess.run(
             ["git", "pull", remote, branch],
             cwd=str(git_dir),
             capture_output=True, text=True,
+            env=env,
         )
         if result.returncode != 0:
             raise VaultError(f"git pull failed: {_strip_ssh_warnings(result.stderr)}")
