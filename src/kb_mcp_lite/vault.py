@@ -487,7 +487,7 @@ class VaultManager:
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
         result = subprocess.run(
-            ["git", "pull", remote, branch],
+            ["git", "pull", "--no-edit", remote, branch],
             cwd=str(git_dir),
             capture_output=True, text=True,
             env=env,
