@@ -13,7 +13,7 @@ Public API (defined in :ref:`docs/architecture.md § 4.3 <architecture>`):
     def parse_frontmatter(text: str) -> tuple[Frontmatter, str]: ...
     def render_document(doc: Document, outlinks: list[Link] | None = None) -> str: ...
     def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportReport: ...
-    def export_dir(store: Store, dir: Path, *, force: bool = False) -> int: ...
+    def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: bool = False) -> int: ...
 
 NFR-S-3 path-traversal guard: any resolved path that escapes the given
 directory raises :class:`kb_mcp_lite.schema.ValidationError` with a clear
@@ -398,7 +398,7 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
 # ---------------------------------------------------------------------------
 
 
-def export_dir(store: Store, dir: Path, *, force: bool = False) -> int:
+def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: bool = False) -> int:
     """Write one ``.md`` per document under ``dir``.
 
     Filename is the last segment of the document's id (``proj/kb-mcp``

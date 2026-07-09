@@ -386,6 +386,7 @@ class VaultManager:
         self,
         message: str,
         name: str | None = None,
+        full: bool = False,
     ) -> str:
         """Export the vault to Markdown, then git add + git commit.
 
