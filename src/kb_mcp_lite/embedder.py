@@ -67,10 +67,13 @@ class EmbeddingConfig:
     @property
     def endpoint(self) -> str:
         """The full URL to POST to. Strips any trailing slash from base_url."""
+        import re
         base = self.base_url.rstrip("/")
-        # Many providers expose embeddings at /v1/embeddings. If the
-        # base_url already ends in /v1, we do not append another.
-        if base.endswith("/v1"):
+        # If the user has already specified /embeddings in the base_url, use it directly!
+        if base.endswith("/embeddings"):
+            return base
+        # If the base URL ends with a version suffix (like /v1, /v3) or ends with /api, we just append /embeddings.
+        if re.search(r"/v\d+(\.\d+)?$", base, re.IGNORECASE) or base.endswith("/api") or base.endswith("/v1"):
             return f"{base}/embeddings"
         return f"{base}/v1/embeddings"
 
