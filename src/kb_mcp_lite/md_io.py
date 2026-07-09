@@ -231,6 +231,14 @@ def doc_from_frontmatter(fm: Frontmatter, body: str, source: str | None = None) 
     if not isinstance(title, str) or not title.strip():
         raise ValidationError(f"frontmatter 'title' must be a non-empty string (got {title!r})")
 
+    aliases_raw = fm.get("aliases") or []
+    if isinstance(aliases_raw, str):
+        aliases = [a.strip() for a in aliases_raw.split(",") if a.strip()]
+    elif isinstance(aliases_raw, list):
+        aliases = [str(a).strip() for a in aliases_raw if str(a).strip()]
+    else:
+        aliases = []
+
     now = datetime.now(timezone.utc)
     created_at_raw = fm.get("created_at")
     updated_at_raw = fm.get("updated_at")
@@ -241,6 +249,7 @@ def doc_from_frontmatter(fm: Frontmatter, body: str, source: str | None = None) 
         title=title,
         body=body or "",
         tags=_coerce_tags(fm.get("tags", [])),
+        aliases=aliases,
         source=source,
         created_at=_parse_iso_dt(created_at_raw) if created_at_raw else now,
         updated_at=_parse_iso_dt(updated_at_raw) if updated_at_raw else now,
