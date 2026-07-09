@@ -201,7 +201,14 @@ class EmbeddingMixin:
             self._vec_conn = False
             return None
 
-        dim = getattr(emb, "dim", 0) or 1536
+        dim = getattr(emb, "dim", 0)
+        if dim == 0:
+            try:
+                emb.embed("probe")
+                dim = getattr(emb, "dim", 0)
+            except Exception:
+                pass
+        dim = dim or 1536
         try:
             conn.execute(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS docs_vec USING vec0("
