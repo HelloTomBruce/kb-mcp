@@ -188,7 +188,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 resolved = alias_row["doc_id"]
                 return self.get(resolved, include_deleted=include_deleted)
             raise NotFoundError(doc_id)
-        return self._row_to_doc(row)
+        
+        doc = self._row_to_doc(row)
+        # Fetch aliases from doc_aliases
+        aliases_rows = self._conn.execute(
+            "SELECT alias FROM doc_aliases WHERE doc_id = ?", (doc.id,)
+        ).fetchall()
+        doc.aliases = [r["alias"] for r in aliases_rows]
+        return doc
 
     def list(
         self,
@@ -317,6 +324,18 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 action="create",
                 detail={"title": doc.title, "type": doc.type},
             )
+            # Insert aliases
+            if doc.aliases:
+                now_str = now.isoformat()
+                for alias in doc.aliases:
+                    cur.execute(
+                        """
+                        INSERT INTO doc_aliases (alias, doc_id, created_at)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT (alias) DO NOTHING
+                        """,
+                        (alias, doc.id, now_str),
+                    )
 
         self._index_embedding(doc)
         return doc.id
@@ -383,6 +402,20 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 action="update",
                 detail={"fields": sorted(kwargs.keys())},
             )
+            # Update aliases if provided
+            if "aliases" in kwargs:
+                cur.execute("DELETE FROM doc_aliases WHERE doc_id = ?", (doc.id,))
+                if doc.aliases:
+                    now_str = datetime.now(timezone.utc).isoformat()
+                    for alias in doc.aliases:
+                        cur.execute(
+                            """
+                            INSERT INTO doc_aliases (alias, doc_id, created_at)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT (alias) DO NOTHING
+                            """,
+                            (alias, doc.id, now_str),
+                        )
 
         self._index_embedding(doc)
         return doc
@@ -461,9 +494,11 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             raise ValidationError("rel must be non-empty")
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]*$", rel):
             raise ValidationError(f"rel must match ^[A-Za-z0-9][A-Za-z0-9_-]*$ (got {rel!r})")
-        # Check both documents exist
-        self.get(from_id)
-        self.get(to_id)
+        # Check both documents exist and resolve aliases
+        from_doc = self.get(from_id)
+        to_doc = self.get(to_id)
+        real_from_id = from_doc.id
+        real_to_id = to_doc.id
 
         now = datetime.now(timezone.utc)
         with self._txn() as cur:
@@ -473,12 +508,12 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT (from_id, to_id, rel) DO NOTHING
                 """,
-                (from_id, to_id, rel, now.isoformat()),
+                (real_from_id, real_to_id, rel, now.isoformat()),
             )
             # Retrieve the link (either just inserted or existing)
             row = cur.execute(
                 "SELECT * FROM links WHERE from_id=? AND to_id=? AND rel=?",
-                (from_id, to_id, rel),
+                (real_from_id, real_to_id, rel),
             ).fetchone()
             self._record_audit(
                 cur,
