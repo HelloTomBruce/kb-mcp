@@ -408,7 +408,7 @@ class VaultManager:
         # Export to md/
         store = SqliteStore(self.resolve_path(name))
         try:
-            _export_dir(store, export_target, force=True, incremental=not full)
+            _export_dir(store, export_target, force=True)
         finally:
             store.close()
 

@@ -428,19 +428,6 @@ def export_dir(store: Store, dir: Path, *, force: bool = False) -> int:
     base.mkdir(parents=True, exist_ok=True)
 
     docs = sorted(store.export_all(), key=lambda d: d.id)
-    # 增量导出过滤：只导出更新时间晚于对应文件修改时间的文档
-    if incremental:
-        filtered = []
-        for doc in docs:
-            slug = doc.id.rsplit("/", 1)[-1] or "untitled"
-            candidate = base / f"{slug}.md"
-            if candidate.exists():
-                mtime = datetime.fromtimestamp(candidate.stat().st_mtime, tz=timezone.utc)
-                if doc.updated_at <= mtime:
-                    continue
-            filtered.append(doc)
-        docs = filtered
-
 
     # NFR-S-3: validate every doc's source up front. Bail before any
     # writes if any source escapes the destination.

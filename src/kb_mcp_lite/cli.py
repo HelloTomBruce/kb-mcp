@@ -805,14 +805,16 @@ def vault_init_git(ctx: click.Context, sync_dir: str) -> None:
 
 @vault_group.command(name="commit")
 @click.option("--message", "-m", required=True, help="Commit message.")
+@click.option("--full", "-f", is_flag=True, default=False, help="Force full export of all documents instead of incremental.")
+
 @click.pass_context
 @_handle_errors
-def vault_commit(ctx: click.Context, message: str) -> None:
+def vault_commit(ctx: click.Context, message: str, full: bool) -> None:
     """Export changes and commit to Git."""
     vm = ctx.obj["vault_manager"]
     name = vm.get_current()
     click.echo(f"Exporting vault '{name}' and committing to Git...")
-    output = vm.commit(message, name=name)
+    output = vm.commit(message, name=name, full=full)
     click.echo(output or "Changes committed to Git.")
 
 
