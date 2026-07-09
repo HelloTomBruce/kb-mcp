@@ -9,11 +9,16 @@ def test_slugify_ascii_unchanged():
     assert slugify("Hello World") == "hello-world"
 
 
-def test_slugify_mixed_keeps_ascii_part():
-    """Mixed CJK+ASCII keeps the ASCII part (since v0.1.0)."""
-    assert slugify("kb-mcp 项目") == "kb-mcp"
-    assert slugify("Props 属性") == "props"
-    assert slugify("CMMap 组件使用指南") == "cmmap"
+def test_slugify_mixed_appends_hash_suffix():
+    """Mixed CJK+ASCII keeps the ASCII part but appends a hash suffix to avoid collisions."""
+    s1 = slugify("kb-mcp 项目")
+    s2 = slugify("kb-mcp 部署")
+    assert s1.startswith("kb-mcp-") and len(s1) == len("kb-mcp-") + 8
+    assert s2.startswith("kb-mcp-") and len(s2) == len("kb-mcp-") + 8
+    assert s1 != s2, "different mixed CJK+ASCII titles must have different hashes"
+
+    p1 = slugify("Props 属性")
+    assert p1.startswith("props-") and len(p1) == len("props-") + 8
 
 
 def test_slugify_cjk_fallback_is_stable_hash():

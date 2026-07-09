@@ -122,7 +122,7 @@ def slugify(title: str) -> str:
     >>> slugify("Use SQLite FTS5!")
     'use-sqlite-fts5'
     >>> slugify("kb-mcp 项目")
-    'kb-mcp'
+    'kb-mcp-cb580c2c'
 
     **CJK / non-ASCII titles** (where the ASCII-only result is empty or
     degenerates to a number, e.g. "1. 概述" or "项目概述") previously
@@ -132,10 +132,10 @@ def slugify(title: str) -> str:
     title. This is **idempotent** (same title → same fallback slug) and
     **bounded** (always 12 chars + ``cjk-`` prefix).
 
-    >>> slugify("项目概述")
-    'cjk-<hash>'
-    >>> slugify("1. 概述")
-    'cjk-<hash>'   # '1' is degenerate → fallback
+    **Mixed CJK/non-ASCII + ASCII titles** (e.g. "kb-mcp 项目" vs "kb-mcp 部署")
+    historically collapsed to the same ASCII part ("kb-mcp"), causing collisions.
+    We detect if any CJK/non-ASCII alphanumeric character was dropped, and if so,
+    append the SHA1 hash to ensure uniqueness while preserving the ASCII prefix.
     """
     import hashlib
     import re
@@ -145,11 +145,23 @@ def slugify(title: str) -> str:
     # Normalize (decomposes accented chars), then drop non-ASCII.
     s_ascii = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     s_ascii = re.sub(r"[^a-z0-9]+", "-", s_ascii).strip("-")
+
+    # Check if there are any CJK/non-ASCII alphanumeric characters that were dropped
+    has_dropped_non_ascii = False
+    for char in s:
+        char_norm = unicodedata.normalize("NFKD", char)
+        char_ascii = char_norm.encode("ascii", "ignore").decode("ascii")
+        if char.isalnum() and not char_ascii:
+            has_dropped_non_ascii = True
+            break
+
+    h = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
+
     if s_ascii and not s_ascii.replace("-", "").isdigit():
-        # Genuine ASCII slug (has at least one alpha char).
+        if has_dropped_non_ascii:
+            return f"{s_ascii}-{h}"
         return s_ascii
     # Fallback: empty / pure-digit (likely truncated CJK) → stable hash.
-    h = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
     return f"cjk-{h}"
 
 

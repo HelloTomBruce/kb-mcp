@@ -514,7 +514,7 @@ wheels = [
 
 [[package]]
 name = "kb-mcp-lite"
-version = "0.5.1"
+version = "0.5.20"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
