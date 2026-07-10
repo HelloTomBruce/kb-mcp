@@ -535,6 +535,23 @@ class TestExportDir:
         assert out.is_dir()
         assert (out / "x.md").exists()
 
+    def test_deletes_soft_deleted_documents(self, tmp_path: Path, store: SqliteStore) -> None:
+        """A soft-deleted doc has its corresponding file deleted on disk."""
+        store.add(Document(id="proj/x", type="project", title="X", body="X body"))
+        out = tmp_path / "out"
+        n = export_dir(store, out)
+        assert n == 1
+        x_file = out / "x.md"
+        assert x_file.exists()
+
+        # Now soft-delete it
+        store.delete("proj/x")
+
+        # Export again (must delete x.md)
+        n = export_dir(store, out, force=True)
+        assert n == 0
+        assert not x_file.exists()
+
     def test_path_traversal_via_source_rejected(self, tmp_path: Path, store: SqliteStore) -> None:
         """NFR-S-3: a doc.source that escapes the export dir is rejected."""
         store.add(

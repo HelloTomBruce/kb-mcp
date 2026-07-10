@@ -427,7 +427,9 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
     base = dir.resolve()
     base.mkdir(parents=True, exist_ok=True)
 
-    docs = sorted(store.export_all(), key=lambda d: d.id)
+    all_docs = store.export_all(include_deleted=True)
+    docs = sorted([d for d in all_docs if d.deleted_at is None], key=lambda d: d.id)
+    deleted_docs = [d for d in all_docs if d.deleted_at is not None]
     # 增量导出过滤：只导出更新时间晚于对应文件修改时间的文档
     if incremental:
         filtered = []
@@ -456,6 +458,26 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
                 raise ValidationError(
                     f"doc {doc.id!r} source {doc.source!r} escapes destination {base!r}"
                 )
+
+    for doc in deleted_docs:
+        if doc.source:
+            if os.path.isabs(doc.source):
+                raise ValidationError(
+                    f"deleted doc {doc.id!r} has absolute source path {doc.source!r} (refusing to export)"
+                )
+            try:
+                (base / doc.source).resolve().relative_to(base)
+            except ValueError:
+                raise ValidationError(
+                    f"deleted doc {doc.id!r} source {doc.source!r} escapes destination {base!r}"
+                )
+
+    # Delete soft-deleted documents' files from the filesystem
+    for doc in deleted_docs:
+        if doc.source:
+            candidate = (base / doc.source).resolve()
+            if candidate.is_file():
+                candidate.unlink()
 
     used_slugs: set[str] = set()
     written = 0
