@@ -414,7 +414,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         mgr = VaultManager()
         name = mgr.get_current()
         try:
-            output = mgr.commit(name, message=message)
+            output = mgr.commit(message=message, name=name)
             return JSONResponse({"ok": True, "output": output})
         except Exception as e:
             return json_error(str(e), status_code=500)

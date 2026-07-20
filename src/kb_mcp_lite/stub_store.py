@@ -42,7 +42,7 @@ predictably in tests:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Iterable
+from typing import List, Iterable, Tuple, Dict, cast
 
 from kb_mcp_lite.schema import (
     Document,
@@ -189,9 +189,11 @@ class StubStore(_Store):
             old_to_remove = [a for a, d in self._aliases.items() if d == doc_id]
             for a in old_to_remove:
                 del self._aliases[a]
-            for alias in fields.get("aliases") or []:
-                if alias:
-                    self._aliases[alias] = doc_id
+            aliases_val = fields.get("aliases")
+            if isinstance(aliases_val, list):
+                for alias in aliases_val:
+                    if alias:
+                        self._aliases[str(alias)] = doc_id
         self._record_version(doc_id, "update", merged)
         return merged
 
@@ -296,7 +298,7 @@ class StubStore(_Store):
         if fuzzy:
             mode = "fuzzy"
         else:
-            mode = kwargs.get("mode", "lexical")
+            mode = str(kwargs.get("mode", "lexical"))
         lower_q = query.lower().strip()
         # fuzzy/hybrid: also match any token substring of length >= 3.
         # This is a rough approximation of the trigram FTS; good enough
@@ -444,18 +446,18 @@ class StubStore(_Store):
 
     # ---- embedding / similarity -----------------------------------------
 
-    def similar_docs(self, doc_id: str, limit: int = 10) -> list[tuple[Document, float]]:
+    def similar_docs(self, doc_id: str, limit: int = 10) -> List[Tuple[Document, float]]:
         return []
 
-    def suggest_tags(self, doc_id: str, limit: int = 10) -> list[tuple[str, float]]:
+    def suggest_tags(self, doc_id: str, limit: int = 10) -> List[Tuple[str, float]]:
         return []
 
-    def suggest_type(self, doc_id: str, limit: int = 10) -> list[tuple[str, float]]:
+    def suggest_type(self, doc_id: str, limit: int = 10) -> List[Tuple[str, float]]:
         return []
 
     def find_duplicates(
         self, threshold: float = 0.15, limit: int = 50
-    ) -> list[tuple[str, str, float]]:
+    ) -> List[Tuple[str, str, float]]:
         return []
 
     # ---- maintenance ----------------------------------------------------
@@ -534,7 +536,7 @@ class StubStore(_Store):
             },
         )
 
-    def get_versions(self, doc_id: str) -> list[dict[str, object]]:
+    def get_versions(self, doc_id: str) -> List[Dict[str, object]]:
         """Alias for document_history (returns list of version dicts)."""
         return self.document_history(doc_id)
 
@@ -569,11 +571,11 @@ class StubStore(_Store):
         """Recompute embeddings (no-op for StubStore)."""
         return 0
 
-    def document_history(self, doc_id: str, limit: int = 50) -> list[dict[str, object]]:
+    def document_history(self, doc_id: str, limit: int = 50) -> List[Dict[str, object]]:
         raw = self._version_history.get(doc_id, [])
         return raw[:limit]
 
-    def audit_log(self, limit: int = 100) -> list[dict[str, object]]:
+    def audit_log(self, limit: int = 100) -> List[Dict[str, object]]:
         return self._audit_log[:limit]
 
     def restore(self, doc_id: str, version_id: int | None = None) -> Document:
@@ -589,7 +591,7 @@ class StubStore(_Store):
         else:
             entry = history[0]
 
-        snapshot = dict(entry["snapshot"])  # type: ignore[arg-type]
+        snapshot = dict(cast(Dict[str, object], entry["snapshot"]))
         snapshot["id"] = doc_id
         restored_doc = Document.model_validate(snapshot)
 
@@ -613,8 +615,8 @@ class StubStore(_Store):
         if entry_b is None:
             raise NotFoundError(f"version {version_b} for {doc_id!r}")
 
-        snap_a = dict(entry_a["snapshot"])  # type: ignore[arg-type]
-        snap_b = dict(entry_b["snapshot"])
+        snap_a = dict(cast(Dict[str, object], entry_a["snapshot"]))
+        snap_b = dict(cast(Dict[str, object], entry_b["snapshot"]))
 
         keys_a = set(snap_a.keys())
         keys_b = set(snap_b.keys())

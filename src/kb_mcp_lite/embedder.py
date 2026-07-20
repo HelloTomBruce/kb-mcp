@@ -94,7 +94,7 @@ def _load_yaml(path: Path) -> dict:
         return {}
     try:
         # Lazy import so the kb-mcp core can still ship without PyYAML.
-        import yaml  # type: ignore[import-untyped]
+        import yaml
     except ImportError:
         logger.debug("PyYAML not installed; cannot parse %s", path)
         return {}

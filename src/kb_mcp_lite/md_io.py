@@ -641,8 +641,8 @@ def _same_export_content(on_disk: str, rendered: str) -> bool:
     except Exception:  # noqa: BLE001 — unparseable file counts as byte-diff
         return on_disk == rendered
     for key in _VOLATILE_FRONTMATTER_KEYS:
-        fm_disk.pop(key, None)
-        fm_rendered.pop(key, None)
+        fm_disk.pop(key, None)  # type: ignore[misc]
+        fm_rendered.pop(key, None)  # type: ignore[misc]
     return fm_disk == fm_rendered and body_disk == body_rendered
 
 

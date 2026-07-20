@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from kb_mcp_lite.schema import Document, NotFoundError, ValidationError
 
@@ -10,9 +11,17 @@ from kb_mcp_lite.schema import Document, NotFoundError, ValidationError
 class EmbeddingMixin:
     """Mixin providing embedding / vector-similarity methods.
 
-    Requires the host class to expose ``self._conn``, ``self._path``,
+    Requires the host class to expose ``self._conn``, ``self.path``,
     ``self._row_to_doc_dict()``, and ``self._vec_conn_lazy()``.
     """
+
+    if TYPE_CHECKING:
+        _conn: Any
+        _vec_conn: Any
+        _vec_row_is_tuple: bool
+        path: str
+
+        def _row_to_doc_dict(self, d: dict) -> Document: ...
 
     # ---- embedding / similarity helpers ---------------------------------
 
@@ -152,7 +161,7 @@ class EmbeddingMixin:
             logging.getLogger("kb_mcp_lite").warning("embedding failed for %s: %s", doc.id, e)
             return
         try:
-            from sqlite_vec import serialize_float32
+            from sqlite_vec import serialize_float32  # type: ignore[import-untyped]
         except ImportError:
             return
         self._vec_conn = None
@@ -185,7 +194,7 @@ class EmbeddingMixin:
         except Exception:  # noqa: BLE001
             pass
 
-    def _vec_conn_lazy(self):  # type: ignore[no-untyped-def]
+    def _vec_conn_lazy(self) -> Any:
         """Open the vec0 side connection on first need; cache it."""
         if self._vec_conn is not None:
             return self._vec_conn if self._vec_conn is not False else None

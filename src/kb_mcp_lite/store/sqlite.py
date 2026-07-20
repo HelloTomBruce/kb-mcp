@@ -8,6 +8,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple, TypeVar, Iterator
 
 from kb_mcp_lite.schema import (
@@ -34,7 +35,7 @@ def _sqlite_row_factory(cursor: sqlite3.Cursor, row: Tuple[Any, ...]) -> sqlite3
 def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
     """Open a sqlite3 connection that supports vec0 if possible."""
     try:
-        import pysqlite3 as _psql
+        import pysqlite3 as _psql  # type: ignore[import-untyped]
 
         conn = _psql.connect(db_path, isolation_level=None)
         conn.enable_load_extension(True)
@@ -43,7 +44,7 @@ def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
     except ImportError:
         pass
     try:
-        import sqlite_vec
+        import sqlite_vec  # type: ignore[import-untyped]
 
         conn = sqlite3.connect(db_path)
         sqlite_vec.load(conn)
@@ -75,8 +76,8 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     - EmbeddingMixin: Vector storage and semantic search support
     """
 
-    def __init__(self, db_path: str, embedder: Any | None = None) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: str | Path, embedder: Any | None = None) -> None:
+        self.db_path = str(db_path)
         self._conn = self._open_connection()
         self._vec_conn = None
         self._init_db()

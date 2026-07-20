@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import TYPE_CHECKING, Any, List
 
 from kb_mcp_lite.schema import DoctorCheck, DoctorReport
 
@@ -14,6 +15,12 @@ class MaintenanceMixin:
     Requires the host class to expose ``self._conn``, ``self._txn()``,
     and ``self._remove_embedding()``.
     """
+
+    if TYPE_CHECKING:
+        _conn: sqlite3.Connection
+
+        def _txn(self) -> Any: ...
+        def _remove_embedding(self, doc_id: str) -> None: ...
 
     def doctor(self) -> DoctorReport:
         checks: List[DoctorCheck] = []

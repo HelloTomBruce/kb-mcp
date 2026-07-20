@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from typing import TYPE_CHECKING, Any
 
 from kb_mcp_lite.schema import Document, NotFoundError, ValidationError
 
@@ -15,9 +16,17 @@ class VersioningMixin:
 
     Requires the host class to expose ``self._conn``, ``self._txn()``,
     ``self._now_iso()``, ``self.get()``, ``self.update()``,
-    ``self._record_doc_version()``, ``self._record_audit()``,
     and ``self._index_embedding()``.
     """
+
+    if TYPE_CHECKING:
+        _conn: sqlite3.Connection
+
+        def _now_iso(self) -> str: ...
+        def _txn(self) -> Any: ...
+        def get(self, doc_id: str, include_deleted: bool = False) -> Document: ...
+        def update(self, doc_id: str, **fields: object) -> Document: ...
+        def _index_embedding(self, doc: Document) -> None: ...
 
     def _record_doc_version(
         self,
@@ -167,7 +176,8 @@ class VersioningMixin:
             if not history:
                 raise NotFoundError(f"no versions found for {doc_id!r}")
             entry = history[0]
-        snapshot = dict(entry["snapshot"])
+        snapshot_raw: object = entry["snapshot"]
+        snapshot = dict(snapshot_raw)  # type: ignore[call-overload]
         snapshot["id"] = doc_id
         restored_doc = Document.model_validate(snapshot)
         fields: dict[str, object] = {}
@@ -188,8 +198,8 @@ class VersioningMixin:
         entry_b = self._fetch_version(doc_id, version_b)
         if entry_b is None:
             raise NotFoundError(f"version {version_b} for {doc_id!r}")
-        snap_a: dict[str, object] = entry_a["snapshot"]
-        snap_b: dict[str, object] = entry_b["snapshot"]
+        snap_a: dict[str, object] = dict(entry_a["snapshot"])  # type: ignore[call-overload]
+        snap_b: dict[str, object] = dict(entry_b["snapshot"])  # type: ignore[call-overload]
         keys_a = set(snap_a.keys())
         keys_b = set(snap_b.keys())
         added: dict[str, object] = {}

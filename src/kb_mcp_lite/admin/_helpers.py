@@ -82,7 +82,7 @@ def create_document(
         id=(doc_id or "").strip(),
         type=doc_type.strip(),
         title=title.strip(),
-        tags=tags,
+        tags=tags or [],
         source=source.strip() if isinstance(source, str) and source.strip() else None,
         body=body,
     )

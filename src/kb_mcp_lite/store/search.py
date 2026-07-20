@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import List
+from typing import TYPE_CHECKING, Any, List
 
 from kb_mcp_lite.schema import Document, SearchHit, ValidationError
 
@@ -13,8 +13,17 @@ class SearchMixin:
     """Mixin providing search methods.
 
     Requires the host class to expose ``self._conn``, ``self._parse_dt()``,
-    ``self._row_to_doc_dict()``, ``self._vec_conn_lazy()``, and ``self.get()``.
+    ``self._vec_conn_lazy()``, and ``self.get()``.
     """
+
+    if TYPE_CHECKING:
+        import sqlite3
+        _conn: sqlite3.Connection
+        _vec_row_is_tuple: bool
+
+        def _parse_dt(self, value: str | None) -> object: ...
+        def _vec_conn_lazy(self) -> Any: ...
+        def get(self, doc_id: str, include_deleted: bool = False) -> Document: ...
 
     def search(
         self,
@@ -160,7 +169,7 @@ class SearchMixin:
         if vec_conn is None:
             raise ValidationError("vec0 extension not available; semantic search disabled")
         try:
-            from sqlite_vec import serialize_float32
+            from sqlite_vec import serialize_float32  # type: ignore[import-untyped]
         except ImportError as e:
             raise ValidationError("sqlite-vec not installed; run: pip install 'kb-mcp[vec]'") from e
 
@@ -186,8 +195,8 @@ class SearchMixin:
 
         row_is_tuple = getattr(self, "_vec_row_is_tuple", False)
         if row_is_tuple:
-            doc_col_index = 0
-            distance_col_index = 9
+            doc_col_index: int | None = 0
+            distance_col_index: int | str | None = 9
         else:
             doc_col_index = None
             distance_col_index = "vec_distance"

@@ -57,6 +57,7 @@ dev = [
   "pytest-cov",
   "ruff",
   "mypy",
+  "types-PyYAML",
 ]
 
 [project.scripts]

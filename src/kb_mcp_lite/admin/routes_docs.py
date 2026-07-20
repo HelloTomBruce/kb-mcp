@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from kb_mcp_lite.admin._helpers import (
     create_document,
@@ -216,7 +216,7 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
         doc_id: str,
         to_id: str = Form(...),
         rel: str = Form(default="relates-to"),
-    ) -> HTMLResponse:
+    ) -> Response:
         with open_store(app) as store:
             try:
                 store.link(doc_id, to_id.strip(), rel=rel.strip() or "relates-to")
@@ -263,7 +263,7 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
         tags: str = Form(default=""),
         source: str = Form(default=""),
         body: str = Form(default=""),
-    ) -> HTMLResponse:
+    ) -> Response:
         with open_store(app) as store:
             try:
                 created = create_document(
@@ -311,7 +311,7 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
         source: str = Form(default=""),
         body: str = Form(default=""),
         action: str = Form(default="save"),
-    ) -> HTMLResponse:
+    ) -> Response:
         with open_store(app) as store:
             if action == "delete":
                 store.delete(doc_id)
