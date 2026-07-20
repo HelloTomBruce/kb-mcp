@@ -18,6 +18,7 @@ class SearchMixin:
 
     if TYPE_CHECKING:
         import sqlite3
+
         _conn: sqlite3.Connection
         _vec_row_is_tuple: bool
 
