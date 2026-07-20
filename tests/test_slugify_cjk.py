@@ -1,4 +1,5 @@
 """Tests for slugify() CJK fallback (kb-mcp-lite v0.2.2)."""
+
 from kb_mcp_lite.schema import slugify, make_id
 
 

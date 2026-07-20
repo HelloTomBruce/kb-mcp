@@ -10,6 +10,7 @@ because:
    a 1024-dim embedder writing to a 1536-dim ``docs_vec`` table would
    log warnings and skip, but reindex would still claim success.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,8 +42,7 @@ def test_reindex_returns_succeeded_count(tmp_path):
     store = _make_store_with_mock_embedder(tmp_path)
     # Add 3 active docs
     for i in range(3):
-        store.add(Document(id=f"d/{i}", type="reference", title=f"d{i}",
-                           body=f"body {i}"))
+        store.add(Document(id=f"d/{i}", type="reference", title=f"d{i}", body=f"body {i}"))
 
     n = store.reindex_embeddings()
     report = store.last_reindex_report
@@ -98,6 +98,7 @@ def test_reindex_raises_when_embedder_disabled(tmp_path):
     embedder config).
     """
     from kb_mcp_lite.embedder import NullEmbedder
+
     store = SqliteStore(tmp_path / "test.db")
     store._embedder = NullEmbedder()
     store.add(Document(id="d/1", type="reference", title="t", body="b"))

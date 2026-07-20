@@ -50,6 +50,7 @@ def test_http_embedder_calls_embeddings_endpoint(monkeypatch: pytest.MonkeyPatch
     """Verify URL path, body shape, and response parsing."""
     import httpx
     import json as _json
+
     captured: dict[str, Any] = {}
 
     def fake_post(url: str, *, headers: dict, content: str, timeout: float) -> httpx.Response:
@@ -79,6 +80,7 @@ def test_http_embedder_calls_embeddings_endpoint(monkeypatch: pytest.MonkeyPatch
 def test_http_embedder_handles_missing_v1_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
     """base_url without trailing /v1 should still hit /v1/embeddings."""
     import httpx
+
     captured: dict[str, Any] = {}
 
     def fake_post(url: str, **kwargs: Any) -> httpx.Response:
@@ -94,6 +96,7 @@ def test_http_embedder_handles_missing_v1_suffix(monkeypatch: pytest.MonkeyPatch
 
 def test_http_embedder_raises_on_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
+
     monkeypatch.setattr(httpx, "post", lambda *a, **kw: httpx.Response(500, text="oops"))
     cfg = EmbeddingConfig(base_url="https://api.example.com", model="x", api_key="k")
     emb = HttpEmbedder(cfg)
@@ -104,9 +107,8 @@ def test_http_embedder_raises_on_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_http_embedder_raises_on_malformed_response(monkeypatch: pytest.MonkeyPatch) -> None:
     import httpx
-    monkeypatch.setattr(
-        httpx, "post", lambda *a, **kw: httpx.Response(200, json={"data": []})
-    )
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **kw: httpx.Response(200, json={"data": []}))
     cfg = EmbeddingConfig(base_url="https://api.example.com", model="x", api_key="k")
     emb = HttpEmbedder(cfg)
     with pytest.raises(EmbeddingError):
@@ -116,10 +118,13 @@ def test_http_embedder_raises_on_malformed_response(monkeypatch: pytest.MonkeyPa
 def test_http_embedder_raises_on_dimension_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Once a dim is established, a different-length vector is an error."""
     import httpx
-    responses = iter([
-        httpx.Response(200, json={"data": [{"embedding": [0.0] * 4}]}),
-        httpx.Response(200, json={"data": [{"embedding": [0.0] * 8}]}),
-    ])
+
+    responses = iter(
+        [
+            httpx.Response(200, json={"data": [{"embedding": [0.0] * 4}]}),
+            httpx.Response(200, json={"data": [{"embedding": [0.0] * 8}]}),
+        ]
+    )
     monkeypatch.setattr(httpx, "post", lambda *a, **kw: next(responses))
     cfg = EmbeddingConfig(base_url="https://api.example.com", model="x", api_key="k")
     emb = HttpEmbedder(cfg)
@@ -172,18 +177,12 @@ def test_load_embedding_config_shared_overrides_hermes(
     monkeypatch.delenv("KB_MCP_EMBEDDING_CONFIG", raising=False)
     (tmp_path / ".hermes").mkdir()
     (tmp_path / ".hermes" / "config.yaml").write_text(
-        "auxiliary:\n"
-        "  embedding:\n"
-        "    base_url: https://api.A.com\n"
-        "    model: model-A\n",
+        "auxiliary:\n  embedding:\n    base_url: https://api.A.com\n    model: model-A\n",
         encoding="utf-8",
     )
     (tmp_path / ".hermes" / "shared").mkdir()
     (tmp_path / ".hermes" / "shared" / "kb_mcp_lite.yaml").write_text(
-        "auxiliary:\n"
-        "  embedding:\n"
-        "    base_url: https://api.B.com\n"
-        "    model: model-B\n",
+        "auxiliary:\n  embedding:\n    base_url: https://api.B.com\n    model: model-B\n",
         encoding="utf-8",
     )
     cfg = load_embedding_config()

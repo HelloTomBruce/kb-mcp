@@ -375,7 +375,7 @@ def _make_server(vault: str | None = None) -> Any:
             return {
                 "id": stored_id,
                 "status": "created",
-                "agent_instruction": f"Please immediately call 'kb_link' to associate this new document '{stored_id}' with the project it belongs to (e.g. 'proj/xxx') or other related documents."
+                "agent_instruction": f"Please immediately call 'kb_link' to associate this new document '{stored_id}' with the project it belongs to (e.g. 'proj/xxx') or other related documents.",
             }
         except Exception as e:
             code, msg = _mcp_error(e)
@@ -1103,9 +1103,7 @@ def _make_server(vault: str | None = None) -> Any:
             docs_dir = pkg_dir.parent.parent / "docs"  # project root / docs/
             doc_file = docs_dir / f"{doc}.md"
             if not doc_file.exists():
-                available = sorted(
-                    p.name.replace(".md", "") for p in docs_dir.glob("*.md")
-                )
+                available = sorted(p.name.replace(".md", "") for p in docs_dir.glob("*.md"))
                 return (
                     f"# Not Found\n\nHelp document `{doc}` not found."
                     f"\n\nAvailable documents: {', '.join(available)}"
@@ -1252,8 +1250,8 @@ def _make_server(vault: str | None = None) -> Any:
             "- **`rrf`**: Same as hybrid, with configurable RRF constant.\n"
             "- **`semantic`**: Vector similarity (requires an embedder).\n\n"
             "### Tips\n"
-            "- Use **`kb_search`** tool with `mode=\"hybrid\"` for best results.\n"
-            "- Filter by `type` (e.g. `\"decision\"`, `\"project\"`) to narrow down.\n"
+            '- Use **`kb_search`** tool with `mode="hybrid"` for best results.\n'
+            '- Filter by `type` (e.g. `"decision"`, `"project"`) to narrow down.\n'
             "- Filter by `tags` to focus on a specific domain.\n"
             "- For browsing, use **`kb_list`** tool or the `kb://list/` resource.\n"
             "- For reading a single document, use the `kb://doc/{type}/{slug}` resource.\n"
@@ -1261,7 +1259,7 @@ def _make_server(vault: str | None = None) -> Any:
             "- To understand available document types, read `kb://types`.\n\n"
             "### When to use what\n"
             "- **I know the exact id** → `kb://doc/...` resource or `kb_get` tool\n"
-            "- **I know keywords** → `kb_search` with `mode=\"hybrid\"`\n"
+            '- **I know keywords** → `kb_search` with `mode="hybrid"`\n'
             "- **I want to explore** → `kb_list` or `kb://list/` resource\n"
             "- **I want related docs** → `kb://graph/...` resource\n"
         )
@@ -1294,7 +1292,7 @@ def _make_server(vault: str | None = None) -> Any:
             "### Using kb_add\n"
             "For a single document, use the `kb_add` tool:\n"
             "```\n"
-            "kb_add(type=\"decision\", title=\"...\", body=\"...\", tags=[\"...\"])\n"
+            'kb_add(type="decision", title="...", body="...", tags=["..."])\n'
             "```\n\n"
             "### Idempotent Re-import\n"
             "If a file has a `source` field matching an existing document's source, "
@@ -1359,7 +1357,7 @@ def _make_server(vault: str | None = None) -> Any:
             "### Compact the database\n"
             "Run `VACUUM` via the SQLite CLI to reclaim space after a large prune or delete:\n"
             "```\n"
-            "sqlite3 ~/.local/share/kb-mcp/default/kb.db \"VACUUM;\"\n"
+            'sqlite3 ~/.local/share/kb-mcp/default/kb.db "VACUUM;"\n'
             "```\n\n"
             "### Export / backup\n"
             "Run `kb export <directory>` to dump all documents as Markdown files.\n"

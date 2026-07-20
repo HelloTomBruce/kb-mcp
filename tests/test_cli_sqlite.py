@@ -75,19 +75,37 @@ class TestInit:
 
 class TestAdd:
     def test_add_persists_to_db(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "project", "--title", "Integration Test",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "Integration Test",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         doc = store.get("proj/integration-test")
         assert doc.title == "Integration Test"
 
     def test_add_with_all_options(self, runner: CliRunner, store: SqliteStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "decision", "--title", "Use SQLite",
-            "--body", "SQLite is great for local-first apps",
-            "--tags", "database,sqlite,architecture",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "decision",
+                "--title",
+                "Use SQLite",
+                "--body",
+                "SQLite is great for local-first apps",
+                "--tags",
+                "database,sqlite,architecture",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         doc = store.get("dec/use-sqlite")
         assert doc.body == "SQLite is great for local-first apps"
@@ -113,10 +131,21 @@ class TestGet:
         assert "Get Test" in result.output
 
     def test_get_json_output(self, runner: CliRunner, store: SqliteStore) -> None:
-        _invoke(runner, store, [
-            "add", "--type", "lesson", "--title", "JSON Get",
-            "--body", "body content", "--tags", "test",
-        ])
+        _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "lesson",
+                "--title",
+                "JSON Get",
+                "--body",
+                "body content",
+                "--tags",
+                "test",
+            ],
+        )
         result = _invoke(runner, store, ["get", "lesson/json-get", "--json"])
         assert result.exit_code == EXIT_OK
         data = json.loads(result.output)
@@ -137,9 +166,16 @@ class TestGet:
 class TestUpdateDeleteRestore:
     def test_update_then_get(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Original"])
-        result = _invoke(runner, store, [
-            "update", "proj/original", "--title", "Updated Title",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "update",
+                "proj/original",
+                "--title",
+                "Updated Title",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         doc = store.get("proj/original")
         assert doc.title == "Updated Title"
@@ -170,14 +206,32 @@ class TestUpdateDeleteRestore:
 
 class TestSearch:
     def test_search_finds_matches(self, runner: CliRunner, store: SqliteStore) -> None:
-        _invoke(runner, store, [
-            "add", "--type", "lesson", "--title", "SQLite FTS",
-            "--body", "SQLite full-text search is fast",
-        ])
-        _invoke(runner, store, [
-            "add", "--type", "lesson", "--title", "Python",
-            "--body", "Python is great",
-        ])
+        _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "lesson",
+                "--title",
+                "SQLite FTS",
+                "--body",
+                "SQLite full-text search is fast",
+            ],
+        )
+        _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "lesson",
+                "--title",
+                "Python",
+                "--body",
+                "Python is great",
+            ],
+        )
         result = _invoke(runner, store, ["search", "sqlite"])
         # FTS may need time to index; accept either outcome
         assert result.exit_code in (0, 1)
@@ -219,9 +273,17 @@ class TestLink:
     def test_link_creates_edge(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Src"])
         _invoke(runner, store, ["add", "--type", "decision", "--title", "Dst"])
-        result = _invoke(runner, store, [
-            "link", "--from", "proj/src", "--to", "dec/dst",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "link",
+                "--from",
+                "proj/src",
+                "--to",
+                "dec/dst",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         links = store.outgoing_links("proj/src")
         assert len(links) == 1
@@ -240,7 +302,11 @@ class TestCrossInvocation:
         assert doc.title == "Cross"
 
     def test_add_then_search(self, runner: CliRunner, store: SqliteStore) -> None:
-        _invoke(runner, store, ["add", "--type", "project", "--title", "Searchable", "--body", "unique term"])
+        _invoke(
+            runner,
+            store,
+            ["add", "--type", "project", "--title", "Searchable", "--body", "unique term"],
+        )
         result = _invoke(runner, store, ["search", "unique"])
         # Search may fail if FTS index isn't fully built; accept either outcome
         assert result.exit_code in (0, 1)
@@ -262,20 +328,15 @@ class TestCrossInvocation:
 
 
 class TestImportExportRoundTrip:
-    def test_import_then_export(self, runner: CliRunner, store: SqliteStore, tmp_path: Path) -> None:
+    def test_import_then_export(
+        self, runner: CliRunner, store: SqliteStore, tmp_path: Path
+    ) -> None:
         # Create a markdown file to import
         src = tmp_path / "src"
         src.mkdir()
         md_file = src / "test.md"
         md_file.write_text(
-            "---\n"
-            "type: project\n"
-            "title: Imported Doc\n"
-            "tags:\n"
-            "  - test\n"
-            "---\n"
-            "\n"
-            "Body content\n"
+            "---\ntype: project\ntitle: Imported Doc\ntags:\n  - test\n---\n\nBody content\n"
         )
         result = _invoke(runner, store, ["import", str(src)])
         assert result.exit_code in (0, 1)

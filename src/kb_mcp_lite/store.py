@@ -222,9 +222,7 @@ class Store(Protocol):
 
     # ---- embedding / similarity -----------------------------------------
 
-    def similar_docs(
-        self, doc_id: str, limit: int = 10
-    ) -> list[tuple[Document, float]]:
+    def similar_docs(self, doc_id: str, limit: int = 10) -> list[tuple[Document, float]]:
         """Return documents most similar to ``doc_id`` by embedding
         cosine distance, sorted nearest-first.
 
@@ -234,9 +232,7 @@ class Store(Protocol):
         """
         ...
 
-    def suggest_tags(
-        self, doc_id: str, limit: int = 10
-    ) -> list[tuple[str, float]]:
+    def suggest_tags(self, doc_id: str, limit: int = 10) -> list[tuple[str, float]]:
         """Suggest tags for ``doc_id`` based on similar documents' tags.
 
         Returns ``[(tag, weight), ...]`` sorted by descending weight.
@@ -245,9 +241,7 @@ class Store(Protocol):
         """
         ...
 
-    def suggest_type(
-        self, doc_id: str, limit: int = 10
-    ) -> list[tuple[str, float]]:
+    def suggest_type(self, doc_id: str, limit: int = 10) -> list[tuple[str, float]]:
         """Suggest a document type for ``doc_id`` based on similar docs.
 
         Returns ``[(type, weight), ...]`` sorted by descending weight,
@@ -283,9 +277,7 @@ class Store(Protocol):
 
     # ---- history / audit ------------------------------------------------
 
-    def document_history(
-        self, doc_id: str, limit: int = 50
-    ) -> list[dict[str, object]]:
+    def document_history(self, doc_id: str, limit: int = 50) -> list[dict[str, object]]:
         """Return the version history of a document.
 
         Each entry contains: ``version_id``, ``doc_id``, ``action``
@@ -297,9 +289,7 @@ class Store(Protocol):
         """
         ...
 
-    def audit_log(
-        self, limit: int = 100
-    ) -> list[dict[str, object]]:
+    def audit_log(self, limit: int = 100) -> list[dict[str, object]]:
         """Return the global audit log, newest first.
 
         Each entry contains: ``audit_id``, ``entity_type``, ``entity_id``,
@@ -307,9 +297,7 @@ class Store(Protocol):
         """
         ...
 
-    def restore(
-        self, doc_id: str, version_id: int | None = None
-    ) -> Document:
+    def restore(self, doc_id: str, version_id: int | None = None) -> Document:
         """Restore a document to a previous version.
 
         If ``version_id`` is None, restores to the most recent version.

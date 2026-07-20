@@ -184,7 +184,9 @@ def _coerce_links(value: Any) -> list[dict[str, str]]:
             raise ValidationError(f"links[{i}]: missing or invalid 'to' (expected str, got {to!r})")
         rel = entry.get("rel", "relates-to")
         if not isinstance(rel, str) or not rel.strip():
-            raise ValidationError(f"links[{i}]: invalid 'rel' (expected non-empty str, got {rel!r})")
+            raise ValidationError(
+                f"links[{i}]: invalid 'rel' (expected non-empty str, got {rel!r})"
+            )
         result.append({"to": to, "rel": rel.strip()})
     return result
 
@@ -459,7 +461,6 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
             filtered.append(doc)
         docs = filtered
 
-
     # NFR-S-3: validate every doc's source up front. Bail before any
     # writes if any source escapes the destination.
     for doc in docs:
@@ -602,9 +603,7 @@ def pending_export(store: Store, dir: Path) -> PendingExport:
     base = dir.resolve()
     pending = PendingExport()
     all_docs = store.export_all(include_deleted=True)
-    live_claims = {
-        _export_candidate(base, d) for d in all_docs if d.deleted_at is None
-    }
+    live_claims = {_export_candidate(base, d) for d in all_docs if d.deleted_at is None}
     for doc in all_docs:
         if doc.deleted_at is not None:
             if doc.source:

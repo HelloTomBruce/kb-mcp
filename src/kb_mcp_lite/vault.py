@@ -49,6 +49,7 @@ class VaultAlreadyExistsError(VaultError):
 @dataclass
 class VaultInfo:
     """Serialisable metadata for a single vault."""
+
     name: str
     path: str  # relative to KB_MCP_HOME
     description: str = ""
@@ -89,6 +90,7 @@ def get_kb_home() -> Path:
         return Path(env)
     try:
         from kb_mcp_lite.config import get_data_dir
+
         return get_data_dir()
     except ImportError:
         return Path.home() / ".local" / "share" / "kb-mcp"
@@ -155,11 +157,13 @@ class VaultManager:
             target = default_dir / "kb.db"
             if not target.exists():
                 shutil.move(str(legacy_db), str(target))
-        data["vaults"].append({
-            "name": _DEFAULT_VAULT_NAME,
-            "path": _DEFAULT_VAULT_NAME,
-            "description": "Default vault",
-        })
+        data["vaults"].append(
+            {
+                "name": _DEFAULT_VAULT_NAME,
+                "path": _DEFAULT_VAULT_NAME,
+                "description": "Default vault",
+            }
+        )
         self._write_registry(data)
 
     # ---- vault CRUD -----------------------------------------------------
@@ -167,9 +171,7 @@ class VaultManager:
     def list_vaults(self) -> list[VaultInfo]:
         """Return metadata for every registered vault."""
         data = self._read_registry()
-        return [
-            VaultInfo(**v) for v in data.get("vaults", [])
-        ]
+        return [VaultInfo(**v) for v in data.get("vaults", [])]
 
     def get_current(self) -> str:
         """Return the current active vault name."""
@@ -376,7 +378,8 @@ class VaultManager:
         result = subprocess.run(
             ["git", "init"],
             cwd=git_cwd,
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise VaultError(f"git init failed: {_strip_ssh_warnings(result.stderr)}")
@@ -417,7 +420,8 @@ class VaultManager:
         result = subprocess.run(
             ["git", "add", "-A"],
             cwd=str(git_dir),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise VaultError(f"git add failed: {_strip_ssh_warnings(result.stderr)}")
@@ -425,7 +429,8 @@ class VaultManager:
         result = subprocess.run(
             ["git", "commit", "-m", message],
             cwd=str(git_dir),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
@@ -454,7 +459,8 @@ class VaultManager:
         result = subprocess.run(
             ["git", "push", remote, branch],
             cwd=str(git_dir),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             env=env,
         )
         if result.returncode != 0:
@@ -484,13 +490,15 @@ class VaultManager:
             raise VaultError("vault not initialised for git; run `kb vault init-git` first")
 
         import os
+
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
         result = subprocess.run(
             ["git", "pull", "--no-edit", remote, branch],
             cwd=str(git_dir),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             env=env,
         )
         if result.returncode != 0:
@@ -505,7 +513,9 @@ class VaultManager:
                 report = _import_dir(store, import_target)
             finally:
                 store.close()
-            import_summary = f"imported {report.inserted + report.updated} docs ({report.skipped} skipped)"
+            import_summary = (
+                f"imported {report.inserted + report.updated} docs ({report.skipped} skipped)"
+            )
         elif is_up_to_date:
             import_summary = "already up to date (no files imported)"
         else:
@@ -542,7 +552,8 @@ class VaultManager:
         result_branch = subprocess.run(
             ["git", "branch", "--show-current"],
             cwd=str(git_dir),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         branch = result_branch.stdout.strip() if result_branch.returncode == 0 else "unknown"
 
@@ -550,7 +561,8 @@ class VaultManager:
         result_status = subprocess.run(
             ["git", "status"],
             cwd=str(git_dir),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result_status.returncode != 0:
             raise VaultError(f"git status failed: {_strip_ssh_warnings(result_status.stderr)}")
@@ -578,9 +590,7 @@ class VaultManager:
         if pending.total == 0:
             return "Pending export: none — database and export directory are in sync."
 
-        lines = [
-            f"Pending export: {pending.total} document(s) differ from the export directory"
-        ]
+        lines = [f"Pending export: {pending.total} document(s) differ from the export directory"]
         for label, ids in (
             ("added", pending.added),
             ("modified", pending.modified),

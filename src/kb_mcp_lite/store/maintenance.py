@@ -81,7 +81,7 @@ class MaintenanceMixin:
         n_total = self._conn.execute("""
             SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL
         """).fetchone()[0]
-        
+
         if n_total > 1 and n_projects > 0:
             # 5. No duplicate project documents (same title)
             duplicate_projects = self._conn.execute("""
@@ -90,7 +90,11 @@ class MaintenanceMixin:
                 GROUP BY title HAVING cnt > 1
             """).fetchall()
             n_duplicate = len(duplicate_projects)
-            detail = f"{n_duplicate} duplicate projects: {', '.join(r['title'] for r in duplicate_projects)}" if n_duplicate else "no duplicates"
+            detail = (
+                f"{n_duplicate} duplicate projects: {', '.join(r['title'] for r in duplicate_projects)}"
+                if n_duplicate
+                else "no duplicates"
+            )
             checks.append(
                 DoctorCheck(
                     name="no_duplicate_projects",
@@ -104,7 +108,11 @@ class MaintenanceMixin:
                 SELECT COUNT(*) FROM documents
                 WHERE type = 'project' AND deleted_at IS NULL AND body = ''
             """).fetchone()[0]
-            detail = f"{empty_projects} project(s) with empty body" if empty_projects else "all projects have body content"
+            detail = (
+                f"{empty_projects} project(s) with empty body"
+                if empty_projects
+                else "all projects have body content"
+            )
             checks.append(
                 DoctorCheck(
                     name="project_metadata_complete",
@@ -124,7 +132,11 @@ class MaintenanceMixin:
                        OR l.to_id = d.id AND l.from_id LIKE 'proj/%'
                   )
             """).fetchone()[0]
-            detail = f"{n_orphan_docs} documents not linked to any project" if n_orphan_docs else "all documents are linked to a project"
+            detail = (
+                f"{n_orphan_docs} documents not linked to any project"
+                if n_orphan_docs
+                else "all documents are linked to a project"
+            )
             checks.append(
                 DoctorCheck(
                     name="no_orphan_documents",

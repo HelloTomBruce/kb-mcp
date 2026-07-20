@@ -50,40 +50,61 @@ def store(tmp_path: Path) -> SqliteStore:
     emb = _HashingEmbedder(dim=64)
     s = SqliteStore(db, embedder=emb)
     # ---- python / cli group ----
-    s.add(Document(
-        id="proj/python-cli", type="project", title="Python CLI for kb-mcp",
-        body="A command-line tool written in Python for the kb-mcp project.",
-        tags=["python", "cli"],
-    ))
-    s.add(Document(
-        id="proj/rust-server", type="project", title="Rust HTTP server",
-        body="A high-performance HTTP server built with Rust and Actix.",
-        tags=["rust", "server", "http"],
-    ))
-    s.add(Document(
-        id="faq/python-vs-rust", type="faq", title="Python vs Rust comparison",
-        body="Python is easier to learn. Rust is faster but has a steeper learning curve.",
-        tags=["python", "rust", "comparison"],
-    ))
+    s.add(
+        Document(
+            id="proj/python-cli",
+            type="project",
+            title="Python CLI for kb-mcp",
+            body="A command-line tool written in Python for the kb-mcp project.",
+            tags=["python", "cli"],
+        )
+    )
+    s.add(
+        Document(
+            id="proj/rust-server",
+            type="project",
+            title="Rust HTTP server",
+            body="A high-performance HTTP server built with Rust and Actix.",
+            tags=["rust", "server", "http"],
+        )
+    )
+    s.add(
+        Document(
+            id="faq/python-vs-rust",
+            type="faq",
+            title="Python vs Rust comparison",
+            body="Python is easier to learn. Rust is faster but has a steeper learning curve.",
+            tags=["python", "rust", "comparison"],
+        )
+    )
     # ---- cooking group ----
-    s.add(Document(
-        id="lesson/cooking-rice", type="lesson",
-        title="How to cook perfect rice",
-        body="Rinse, soak, steam. Use the right water ratio.",
-        tags=["cooking"],
-    ))
-    s.add(Document(
-        id="lesson/boiling-eggs", type="lesson",
-        title="How to boil eggs",
-        body="Boil water, add eggs, time it right for soft or hard boiled.",
-        tags=["cooking", "eggs"],
-    ))
-    s.add(Document(
-        id="faq/why-rice-sticks", type="faq",
-        title="Why does my rice stick to the pot",
-        body="Not rinsing enough starch leads to sticky rice.",
-        tags=["cooking", "rice"],
-    ))
+    s.add(
+        Document(
+            id="lesson/cooking-rice",
+            type="lesson",
+            title="How to cook perfect rice",
+            body="Rinse, soak, steam. Use the right water ratio.",
+            tags=["cooking"],
+        )
+    )
+    s.add(
+        Document(
+            id="lesson/boiling-eggs",
+            type="lesson",
+            title="How to boil eggs",
+            body="Boil water, add eggs, time it right for soft or hard boiled.",
+            tags=["cooking", "eggs"],
+        )
+    )
+    s.add(
+        Document(
+            id="faq/why-rice-sticks",
+            type="faq",
+            title="Why does my rice stick to the pot",
+            body="Not rinsing enough starch leads to sticky rice.",
+            tags=["cooking", "rice"],
+        )
+    )
     return s
 
 
@@ -125,6 +146,7 @@ class TestSimilarDocs:
     def test_similar_empty_when_no_embedder(self, tmp_path: Path) -> None:
         """Without an embedder, similar_docs returns empty list."""
         from kb_mcp_lite.embedder import NullEmbedder
+
         db = tmp_path / "noemb.db"
         s = SqliteStore(db, embedder=NullEmbedder())
         s.add(Document(id="proj/a", type="project", title="A", body="test"))
@@ -150,12 +172,15 @@ class TestSuggestTags:
 
     def test_suggest_tags_handles_untagged_docs(self, store: SqliteStore) -> None:
         """A doc with no tags that is similar to tagged docs still gets suggestions."""
-        store.add(Document(
-            id="lesson/new-recipe", type="lesson",
-            title="A new recipe for rice",
-            body="Cook rice with a new method that changes everything.",
-            tags=[],
-        ))
+        store.add(
+            Document(
+                id="lesson/new-recipe",
+                type="lesson",
+                title="A new recipe for rice",
+                body="Cook rice with a new method that changes everything.",
+                tags=[],
+            )
+        )
         results = store.suggest_tags("lesson/new-recipe", limit=5)
         # Should return tags from similar docs
         assert len(results) > 0
@@ -166,12 +191,15 @@ class TestSuggestType:
 
     def test_suggest_type_finds_majority_type(self, store: SqliteStore) -> None:
         """A new doc similar to lessons should suggest 'lesson'."""
-        store.add(Document(
-            id="lesson/frying-eggs", type="lesson",
-            title="How to fry eggs",
-            body="Heat oil, crack egg, fry until done to your liking.",
-            tags=["cooking"],
-        ))
+        store.add(
+            Document(
+                id="lesson/frying-eggs",
+                type="lesson",
+                title="How to fry eggs",
+                body="Heat oil, crack egg, fry until done to your liking.",
+                tags=["cooking"],
+            )
+        )
         results = store.suggest_type("lesson/frying-eggs", limit=5)
         assert results
         top_type = results[0][0]
@@ -179,12 +207,15 @@ class TestSuggestType:
 
     def test_suggest_type_sorted_by_weight(self, store: SqliteStore) -> None:
         """Results are ordered by descending weight."""
-        store.add(Document(
-            id="lesson/frying-eggs", type="lesson",
-            title="How to fry eggs",
-            body="Heat oil, crack egg, fry until done to your liking.",
-            tags=["cooking"],
-        ))
+        store.add(
+            Document(
+                id="lesson/frying-eggs",
+                type="lesson",
+                title="How to fry eggs",
+                body="Heat oil, crack egg, fry until done to your liking.",
+                tags=["cooking"],
+            )
+        )
         results = store.suggest_type("lesson/frying-eggs", limit=5)
         weights = [w for _, w in results]
         assert weights == sorted(weights, reverse=True)
@@ -192,6 +223,7 @@ class TestSuggestType:
     def test_suggest_type_empty_for_orphan(self, tmp_path: Path) -> None:
         """A doc whose similar docs are all a different type gets suggestions."""
         from kb_mcp_lite.embedder import NullEmbedder
+
         db = tmp_path / "noemb.db"
         s = SqliteStore(db, embedder=NullEmbedder())
         s.add(Document(id="proj/a", type="project", title="A", body="test"))
@@ -223,6 +255,7 @@ class TestFindDuplicates:
     def test_dedup_no_duplicates_returns_empty(self, tmp_path: Path) -> None:
         """Without an embedder, dedup returns empty list."""
         from kb_mcp_lite.embedder import NullEmbedder
+
         db = tmp_path / "noemb.db"
         s = SqliteStore(db, embedder=NullEmbedder())
         s.add(Document(id="proj/a", type="project", title="A", body="test"))

@@ -125,9 +125,7 @@ def test_semantic_mode_ranks_relevant_first(store: SqliteStore) -> None:
     """
     hits = store.search("Python CLI", mode="semantic", limit=10)
     top_ids = [h.doc.id for h in hits[:3]]
-    assert "proj/python-cli" in top_ids, (
-        f"expected python-cli in top 3, got {top_ids}"
-    )
+    assert "proj/python-cli" in top_ids, f"expected python-cli in top 3, got {top_ids}"
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +161,7 @@ def test_hybrid_preserves_exact_first(store: SqliteStore) -> None:
 def test_semantic_without_embedder_raises(tmp_path: Path) -> None:
     """No embedder + no config => NullEmbedder => ValidationError."""
     from kb_mcp_lite.embedder import NullEmbedder
+
     db = tmp_path / "no_emb.db"
     s = SqliteStore(db, embedder=NullEmbedder())
     s.add(Document(id="a", type="x", title="A", body=""))

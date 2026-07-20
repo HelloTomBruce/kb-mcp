@@ -1,4 +1,5 @@
 """Command-line interface."""
+
 import os
 import sys
 import json
@@ -62,9 +63,7 @@ def _get_store(ctx: click.Context) -> Any:
 
 
 def _json_option(func: F) -> F:
-    return click.option(
-        "--json", "as_json", is_flag=True, help="Output results as JSON."
-    )(func)
+    return click.option("--json", "as_json", is_flag=True, help="Output results as JSON.")(func)
 
 
 # ---- main cli -----------------------------------------------------------------
@@ -82,6 +81,7 @@ def cli(ctx: click.Context, vault: str | None) -> None:
     # Use injected store from test if present; otherwise create a new one
     if "store" not in ctx.obj:
         from kb_mcp_lite.store import SqliteStore
+
         db_path = vault_manager.resolve_path(selected_vault)
         ctx.obj["store"] = SqliteStore(db_path)
     # Use injected config/vault_manager if present; otherwise set them up
@@ -271,16 +271,20 @@ def search(
     """Search the knowledge base."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    results = store.search(query, type=doc_type, tags=tag_list, mode="fuzzy" if fuzzy else "lexical", limit=limit)
+    results = store.search(
+        query, type=doc_type, tags=tag_list, mode="fuzzy" if fuzzy else "lexical", limit=limit
+    )
     if as_json:
-        _emit_json([
-            {
-                "doc": hit.doc.model_dump(mode="json"),
-                "snippet": hit.snippet,
-                "score": hit.score,
-            }
-            for hit in results
-        ])
+        _emit_json(
+            [
+                {
+                    "doc": hit.doc.model_dump(mode="json"),
+                    "snippet": hit.snippet,
+                    "score": hit.score,
+                }
+                for hit in results
+            ]
+        )
     else:
         if not results:
             click.echo("(no results)")
@@ -296,7 +300,8 @@ def search(
 
 @cli.command("list")
 @click.option(
-    "--type", "doc_type",
+    "--type",
+    "doc_type",
     help="Filter by document type (e.g. decision, lesson).",
 )
 @click.option(
@@ -353,13 +358,13 @@ def list_cmd(
     """List documents, sorted by ``updated_at`` DESC."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
-    
+
     # Handle --project shortcut
     if project:
         if not project.startswith("proj/"):
             project = f"proj/{project}"
         link_to = project
-    
+
     docs = store.list(
         type=doc_type,
         tags=tag_list,
@@ -450,10 +455,18 @@ def links(ctx: click.Context, doc_id: str, as_json: bool) -> None:
     outgoing = store.outgoing_links(doc_id)
     incoming = store.incoming_links(doc_id)
     if as_json:
-        _emit_json({
-            "outgoing": [{"to": link.to_id, "rel": link.rel, "created_at": link.created_at} for link in outgoing],
-            "incoming": [{"from": link.from_id, "rel": link.rel, "created_at": link.created_at} for link in incoming],
-        })
+        _emit_json(
+            {
+                "outgoing": [
+                    {"to": link.to_id, "rel": link.rel, "created_at": link.created_at}
+                    for link in outgoing
+                ],
+                "incoming": [
+                    {"from": link.from_id, "rel": link.rel, "created_at": link.created_at}
+                    for link in incoming
+                ],
+            }
+        )
     else:
         click.echo(f"Links for {doc_id}:")
         click.echo("")
@@ -534,7 +547,9 @@ def diff(ctx: click.Context, doc_id: str, v1: int, v2: int, as_json: bool) -> No
 
 @cli.command()
 @click.argument("directory", type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option("--dry-run", is_flag=True, help="Only show what would be imported, don't write anything.")
+@click.option(
+    "--dry-run", is_flag=True, help="Only show what would be imported, don't write anything."
+)
 @_json_option
 @click.pass_context
 @_handle_errors
@@ -545,7 +560,9 @@ def import_cmd(ctx: click.Context, directory: str, dry_run: bool, as_json: bool)
     if as_json:
         _emit_json(report.model_dump(mode="json"))
     else:
-        click.echo(f"Imported {report.inserted + report.updated} files: {report.inserted} inserted, {report.updated} updated")
+        click.echo(
+            f"Imported {report.inserted + report.updated} files: {report.inserted} inserted, {report.updated} updated"
+        )
         if report.skipped > 0:
             click.echo(f"Skipped {report.skipped} files")
         if report.errors:
@@ -600,18 +617,22 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
         if not enabled:
             click.echo("no embedder configured; set embedding in config file", err=True)
             sys.exit(1)
-        n = store.reindex_embeddings(progress_callback=lambda i, t: click.echo(f"  [{i}/{t}] embedding...", err=True))
+        n = store.reindex_embeddings(
+            progress_callback=lambda i, t: click.echo(f"  [{i}/{t}] embedding...", err=True)
+        )
         report = getattr(store, "last_reindex_report", {}) or {}
         dim = report.get("dim") or dim
         failed = report.get("failed", 0)
         if as_json:
-            _emit_json({
-                "ok": True,
-                "reindexed": n,
-                "failed": failed,
-                "dim": dim,
-                "total": report.get("total", n + failed),
-            })
+            _emit_json(
+                {
+                    "ok": True,
+                    "reindexed": n,
+                    "failed": failed,
+                    "dim": dim,
+                    "total": report.get("total", n + failed),
+                }
+            )
         else:
             msg = f"re-embedded {n} document(s) (dim={dim})"
             if failed:
@@ -622,9 +643,7 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
     # Status mode
     try:
         if enabled and hasattr(store, "_conn"):
-            row = store._conn.execute(
-                "SELECT COUNT(*) FROM docs_vec"
-            ).fetchone()
+            row = store._conn.execute("SELECT COUNT(*) FROM docs_vec").fetchone()
             n_vec = row[0] if row else 0
         else:
             n_vec = 0
@@ -638,10 +657,7 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
     if as_json:
         _emit_json(status)
     else:
-        click.echo(
-            f"embedder={'enabled' if enabled else 'disabled'} "
-            f"dim={dim} indexed={n_vec}"
-        )
+        click.echo(f"embedder={'enabled' if enabled else 'disabled'} dim={dim} indexed={n_vec}")
 
 
 @cli.command()
@@ -699,13 +715,20 @@ def reindex(ctx: click.Context) -> None:
 
 
 @cli.command()
-@click.option("--older-than", default=30, type=int, show_default=True, help="Prune documents deleted more than N days ago.")
+@click.option(
+    "--older-than",
+    default=30,
+    type=int,
+    show_default=True,
+    help="Prune documents deleted more than N days ago.",
+)
 @_json_option
 @click.pass_context
 @_handle_errors
 def prune(ctx: click.Context, older_than: int, as_json: bool) -> None:
     """Permanently delete soft-deleted documents older than the specified age."""
     from datetime import timedelta
+
     store = _get_store(ctx)
     deleted = store.prune(timedelta(days=older_than))
     if as_json:
@@ -725,6 +748,7 @@ def prune(ctx: click.Context, older_than: int, as_json: bool) -> None:
 def serve(ctx: click.Context, log_level: str, vault: str | None) -> None:
     """Start the MCP server on stdio."""
     from kb_mcp_lite.mcp_server import run as run_mcp_server
+
     if log_level:
         os.environ["KB_MCP_LOG_LEVEL"] = log_level
     if vault:
@@ -750,7 +774,17 @@ def vault_list(ctx: click.Context, as_json: bool) -> None:
     vm = ctx.obj["vault_manager"]
     vaults = vm.list_vaults()
     if as_json:
-        _emit_json([{"name": v.name, "path": v.path, "description": v.description, "sync_dir": v.sync_dir} for v in vaults])
+        _emit_json(
+            [
+                {
+                    "name": v.name,
+                    "path": v.path,
+                    "description": v.description,
+                    "sync_dir": v.sync_dir,
+                }
+                for v in vaults
+            ]
+        )
     else:
         default_vault = ctx.obj["vault_manager"].get_current()
         click.echo(f"Default vault: {default_vault}")
@@ -789,7 +823,12 @@ def vault_switch(ctx: click.Context, name: str) -> None:
 
 
 @vault_group.command(name="init-git")
-@click.option("--sync-dir", type=click.Path(exists=True, file_okay=False, dir_okay=True), required=True, help="Path to the Git repository to sync with.")
+@click.option(
+    "--sync-dir",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    required=True,
+    help="Path to the Git repository to sync with.",
+)
 @click.pass_context
 @_handle_errors
 def vault_init_git(ctx: click.Context, sync_dir: str) -> None:
@@ -802,8 +841,13 @@ def vault_init_git(ctx: click.Context, sync_dir: str) -> None:
 
 @vault_group.command(name="commit")
 @click.option("--message", "-m", required=True, help="Commit message.")
-@click.option("--full", "-f", is_flag=True, default=False, help="Force full export of all documents instead of incremental.")
-
+@click.option(
+    "--full",
+    "-f",
+    is_flag=True,
+    default=False,
+    help="Force full export of all documents instead of incremental.",
+)
 @click.pass_context
 @_handle_errors
 def vault_commit(ctx: click.Context, message: str, full: bool) -> None:
@@ -870,6 +914,7 @@ def admin_group() -> None:
 def admin_start(ctx: click.Context, port: int) -> None:
     """Start the web administration interface."""
     from kb_mcp_lite.admin import run_admin
+
     store = _get_store(ctx)
     run_admin(store=store, port=port)
 

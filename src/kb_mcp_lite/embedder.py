@@ -68,12 +68,17 @@ class EmbeddingConfig:
     def endpoint(self) -> str:
         """The full URL to POST to. Strips any trailing slash from base_url."""
         import re
+
         base = self.base_url.rstrip("/")
         # If the user has already specified /embeddings in the base_url, use it directly!
         if base.endswith("/embeddings"):
             return base
         # If the base URL ends with a version suffix (like /v1, /v3) or ends with /api, we just append /embeddings.
-        if re.search(r"/v\d+(\.\d+)?$", base, re.IGNORECASE) or base.endswith("/api") or base.endswith("/v1"):
+        if (
+            re.search(r"/v\d+(\.\d+)?$", base, re.IGNORECASE)
+            or base.endswith("/api")
+            or base.endswith("/v1")
+        ):
             return f"{base}/embeddings"
         return f"{base}/v1/embeddings"
 
@@ -129,9 +134,11 @@ def _expand_env(value: str) -> str:
     variables are left as-is so misconfigurations are visible.
     """
     import re
+
     def _sub(m: "re.Match[str]") -> str:
         name = m.group(1) or m.group(2)
         return os.environ.get(name, m.group(0))
+
     return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)", _sub, value)
 
 
@@ -294,16 +301,16 @@ class HttpEmbedder:
         url = self._config.endpoint
         try:
             resp = httpx.post(
-                url, headers=headers, content=json.dumps(body),
+                url,
+                headers=headers,
+                content=json.dumps(body),
                 timeout=self._config.timeout,
             )
         except httpx.HTTPError as e:
             raise EmbeddingError(f"HTTP error calling {url}: {e}") from e
 
         if resp.status_code != 200:
-            raise EmbeddingError(
-                f"embeddings API returned {resp.status_code}: {resp.text[:200]}"
-            )
+            raise EmbeddingError(f"embeddings API returned {resp.status_code}: {resp.text[:200]}")
 
         try:
             data = resp.json()
@@ -317,9 +324,7 @@ class HttpEmbedder:
         if self._dim == 0:
             self._dim = len(vector)
         elif len(vector) != self._dim:
-            raise EmbeddingError(
-                f"dimension mismatch: expected {self._dim}, got {len(vector)}"
-            )
+            raise EmbeddingError(f"dimension mismatch: expected {self._dim}, got {len(vector)}")
         return [float(x) for x in vector]
 
 

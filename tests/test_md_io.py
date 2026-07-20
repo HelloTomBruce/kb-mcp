@@ -625,7 +625,9 @@ class TestExportDir:
         assert export_dir(store, out, force=True, incremental=True) == 2
         assert export_dir(store, out, force=True, incremental=True) == 0
 
-    def test_incremental_exports_only_changed_docs(self, tmp_path: Path, store: SqliteStore) -> None:
+    def test_incremental_exports_only_changed_docs(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
         """After editing one doc, incremental export rewrites only that file."""
         store.add(Document(id="proj/a", type="project", title="Alpha", body="A body"))
         store.add(Document(id="proj/b", type="project", title="Beta", body="B body"))
@@ -731,9 +733,7 @@ class TestPendingExport:
         assert pending.modified == ["proj/a"]
         assert pending.deleted == ["proj/c"]
 
-    def test_clean_again_after_incremental_export(
-        self, tmp_path: Path, store: SqliteStore
-    ) -> None:
+    def test_clean_again_after_incremental_export(self, tmp_path: Path, store: SqliteStore) -> None:
         """An incremental export clears exactly the pending entries."""
         store.add(Document(id="proj/a", type="project", title="A", body="a v1"))
         out = tmp_path / "out"

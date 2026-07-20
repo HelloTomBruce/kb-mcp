@@ -189,7 +189,7 @@ class StubStore(_Store):
             old_to_remove = [a for a, d in self._aliases.items() if d == doc_id]
             for a in old_to_remove:
                 del self._aliases[a]
-            for alias in (fields.get("aliases") or []):
+            for alias in fields.get("aliases") or []:
                 if alias:
                     self._aliases[alias] = doc_id
         self._record_version(doc_id, "update", merged)
@@ -259,11 +259,19 @@ class StubStore(_Store):
             if tags and not all(t in doc.tags for t in tags):
                 continue
             if link_to is not None:
-                links_from = [lk for lk in self._links.values() if lk.from_id == doc.id and lk.to_id == link_to]
+                links_from = [
+                    lk
+                    for lk in self._links.values()
+                    if lk.from_id == doc.id and lk.to_id == link_to
+                ]
                 if not links_from:
                     continue
             if link_from is not None:
-                links_to = [lk for lk in self._links.values() if lk.to_id == doc.id and lk.from_id == link_from]
+                links_to = [
+                    lk
+                    for lk in self._links.values()
+                    if lk.to_id == doc.id and lk.from_id == link_from
+                ]
                 if not links_to:
                     continue
             results.append(doc)
@@ -493,7 +501,10 @@ class StubStore(_Store):
     # ---- history / audit / restore -------------------------------------
 
     def _record_version(
-        self, doc_id: str, action: str, doc: Document,
+        self,
+        doc_id: str,
+        action: str,
+        doc: Document,
     ) -> None:
         """Record a version snapshot for a document."""
         self._version_counter += 1
@@ -509,16 +520,19 @@ class StubStore(_Store):
         if doc_id not in self._version_history:
             self._version_history[doc_id] = []
         self._version_history[doc_id].insert(0, entry)
-        self._audit_log.insert(0, {
-            "audit_id": self._version_counter,
-            "entity_type": "document",
-            "entity_id": doc_id,
-            "action": action,
-            "detail": {},
-            "created_at": _now().isoformat(),
-            "actor": "admin",
-            "note": "",
-        })
+        self._audit_log.insert(
+            0,
+            {
+                "audit_id": self._version_counter,
+                "entity_type": "document",
+                "entity_id": doc_id,
+                "action": action,
+                "detail": {},
+                "created_at": _now().isoformat(),
+                "actor": "admin",
+                "note": "",
+            },
+        )
 
     def get_versions(self, doc_id: str) -> list[dict[str, object]]:
         """Alias for document_history (returns list of version dicts)."""
@@ -537,6 +551,7 @@ class StubStore(_Store):
         active = [d for d in self._docs.values() if d.deleted_at is None]
         deleted = [d for d in self._docs.values() if d.deleted_at is not None]
         from collections import Counter
+
         type_counts = Counter(d.type for d in active)
         return {
             "total_docs": len(active),
@@ -554,18 +569,14 @@ class StubStore(_Store):
         """Recompute embeddings (no-op for StubStore)."""
         return 0
 
-    def document_history(
-        self, doc_id: str, limit: int = 50
-    ) -> list[dict[str, object]]:
+    def document_history(self, doc_id: str, limit: int = 50) -> list[dict[str, object]]:
         raw = self._version_history.get(doc_id, [])
         return raw[:limit]
 
     def audit_log(self, limit: int = 100) -> list[dict[str, object]]:
         return self._audit_log[:limit]
 
-    def restore(
-        self, doc_id: str, version_id: int | None = None
-    ) -> Document:
+    def restore(self, doc_id: str, version_id: int | None = None) -> Document:
         history = self._version_history.get(doc_id, [])
         if not history:
             raise NotFoundError(f"no versions found for {doc_id!r}")

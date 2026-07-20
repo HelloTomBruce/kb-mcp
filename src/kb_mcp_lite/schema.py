@@ -214,7 +214,9 @@ class Document(BaseModel):
     title: str = Field(..., min_length=1, max_length=512)
     body: str = Field(default="", max_length=1_000_000)  # 1 MB cap
     tags: list[str] = Field(default_factory=list, max_length=64)
-    aliases: list[str] = Field(default_factory=list, description="Alternative IDs for this document")
+    aliases: list[str] = Field(
+        default_factory=list, description="Alternative IDs for this document"
+    )
     source: str | None = Field(default=None, description="Origin file path if imported")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -224,9 +226,7 @@ class Document(BaseModel):
     @classmethod
     def _check_source(cls, v: str | None) -> str | None:
         if v and os.path.isabs(v):
-            raise ValueError(
-                f"source must be a relative path, got absolute path {v!r}"
-            )
+            raise ValueError(f"source must be a relative path, got absolute path {v!r}")
         return v
 
     @field_validator("id")

@@ -92,61 +92,130 @@ class TestInit:
 
 class TestAdd:
     def test_add_happy_path(self, runner: CliRunner, store: StubStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "project", "--title", "Hello World",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "Hello World",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         assert "proj/hello-world" in result.output
 
     def test_add_with_body(self, runner: CliRunner, store: StubStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "lesson", "--title", "Body Test",
-            "--body", "some body content",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "lesson",
+                "--title",
+                "Body Test",
+                "--body",
+                "some body content",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         doc = store.get("lesson/body-test")
         assert doc.body == "some body content"
 
     def test_add_with_tags(self, runner: CliRunner, store: StubStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "faq", "--title", "Tag Test",
-            "--tags", "python,mcp",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "faq",
+                "--title",
+                "Tag Test",
+                "--tags",
+                "python,mcp",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         doc = store.get("faq/tag-test")
         assert doc.tags == ["python", "mcp"]
 
     def test_add_json(self, runner: CliRunner, store: StubStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "decision", "--title", "JSON Test",
-            "--json",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "decision",
+                "--title",
+                "JSON Test",
+                "--json",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         data = _json_of(result)
         assert data["id"] == "dec/json-test"
 
     def test_add_duplicate_raises(self, runner: CliRunner, store: StubStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Dup"])
-        result = _invoke(runner, store, [
-            "add", "--type", "project", "--title", "Dup",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "Dup",
+            ],
+        )
         assert result.exit_code == 1
         assert "already exists" in result.output
 
     def test_add_duplicate_json(self, runner: CliRunner, store: StubStore) -> None:
-        _invoke(runner, store, [
-            "add", "--type", "project", "--title", "DupJson", "--json",
-        ])
-        result = _invoke(runner, store, [
-            "add", "--type", "project", "--title", "DupJson", "--json",
-        ])
+        _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "DupJson",
+                "--json",
+            ],
+        )
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "DupJson",
+                "--json",
+            ],
+        )
         # Duplicate error — CLI exits with code 1 and prints error message
         assert result.exit_code == 1
 
     def test_add_body_from_stdin(self, runner: CliRunner, store: StubStore) -> None:
-        result = _invoke(runner, store, [
-            "add", "--type", "project", "--title", "Stdin Test",
-        ], input_text="stdin body\n")
+        result = _invoke(
+            runner,
+            store,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "Stdin Test",
+            ],
+            input_text="stdin body\n",
+        )
         assert result.exit_code == EXIT_OK
         doc = store.get("proj/stdin-test")
         # Current CLI doesn't read stdin for --body; body stays empty
@@ -167,7 +236,9 @@ class TestAdd:
 
 
 class TestGet:
-    def test_get_happy_path(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+    def test_get_happy_path(
+        self, runner: CliRunner, store: StubStore, sample_doc: Document
+    ) -> None:
         result = _invoke(runner, store, ["get", sample_doc.id])
         assert result.exit_code == EXIT_OK
         assert sample_doc.title in result.output
@@ -195,19 +266,36 @@ class TestGet:
 
 
 class TestUpdate:
-    def test_update_happy_path(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
-        result = _invoke(runner, store, [
-            "update", sample_doc.id, "--title", "Updated",
-        ])
+    def test_update_happy_path(
+        self, runner: CliRunner, store: StubStore, sample_doc: Document
+    ) -> None:
+        result = _invoke(
+            runner,
+            store,
+            [
+                "update",
+                sample_doc.id,
+                "--title",
+                "Updated",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         assert "Updated" in result.output or "updated" in result.output.lower()
         updated = store.get(sample_doc.id)
         assert updated.title == "Updated"
 
     def test_update_json(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
-        result = _invoke(runner, store, [
-            "update", sample_doc.id, "--body", "new body", "--json",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "update",
+                sample_doc.id,
+                "--body",
+                "new body",
+                "--json",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         data = _json_of(result)
         assert data["body"] == "new body"
@@ -219,7 +307,9 @@ class TestUpdate:
 
 
 class TestDelete:
-    def test_delete_happy_path(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+    def test_delete_happy_path(
+        self, runner: CliRunner, store: StubStore, sample_doc: Document
+    ) -> None:
         result = _invoke(runner, store, ["delete", sample_doc.id])
         assert result.exit_code == EXIT_OK
         assert "Deleted" in result.output or "deleted" in result.output.lower()
@@ -238,13 +328,17 @@ class TestDelete:
 
 
 class TestRestore:
-    def test_restore_deleted(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+    def test_restore_deleted(
+        self, runner: CliRunner, store: StubStore, sample_doc: Document
+    ) -> None:
         store.delete(sample_doc.id)
         result = _invoke(runner, store, ["restore", sample_doc.id])
         assert result.exit_code == EXIT_OK
         assert store.get(sample_doc.id).id == sample_doc.id
 
-    def test_restore_not_deleted(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
+    def test_restore_not_deleted(
+        self, runner: CliRunner, store: StubStore, sample_doc: Document
+    ) -> None:
         result = _invoke(runner, store, ["restore", sample_doc.id])
         assert result.exit_code == 1
 
@@ -302,7 +396,11 @@ class TestSearch:
             store.add(Document(id=f"d/{i}", type="project", title=f"D{i}", body=f"hello {i}"))
         result = _invoke(runner, store, ["search", "hello", "--limit", "2"])
         assert result.exit_code == EXIT_OK
-        lines = [line for line in result.output.split("\n") if line.strip() and not line.startswith("   ")]
+        lines = [
+            line
+            for line in result.output.split("\n")
+            if line.strip() and not line.startswith("   ")
+        ]
         # Limit controls output lines
         assert len(lines) <= 3  # 2 results + blank
 
@@ -380,18 +478,35 @@ class TestLink:
     def test_link_happy_path(self, runner: CliRunner, store: StubStore) -> None:
         store.add(Document(id="proj/a", type="project", title="A"))
         store.add(Document(id="dec/b", type="decision", title="B"))
-        result = _invoke(runner, store, [
-            "link", "--from", "proj/a", "--to", "dec/b",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "link",
+                "--from",
+                "proj/a",
+                "--to",
+                "dec/b",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         assert "Linked" in result.output
 
     def test_link_json(self, runner: CliRunner, store: StubStore) -> None:
         store.add(Document(id="proj/a", type="project", title="A"))
         store.add(Document(id="dec/b", type="decision", title="B"))
-        result = _invoke(runner, store, [
-            "link", "--from", "proj/a", "--to", "dec/b", "--json",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "link",
+                "--from",
+                "proj/a",
+                "--to",
+                "dec/b",
+                "--json",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         data = _json_of(result)
         assert data["from"] == "proj/a"
@@ -399,9 +514,17 @@ class TestLink:
 
     def test_link_not_found(self, runner: CliRunner, store: StubStore) -> None:
         store.add(Document(id="proj/a", type="project", title="A"))
-        result = _invoke(runner, store, [
-            "link", "--from", "proj/a", "--to", "ghost",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "link",
+                "--from",
+                "proj/a",
+                "--to",
+                "ghost",
+            ],
+        )
         assert result.exit_code == 1
 
 
@@ -410,9 +533,17 @@ class TestUnlink:
         store.add(Document(id="a", type="project", title="A"))
         store.add(Document(id="b", type="project", title="B"))
         store.link("a", "b")
-        result = _invoke(runner, store, [
-            "unlink", "--from", "a", "--to", "b",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "unlink",
+                "--from",
+                "a",
+                "--to",
+                "b",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         assert "Removed" in result.output
 
@@ -420,9 +551,18 @@ class TestUnlink:
         store.add(Document(id="a", type="project", title="A"))
         store.add(Document(id="b", type="project", title="B"))
         store.link("a", "b")
-        result = _invoke(runner, store, [
-            "unlink", "--from", "a", "--to", "b", "--json",
-        ])
+        result = _invoke(
+            runner,
+            store,
+            [
+                "unlink",
+                "--from",
+                "a",
+                "--to",
+                "b",
+                "--json",
+            ],
+        )
         assert result.exit_code == EXIT_OK
         data = _json_of(result)
         assert "removed" in data

@@ -134,7 +134,9 @@ def test_document_history_and_audit_log(store: SqliteStore) -> None:
     assert actions[:3] == ["delete", "update", "create"]
 
     audit = store.audit_log(limit=10)
-    assert any(entry["entity_type"] == "document" and entry["action"] == "create" for entry in audit)
+    assert any(
+        entry["entity_type"] == "document" and entry["action"] == "create" for entry in audit
+    )
 
 
 def test_add_empty_id_generated(store: SqliteStore) -> None:

@@ -1,4 +1,5 @@
 """SQLite storage implementation."""
+
 from __future__ import annotations
 
 import json
@@ -34,6 +35,7 @@ def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
     """Open a sqlite3 connection that supports vec0 if possible."""
     try:
         import pysqlite3 as _psql
+
         conn = _psql.connect(db_path, isolation_level=None)
         conn.enable_load_extension(True)
         _try_load_vec0(conn)
@@ -42,6 +44,7 @@ def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
         pass
     try:
         import sqlite_vec
+
         conn = sqlite3.connect(db_path)
         sqlite_vec.load(conn)
         return conn
@@ -53,8 +56,10 @@ def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
 def _try_load_vec0(conn: sqlite3.Connection) -> None:
     """Best-effort load of vec0 extension."""
     import logging
+
     try:
         import sqlite_vec
+
         sqlite_vec.load(conn)
     except Exception as e:
         logging.getLogger("kb_mcp_lite").debug("vec0 not loaded: %s", e)
@@ -62,7 +67,7 @@ def _try_load_vec0(conn: sqlite3.Connection) -> None:
 
 class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin):
     """SQLite-based storage implementation.
-    
+
     Combines functionality from multiple mixins:
     - MaintenanceMixin: Health checks, stats, pruning, reindexing
     - SearchMixin: Full-text and semantic search
@@ -77,6 +82,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         self._init_db()
         if embedder is None:
             from kb_mcp_lite.embedder import make_embedder
+
             embedder = make_embedder()
         self._embedder = embedder
 
@@ -85,7 +91,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         dir_path = os.path.dirname(self.db_path)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
-        
+
         conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         conn.row_factory = _sqlite_row_factory
         conn.execute("PRAGMA foreign_keys = ON")
@@ -97,6 +103,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     def _init_db(self) -> None:
         """Initialize database schema and run migrations."""
         from kb_mcp_lite.migrations import apply_migrations
+
         apply_migrations(self._conn)
         self._conn.commit()
 
@@ -168,14 +175,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     def get(self, doc_id: str, include_deleted: bool = False) -> Document:
         """Get a document by ID.
-        
+
         Raises NotFoundError if the document doesn't exist.
         """
         sql = "SELECT * FROM documents WHERE id = ?"
         params: List[Any] = [doc_id]
         if not include_deleted:
             sql += " AND deleted_at IS NULL"
-        
+
         row = self._conn.execute(sql, params).fetchone()
         if not row:
             # Try resolving alias via doc_aliases table
@@ -186,7 +193,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 resolved = alias_row["doc_id"]
                 return self.get(resolved, include_deleted=include_deleted)
             raise NotFoundError(doc_id)
-        
+
         doc = self._row_to_doc(row)
         # Fetch aliases from doc_aliases
         aliases_rows = self._conn.execute(
@@ -206,7 +213,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         include_deleted: bool = False,
     ) -> List[Document]:
         """List documents with optional filtering.
-        
+
         Args:
             type: Filter by document type
             tags: Filter by tags (all tags must be present)
@@ -220,51 +227,51 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             raise ValidationError("limit must be in 1..1000")
         if offset < 0:
             raise ValidationError("offset must be >= 0")
-        
+
         sql_parts = ["SELECT DISTINCT d.* FROM documents d"]
         params: List[object] = []
         joins = []
         conditions = ["1=1"]
-        
+
         if not include_deleted:
             conditions.append("d.deleted_at IS NULL")
-        
+
         if type:
             conditions.append("d.type = ?")
             params.append(type)
-        
+
         if link_to:
             joins.append("LEFT JOIN links l_to ON l_to.from_id = d.id")
             conditions.append("l_to.to_id = ?")
             params.append(link_to)
-        
+
         if link_from:
             joins.append("LEFT JOIN links l_from ON l_from.to_id = d.id")
             conditions.append("l_from.from_id = ?")
             params.append(link_from)
-        
+
         if joins:
             sql_parts.extend(joins)
-        
+
         sql_parts.append("WHERE " + " AND ".join(conditions))
         sql_parts.append("ORDER BY d.updated_at DESC, d.id ASC LIMIT ? OFFSET ?")
         params.extend([limit, offset])
-        
+
         sql = " ".join(sql_parts)
         rows = self._conn.execute(sql, params).fetchall()
         docs = [self._row_to_doc(r) for r in rows]
-        
+
         if tags:
             wanted = set(tags)
             docs = [d for d in docs if wanted.issubset(set(d.tags))]
-        
+
         return docs
 
     # ---- write operations ------------------------------------------------------
 
     def add(self, doc: Document) -> str:
         """Add a new document.
-        
+
         Returns the generated document ID.
         Raises DuplicateError if a document with the same (type, title) already exists.
         Raises ValidationError if the ID format is invalid.
@@ -274,7 +281,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             doc.id = make_id(doc.type, doc.title)
         elif not re.match(r"^[a-z0-9][a-z0-9/_-]*$", doc.id):
             raise ValidationError(f"id must match ^[a-z0-9][a-z0-9/_-]*$ (got {doc.id!r})")
-        
+
         # Check for duplicate
         try:
             existing = self.get(doc.id, include_deleted=True)
@@ -340,7 +347,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     def update(self, doc_id: str, **kwargs: Any) -> Document:
         """Update fields on an existing document.
-        
+
         Supported fields: title, body, tags, source, aliases.
         Raises NotFoundError if the document doesn't exist.
         Raises ValidationError if disallowed fields are passed or no fields given.
@@ -439,7 +446,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     def delete(self, doc_id: str) -> None:
         """Soft-delete a document.
-        
+
         Raises NotFoundError if the document doesn't exist.
         Idempotent: deleting an already-deleted doc is a no-op.
         """
@@ -454,7 +461,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             if existing and existing["deleted_at"] is not None:
                 return  # already deleted, no-op
             raise
-        
+
         now = datetime.now(timezone.utc)
         with self._txn() as cur:
             cur.execute(
@@ -475,13 +482,13 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     def restore_deleted(self, doc_id: str) -> Document:
         """Restore a soft-deleted document.
-        
+
         Raises NotFoundError if the document doesn't exist or is not deleted.
         """
         doc = self.get(doc_id, include_deleted=True)
         if not doc.deleted_at:
             raise ValidationError(f"Document {doc_id} is not deleted")
-        
+
         now = datetime.now(timezone.utc)
         doc.deleted_at = None
         doc.updated_at = now
@@ -501,7 +508,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     def link(self, from_id: str, to_id: str, rel: str = "relates-to") -> Link:
         """Create a typed link between two documents.
-        
+
         Raises NotFoundError if either document doesn't exist.
         Raises ValidationError if rel is empty or invalid.
         Returns the created (or existing) Link.
@@ -539,13 +546,13 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 action="create",
                 detail={"from_id": from_id, "to_id": to_id, "rel": rel},
             )
-            
+
         assert row is not None
         return Link(**row)
 
     def unlink(self, from_id: str, to_id: str, rel: str | None = None) -> int:
         """Remove a link between two documents.
-        
+
         If rel is specified, only remove links with that relation type.
         Returns the number of removed links.
         """
@@ -569,7 +576,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                     action="delete",
                     detail={"from_id": from_id, "to_id": to_id, "rel": rel},
                 )
-            
+
         return removed
 
     def outgoing_links(self, doc_id: str) -> List[Link]:
@@ -602,7 +609,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     def import_many(self, docs: Iterable[Document]) -> ImportReport:
         """Bulk-import documents. Uses source-based idempotent upsert.
-        
+
         When a document has a ``source`` field, a matching document
         (same source, not deleted) is updated instead of inserted.
         """
@@ -617,7 +624,11 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                     if row is not None:
                         self.update(
                             row["id"],
-                            **{k: v for k, v in doc.model_dump().items() if k in {"title", "body", "tags", "source", "aliases"}},
+                            **{
+                                k: v
+                                for k, v in doc.model_dump().items()
+                                if k in {"title", "body", "tags", "source", "aliases"}
+                            },
                         )
                         report.updated += 1
                         continue

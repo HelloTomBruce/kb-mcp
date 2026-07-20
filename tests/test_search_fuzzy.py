@@ -184,9 +184,7 @@ def test_unknown_mode_raises(store: SqliteStore) -> None:
 def test_trgm_table_exists(store: SqliteStore) -> None:
     names = {
         row["name"]
-        for row in store._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        for row in store._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     assert "docs_fts_trgm" in names
 

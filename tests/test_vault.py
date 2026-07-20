@@ -78,16 +78,31 @@ class TestVaultCreate:
         assert "my-vault" in list_result.output
 
     def test_create_with_description(self, runner: CliRunner, env: dict[str, str]) -> None:
-        result = runner.invoke(cli, [
-            "vault", "create", "team-kb", "--desc", "Team knowledge base",
-        ], env=env)
+        result = runner.invoke(
+            cli,
+            [
+                "vault",
+                "create",
+                "team-kb",
+                "--desc",
+                "Team knowledge base",
+            ],
+            env=env,
+        )
         assert result.exit_code == EXIT_OK
         assert "team-kb" in result.output
 
     def test_create_json(self, runner: CliRunner, env: dict[str, str]) -> None:
-        result = runner.invoke(cli, [
-            "vault", "create", "json-vault", "--json",
-        ], env=env)
+        result = runner.invoke(
+            cli,
+            [
+                "vault",
+                "create",
+                "json-vault",
+                "--json",
+            ],
+            env=env,
+        )
         assert result.exit_code == EXIT_OK
         data = json.loads(result.output)
         assert data["name"] == "json-vault"
@@ -111,7 +126,9 @@ class TestVaultSwitch:
         assert result.exit_code == EXIT_OK
         assert "other" in result.output
 
-    def test_switch_and_list_shows_new_default(self, runner: CliRunner, env: dict[str, str]) -> None:
+    def test_switch_and_list_shows_new_default(
+        self, runner: CliRunner, env: dict[str, str]
+    ) -> None:
         runner.invoke(cli, ["vault", "create", "primary"], env=env)
         runner.invoke(cli, ["vault", "switch", "primary"], env=env)
         # The switch updates the in-memory config; each invoke() gets a
@@ -143,9 +160,17 @@ class TestVaultIsolation:
     def test_new_vault_has_separate_store(self, runner: CliRunner, env: dict[str, str]) -> None:
         runner.invoke(cli, ["vault", "create", "isolated"], env=env)
         # Add a doc to the default vault
-        runner.invoke(cli, [
-            "add", "--type", "project", "--title", "Default Doc",
-        ], env=env)
+        runner.invoke(
+            cli,
+            [
+                "add",
+                "--type",
+                "project",
+                "--title",
+                "Default Doc",
+            ],
+            env=env,
+        )
         # Verify the doc is there
         result = runner.invoke(cli, ["list", "--json"], env=env)
         assert result.exit_code == 0
@@ -176,9 +201,20 @@ def _init_git(runner: CliRunner, env: dict[str, str]) -> None:
 
 
 def _add_doc(runner: CliRunner, env: dict[str, str], title: str, body: str = "body") -> str:
-    result = runner.invoke(cli, [
-        "add", "--type", "lesson", "--title", title, "--body", body, "--json",
-    ], env=env)
+    result = runner.invoke(
+        cli,
+        [
+            "add",
+            "--type",
+            "lesson",
+            "--title",
+            title,
+            "--body",
+            body,
+            "--json",
+        ],
+        env=env,
+    )
     assert result.exit_code == EXIT_OK
     return json.loads(result.output)["id"]
 
@@ -199,9 +235,7 @@ class TestVaultStatus:
         assert "added: 1" in result.output
         assert doc_id in result.output
 
-    def test_status_added_before_first_commit(
-        self, runner: CliRunner, env: dict[str, str]
-    ) -> None:
+    def test_status_added_before_first_commit(self, runner: CliRunner, env: dict[str, str]) -> None:
         genv = _git_env(env)
         _init_git(runner, genv)
         doc_id = _add_doc(runner, genv, "Fresh Lesson")

@@ -90,6 +90,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             # features still work. Any other failure is fatal.
             if version == 3:
                 import logging
+
                 logging.getLogger("kb_mcp_lite").debug(
                     "vec0 migration skipped: %s (semantic search disabled)", e
                 )
