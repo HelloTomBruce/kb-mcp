@@ -29,7 +29,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra dev --python ${{ matrix.python-version }}
+        run: uv sync --extra dev --extra vec --python ${{ matrix.python-version }}
 
       - name: Lint with ruff
         run: uv run ruff check .
@@ -41,4 +41,4 @@ jobs:
         run: uv run mypy src/
 
       - name: Test with pytest
-        run: uv run pytest -q --cov=kb_mcp --cov-report=term-missing --cov-fail-under=70
+        run: uv run pytest -q --cov=kb_mcp_lite --cov-report=term-missing --cov-fail-under=70
