@@ -276,3 +276,70 @@ class TestVaultStatus:
         assert result.exit_code == EXIT_OK
         assert "deleted: 1" in result.output
         assert doc_id in result.output
+
+
+# ---------------------------------------------------------------------------
+# VaultManager unit tests (rename, remove, info)
+# ---------------------------------------------------------------------------
+
+
+class TestVaultManagerOps:
+    def test_rename_vault(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager, VaultNotFoundError
+
+        mgr = VaultManager(kb_home=tmp_path)
+        mgr.create("old-name", description="test")
+        mgr.rename("old-name", "new-name")
+
+        vaults = mgr.list_vaults()
+        names = [v.name for v in vaults]
+        assert "new-name" in names
+        assert "old-name" not in names
+
+    def test_rename_nonexistent_raises(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager, VaultNotFoundError
+
+        mgr = VaultManager(kb_home=tmp_path)
+        with pytest.raises(VaultNotFoundError):
+            mgr.rename("ghost", "new-ghost")
+
+    def test_rename_to_existing_raises(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager, VaultAlreadyExistsError
+
+        mgr = VaultManager(kb_home=tmp_path)
+        mgr.create("a")
+        mgr.create("b")
+        with pytest.raises(VaultAlreadyExistsError):
+            mgr.rename("a", "b")
+
+    def test_remove_vault_registry_only(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager, VaultNotFoundError
+
+        mgr = VaultManager(kb_home=tmp_path)
+        mgr.create("removable")
+        assert any(v.name == "removable" for v in mgr.list_vaults())
+
+        mgr.remove("removable")
+        assert not any(v.name == "removable" for v in mgr.list_vaults())
+
+    def test_remove_last_vault_raises(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager, VaultError
+
+        mgr = VaultManager(kb_home=tmp_path)
+        with pytest.raises(VaultError):
+            mgr.remove("default")  # only vault
+
+    def test_info_returns_vault_metadata(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager
+
+        mgr = VaultManager(kb_home=tmp_path)
+        info = mgr.info("default")
+        assert info.name == "default"
+        assert info.path == "default"
+
+    def test_info_nonexistent_raises(self, tmp_path: Path) -> None:
+        from kb_mcp_lite.vault import VaultManager, VaultNotFoundError
+
+        mgr = VaultManager(kb_home=tmp_path)
+        with pytest.raises(VaultNotFoundError):
+            mgr.info("ghost")

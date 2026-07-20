@@ -493,3 +493,120 @@ def test_context_manager(tmp_path: Path) -> None:
     with SqliteStore(db) as s:
         s.add(_doc(id="a"))
         assert s.get("a").title == "Test"
+
+
+# ---------------------------------------------------------------------------
+# Versioning / restore / diff
+# ---------------------------------------------------------------------------
+
+
+def test_restore_to_previous_version(store: SqliteStore) -> None:
+    """restore() reverts a document to a prior version snapshot."""
+    store.add(_doc(id="proj/versioned", title="v1", body="first"))
+    store.update("proj/versioned", body="second")
+    store.update("proj/versioned", body="third", title="v3")
+
+    history = store.document_history("proj/versioned")
+    assert len(history) >= 3
+    # Restore to the oldest version (body="first", title="v1")
+    first_version = history[-1]["version_id"]
+    restored = store.restore("proj/versioned", version_id=first_version)
+    assert restored.body == "first"
+    assert restored.title == "v1"
+
+
+def test_restore_latest_without_version_id(store: SqliteStore) -> None:
+    """restore() without version_id restores to the most recent version."""
+    store.add(_doc(id="proj/v2", title="orig", body="a"))
+    store.update("proj/v2", body="b")
+    store.update("proj/v2", body="c")
+
+    restored = store.restore("proj/v2")
+    # Latest version in history is the update to body="c"
+    assert restored.body == "c"
+
+
+def test_restore_nonexistent_version_raises(store: SqliteStore) -> None:
+    """restore() with invalid version_id raises NotFoundError."""
+    store.add(_doc(id="proj/v3", title="orig", body="a"))
+    with pytest.raises(NotFoundError):
+        store.restore("proj/v3", version_id=99999)
+
+
+def test_diff_two_versions(store: SqliteStore) -> None:
+    """diff() returns field-level differences between two versions."""
+    store.add(_doc(id="proj/diffable", title="v1", body="hello"))
+    store.update("proj/diffable", body="world", title="v2")
+
+    history = store.document_history("proj/diffable")
+    v1_id = history[-1]["version_id"]  # create: body="hello", title="v1"
+    v2_id = history[-2]["version_id"]  # update: body="world", title="v2"
+
+    result = store.diff("proj/diffable", v1_id, v2_id)
+    assert "changed" in result
+    changed = result["changed"]
+    assert "body" in changed or "title" in changed
+
+
+def test_restore_deleted_document(store: SqliteStore) -> None:
+    """restore_deleted() clears deleted_at and makes the doc active again."""
+    store.add(_doc(id="proj/undead", title="Zombie", body="brr"))
+    store.delete("proj/undead")
+
+    doc = store.restore_deleted("proj/undead")
+    assert doc.deleted_at is None
+    assert doc.title == "Zombie"
+    # Verify it shows up in normal listing
+    active = store.list(type="project", limit=100)
+    assert any(d.id == "proj/undead" for d in active)
+
+
+def test_restore_deleted_not_deleted_raises(store: SqliteStore) -> None:
+    """restore_deleted() on an active doc raises ValidationError."""
+    store.add(_doc(id="proj/alive", title="Alive", body=""))
+    with pytest.raises(ValidationError):
+        store.restore_deleted("proj/alive")
+
+
+def test_get_versions_alias(store: SqliteStore) -> None:
+    """get_versions() is an alias for document_history()."""
+    store.add(_doc(id="proj/alias-test", title="orig"))
+    store.update("proj/alias-test", body="updated")
+    versions = store.get_versions("proj/alias-test")
+    history = store.document_history("proj/alias-test")
+    assert len(versions) == len(history)
+
+
+def test_diff_versions_alias(store: SqliteStore) -> None:
+    """diff_versions() is an alias for diff()."""
+    store.add(_doc(id="proj/diff-alias", title="a", body="x"))
+    store.update("proj/diff-alias", body="y")
+    history = store.document_history("proj/diff-alias")
+    v1 = history[-1]["version_id"]
+    v2 = history[-2]["version_id"]
+    r1 = store.diff("proj/diff-alias", v1, v2)
+    r2 = store.diff_versions("proj/diff-alias", v1, v2)
+    assert r1 == r2
+
+
+def test_restore_version_alias(store: SqliteStore) -> None:
+    """restore_version() is an alias for restore()."""
+    store.add(_doc(id="proj/rv-alias", title="t1", body="b1"))
+    store.update("proj/rv-alias", body="b2")
+    history = store.document_history("proj/rv-alias")
+    first_id = history[-1]["version_id"]
+    doc = store.restore_version("proj/rv-alias", first_id)
+    assert doc.body == "b1"
+
+
+def test_audit_log_has_entries(store: SqliteStore) -> None:
+    """audit_log() returns entries for created/updated/deleted documents."""
+    store.add(_doc(id="proj/audited", title="Audit"))
+    store.update("proj/audited", body="changed")
+    store.delete("proj/audited")
+
+    audit = store.audit_log(limit=100)
+    actions = {entry["action"] for entry in audit}
+    assert "create" in actions
+    assert "update" in actions
+    assert "delete" in actions

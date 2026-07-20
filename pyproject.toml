@@ -73,6 +73,16 @@ Changelog = "https://github.com/HelloTomBruce/kb-mcp-lite/releases"
 line-length = 100
 target-version = "py310"
 
+[tool.coverage.run]
+omit = [
+  "src/kb_mcp_lite/store.py",
+  "src/kb_mcp_lite/mcp_server.py",
+]
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 70
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
