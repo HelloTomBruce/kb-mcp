@@ -30,6 +30,7 @@ from kb_mcp_lite.md_io import (
     export_dir,
     import_dir,
     parse_frontmatter,
+    pending_export,
     render_document,
 )
 from pydantic import ValidationError as PydanticValidationError
@@ -610,6 +611,156 @@ class TestExportDir:
         assert "```\ncode\n```" in text
         assert "<h1>" not in text
         assert "<ul>" not in text
+
+    def test_incremental_skips_unchanged_docs(self, tmp_path: Path, store: SqliteStore) -> None:
+        """A second incremental export right after a full one writes nothing.
+
+        Regression: the source write-back must not bump ``updated_at``,
+        otherwise every doc is newer than its file and incremental export
+        degenerates into a full re-export.
+        """
+        store.add(Document(id="proj/a", type="project", title="Alpha", body="A body"))
+        store.add(Document(id="proj/b", type="project", title="Beta", body="B body"))
+        out = tmp_path / "out"
+        assert export_dir(store, out, force=True, incremental=True) == 2
+        assert export_dir(store, out, force=True, incremental=True) == 0
+
+    def test_incremental_exports_only_changed_docs(self, tmp_path: Path, store: SqliteStore) -> None:
+        """After editing one doc, incremental export rewrites only that file."""
+        store.add(Document(id="proj/a", type="project", title="Alpha", body="A body"))
+        store.add(Document(id="proj/b", type="project", title="Beta", body="B body"))
+        out = tmp_path / "out"
+        assert export_dir(store, out, force=True, incremental=True) == 2
+
+        store.update("proj/a", body="A body v2")
+
+        assert export_dir(store, out, force=True, incremental=True) == 1
+        assert "A body v2" in (out / "a.md").read_text(encoding="utf-8")
+        # And the next run is clean again.
+        assert export_dir(store, out, force=True, incremental=True) == 0
+
+    def test_source_write_back_does_not_bump_updated_at(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """export_dir records source without changing ``updated_at``."""
+        store.add(Document(id="proj/a", type="project", title="Alpha", body="A body"))
+        before = store.get("proj/a").updated_at
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=True)
+        after = store.get("proj/a")
+        assert after.source == "a.md"
+        assert after.updated_at == before
+
+    def test_incremental_collision_writes_own_file(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """With two docs sharing a slug, an incremental re-export of one
+        must rewrite its own ``<slug>-2.md`` — never the sibling's file."""
+        store.add(Document(id="reference/x", type="glossary", title="X Ref", body="ref v1"))
+        store.add(Document(id="tech/x", type="lesson", title="X Tech", body="tech v1"))
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=True)
+        assert sorted(p.name for p in out.glob("*.md")) == ["x-2.md", "x.md"]
+
+        store.update("tech/x", body="tech v2")
+        n = export_dir(store, out, force=True, incremental=True)
+
+        assert n == 1
+        assert "tech v2" in (out / "x-2.md").read_text(encoding="utf-8")
+        assert "ref v1" in (out / "x.md").read_text(encoding="utf-8")
+        # Source assignments stay put — no flip-flop between siblings.
+        assert store.get("tech/x").source == "x-2.md"
+        assert store.get("reference/x").source == "x.md"
+
+    def test_export_keeps_file_shared_with_live_sibling(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """A soft-deleted doc whose source file is claimed by a live
+        sibling (same slug) must not cause the file to be removed."""
+        store.add(Document(id="tech/x", type="lesson", title="X Tech", body="tech body"))
+        out = tmp_path / "out"
+        export_dir(store, out)
+        # Recreate the wild state: deleted doc sharing the live doc's file.
+        store.add(Document(id="reference/x", type="glossary", title="X Ref", body="ref body"))
+        store.update_source("reference/x", "x.md")
+        store.delete("reference/x")
+
+        export_dir(store, out, force=True, incremental=True)
+
+        assert (out / "x.md").is_file()
+        assert "tech body" in (out / "x.md").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# pending_export — store vs export dir diff
+# ---------------------------------------------------------------------------
+
+
+class TestPendingExport:
+    """pending_export reports what an export would change, content-based."""
+
+    def test_clean_after_export_including_slug_collisions(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """No pending changes right after an export — even for docs that
+        share a slug (regression: the sibling's file was compared before,
+        producing a permanent 'modified' ghost)."""
+        store.add(Document(id="reference/x", type="glossary", title="X Ref", body="ref"))
+        store.add(Document(id="tech/x", type="lesson", title="X Tech", body="tech"))
+        store.add(Document(id="proj/y", type="project", title="Y", body="y"))
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=True)
+
+        pending = pending_export(store, out)
+
+        assert pending.total == 0, pending
+
+    def test_detects_added_modified_deleted(self, tmp_path: Path, store: SqliteStore) -> None:
+        store.add(Document(id="proj/a", type="project", title="A", body="a v1"))
+        store.add(Document(id="proj/c", type="project", title="C", body="c"))
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=True)
+
+        store.update("proj/a", body="a v2")
+        store.add(Document(id="proj/b", type="project", title="B", body="b"))
+        store.delete("proj/c")
+
+        pending = pending_export(store, out)
+
+        assert pending.added == ["proj/b"]
+        assert pending.modified == ["proj/a"]
+        assert pending.deleted == ["proj/c"]
+
+    def test_clean_again_after_incremental_export(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """An incremental export clears exactly the pending entries."""
+        store.add(Document(id="proj/a", type="project", title="A", body="a v1"))
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=True)
+        store.update("proj/a", body="a v2")
+        assert pending_export(store, out).modified == ["proj/a"]
+
+        export_dir(store, out, force=True, incremental=True)
+
+        assert pending_export(store, out).total == 0
+
+    def test_deleted_with_live_slug_sibling_not_reported(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """A soft-deleted doc sharing its file with a live sibling is not
+        a pending deletion (regression: permanent 'deleted' ghost)."""
+        store.add(Document(id="tech/x", type="lesson", title="X Tech", body="tech"))
+        out = tmp_path / "out"
+        export_dir(store, out)
+        store.add(Document(id="reference/x", type="glossary", title="X Ref", body="ref"))
+        store.update_source("reference/x", "x.md")
+        store.delete("reference/x")
+
+        pending = pending_export(store, out)
+
+        # tech/x is clean; reference/x's file belongs to the live sibling.
+        assert pending.total == 0, pending
 
 
 # ---------------------------------------------------------------------------

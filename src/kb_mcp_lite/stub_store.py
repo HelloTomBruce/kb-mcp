@@ -195,6 +195,19 @@ class StubStore(_Store):
         self._record_version(doc_id, "update", merged)
         return merged
 
+    def update_source(self, doc_id: str, source: str | None) -> None:
+        """Update only ``source``; no ``updated_at`` bump, no version record.
+
+        Mirrors the SQLite backend's export write-back path.
+        """
+        if doc_id not in self._docs:
+            raise NotFoundError(doc_id)
+        merged = self._docs[doc_id].model_copy(update={"source": source})
+        self._docs[doc_id] = merged
+        # Keep source index in sync.
+        if source:
+            self._by_source[source] = doc_id
+
     def delete(self, doc_id: str) -> None:
         """Soft-delete a document. Idempotent on already-deleted docs."""
         if doc_id not in self._docs:

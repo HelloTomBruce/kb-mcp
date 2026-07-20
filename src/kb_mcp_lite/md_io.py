@@ -23,6 +23,7 @@ message.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, TYPE_CHECKING, Any, TypedDict
@@ -398,6 +399,21 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
 # ---------------------------------------------------------------------------
 
 
+def _export_candidate(base: Path, doc: Document) -> Path:
+    """Return the file ``doc`` exports to (or should be looked up at).
+
+    Uses the recorded ``source`` when set — it is the authoritative path
+    written by the last export — and falls back to ``<slug>.md`` (last id
+    segment) for never-exported documents. Looking up by slug alone is
+    wrong whenever two documents share a slug: the second one exports to
+    ``<slug>-2.md``, so its sibling's file would be compared instead.
+    """
+    if doc.source:
+        return base / doc.source
+    slug = doc.id.rsplit("/", 1)[-1] or "untitled"
+    return base / f"{slug}.md"
+
+
 def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: bool = False) -> int:
     """Write one ``.md`` per document under ``dir``.
 
@@ -428,14 +444,14 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
     base.mkdir(parents=True, exist_ok=True)
 
     all_docs = store.export_all(include_deleted=True)
-    docs = sorted([d for d in all_docs if d.deleted_at is None], key=lambda d: d.id)
+    live_docs = [d for d in all_docs if d.deleted_at is None]
+    docs = sorted(live_docs, key=lambda d: d.id)
     deleted_docs = [d for d in all_docs if d.deleted_at is not None]
     # 增量导出过滤：只导出更新时间晚于对应文件修改时间的文档
     if incremental:
         filtered = []
         for doc in docs:
-            slug = doc.id.rsplit("/", 1)[-1] or "untitled"
-            candidate = base / f"{slug}.md"
+            candidate = _export_candidate(base, doc)
             if candidate.exists():
                 mtime = datetime.fromtimestamp(candidate.stat().st_mtime, tz=timezone.utc)
                 if doc.updated_at <= mtime:
@@ -472,14 +488,26 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
                     f"deleted doc {doc.id!r} source {doc.source!r} escapes destination {base!r}"
                 )
 
+    # Paths claimed by live documents. A soft-deleted doc can share a
+    # slug with a live sibling — both map to the same file — so a file
+    # claimed by a live doc must never be removed here.
+    live_claims = {_export_candidate(base, d) for d in live_docs}
+
     # Delete soft-deleted documents' files from the filesystem
     for doc in deleted_docs:
         if doc.source:
-            candidate = (base / doc.source).resolve()
-            if candidate.is_file():
+            candidate = _export_candidate(base, doc)
+            if candidate not in live_claims and candidate.is_file():
                 candidate.unlink()
 
-    used_slugs: set[str] = set()
+    # Seed claimed filenames from live docs skipped by the incremental
+    # filter, so collision suffixes stay stable across runs: a doc that
+    # previously exported as ``<slug>-2.md`` must not grab ``<slug>.md``
+    # when its sibling is not part of this run.
+    exported_ids = {d.id for d in docs}
+    used_slugs: set[str] = {
+        _export_candidate(base, d).name for d in live_docs if d.id not in exported_ids
+    }
     written = 0
 
     for doc in docs:
@@ -510,12 +538,15 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
         written += 1
 
         # Update doc.source in the store so a subsequent import from
-        # ``base`` matches by source. Best-effort: if the backend
-        # rejects the update (e.g. validation rule), the export still
-        # succeeded; just log it as a per-doc warning.
+        # ``base`` matches by source. Uses update_source(): a plain
+        # update() would bump ``updated_at`` after the file was written,
+        # leaving the doc newer than its export and defeating incremental
+        # export. Best-effort: if the backend rejects the update (e.g.
+        # validation rule), the export still succeeded; just log it as a
+        # per-doc warning.
         try:
             rel = candidate.relative_to(base)
-            store.update(doc.id, source=str(rel))
+            store.update_source(doc.id, str(rel))
         except ValidationError as e:
             # Append as a non-fatal note; the on-disk file is fine.
             # We surface this through a custom side-channel rather
@@ -527,11 +558,102 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
     return written
 
 
+# ---------------------------------------------------------------------------
+# pending_export
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PendingExport:
+    """Store-vs-export diff produced by :func:`pending_export`.
+
+    Each field holds document ids:
+
+    - ``added``: live document whose export file is missing under ``dir``.
+    - ``modified``: exported file content differs from a fresh render.
+    - ``deleted``: soft-deleted document whose ``source`` file still exists
+      under ``dir`` (the next export would remove it).
+    """
+
+    added: List[str] = field(default_factory=list)
+    modified: List[str] = field(default_factory=list)
+    deleted: List[str] = field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return len(self.added) + len(self.modified) + len(self.deleted)
+
+
+def pending_export(store: Store, dir: Path) -> PendingExport:
+    """Compare the store against the exported Markdown directory.
+
+    Answers "would an export change anything right now?" without writing
+    any files. Detection is content-based — a document counts as modified
+    only when its exported file differs from a fresh
+    :func:`render_document` render — so the result is insensitive to mtime
+    and clock effects (import bumps ``updated_at``; export writes back
+    ``source`` after the file lands on disk).
+
+    Files are located via :func:`_export_candidate` (recorded ``source``
+    first, ``<slug>.md`` fallback), mirroring :func:`export_dir`. A
+    soft-deleted document counts as pending deletion only when its file
+    exists and is not claimed by a live sibling sharing the same slug.
+    """
+    base = dir.resolve()
+    pending = PendingExport()
+    all_docs = store.export_all(include_deleted=True)
+    live_claims = {
+        _export_candidate(base, d) for d in all_docs if d.deleted_at is None
+    }
+    for doc in all_docs:
+        if doc.deleted_at is not None:
+            if doc.source:
+                candidate = _export_candidate(base, doc)
+                if candidate not in live_claims and candidate.is_file():
+                    pending.deleted.append(doc.id)
+            continue
+        candidate = _export_candidate(base, doc)
+        if not candidate.is_file():
+            pending.added.append(doc.id)
+            continue
+        rendered = render_document(doc, outlinks=store.outlinks(doc.id))
+        if not _same_export_content(candidate.read_text(encoding="utf-8"), rendered):
+            pending.modified.append(doc.id)
+    return pending
+
+
+#: Frontmatter keys ``export_dir`` mutates in the store *after* the file
+#: is written (``source`` write-back, and the ``updated_at`` bump that
+#: comes with it). The on-disk file always lags one write-back behind,
+#: so comparing them would flag every exported doc as modified.
+_VOLATILE_FRONTMATTER_KEYS = frozenset({"source", "updated_at"})
+
+
+def _same_export_content(on_disk: str, rendered: str) -> bool:
+    """Compare exported Markdown, ignoring volatile frontmatter keys.
+
+    Both sides are parsed and compared as logical content (frontmatter
+    minus :data:`_VOLATILE_FRONTMATTER_KEYS`, plus the body); falls back
+    to a byte comparison if either side fails to parse.
+    """
+    try:
+        fm_disk, body_disk = parse_frontmatter(on_disk)
+        fm_rendered, body_rendered = parse_frontmatter(rendered)
+    except Exception:  # noqa: BLE001 — unparseable file counts as byte-diff
+        return on_disk == rendered
+    for key in _VOLATILE_FRONTMATTER_KEYS:
+        fm_disk.pop(key, None)
+        fm_rendered.pop(key, None)
+    return fm_disk == fm_rendered and body_disk == body_rendered
+
+
 __all__ = [
     "Frontmatter",
+    "PendingExport",
     "parse_frontmatter",
     "render_document",
     "doc_from_frontmatter",
     "import_dir",
     "export_dir",
+    "pending_export",
 ]

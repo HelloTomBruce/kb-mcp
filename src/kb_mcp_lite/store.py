@@ -100,6 +100,21 @@ class Store(Protocol):
         """
         ...
 
+    def update_source(self, doc_id: str, source: str | None) -> None:
+        """Update only the ``source`` field, without touching ``updated_at``,
+        version history, or the audit log.
+
+        This is the export write-back path: ``export_dir`` records where each
+        document was written so a later import matches by source. Using
+        :meth:`update` for that would bump ``updated_at`` after the file was
+        written, leaving every document newer than its export and defeating
+        incremental export.
+
+        Raises:
+            NotFoundError: if ``doc_id`` does not exist.
+        """
+        ...
+
     def delete(self, doc_id: str) -> None:
         """Soft-delete a document. Sets ``deleted_at``.
 

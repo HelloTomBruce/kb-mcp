@@ -420,6 +420,25 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         self._index_embedding(doc)
         return doc
 
+    def update_source(self, doc_id: str, source: str | None) -> None:
+        """Update only the ``source`` field of a document.
+
+        Unlike :meth:`update`, this does not bump ``updated_at`` and does
+        not record a version or audit entry — it exists for the export
+        write-back path (see :func:`kb_mcp_lite.md_io.export_dir`), where
+        refreshing ``updated_at`` would leave the document newer than the
+        file just written and defeat incremental export.
+
+        Raises NotFoundError if the document doesn't exist.
+        """
+        with self._txn() as cur:
+            cur.execute(
+                "UPDATE documents SET source = ? WHERE id = ?",
+                (source, doc_id),
+            )
+            if cur.rowcount == 0:
+                raise NotFoundError(doc_id)
+
     def delete(self, doc_id: str) -> None:
         """Soft-delete a document.
         

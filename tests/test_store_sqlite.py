@@ -256,6 +256,36 @@ def test_update_missing_raises(store: SqliteStore) -> None:
 
 
 # ---------------------------------------------------------------------------
+# update_source (export write-back)
+# ---------------------------------------------------------------------------
+
+
+def test_update_source_sets_source(store: SqliteStore) -> None:
+    store.add(_doc(id="a", title="X"))
+    store.update_source("a", "a.md")
+    assert store.get("a").source == "a.md"
+
+
+def test_update_source_preserves_updated_at_and_history(store: SqliteStore) -> None:
+    """Unlike update(), the export write-back bumps neither updated_at
+    nor the version history — otherwise incremental export never skips."""
+    store.add(_doc(id="a", title="X"))
+    before = store.get("a")
+    history_before = store.document_history("a")
+
+    store.update_source("a", "a.md")
+
+    after = store.get("a")
+    assert after.updated_at == before.updated_at
+    assert store.document_history("a") == history_before
+
+
+def test_update_source_missing_raises(store: SqliteStore) -> None:
+    with pytest.raises(NotFoundError):
+        store.update_source("nope", "nope.md")
+
+
+# ---------------------------------------------------------------------------
 # delete / soft delete / prune
 # ---------------------------------------------------------------------------
 

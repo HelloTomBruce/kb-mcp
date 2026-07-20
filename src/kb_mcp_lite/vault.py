@@ -519,15 +519,24 @@ class VaultManager:
     ) -> str:
         """Get the Git status of the vault's sync repository.
 
-        Returns a status report.
+        The report opens with a "pending export" section — documents whose
+        database state has not been exported to the sync directory yet —
+        followed by the plain ``git status`` output.
         """
         import subprocess
 
         sync_root = self._sync_dir(name)
         git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        vault_name = name or self.get_current()
+        pending_summary = self._pending_export_summary(name)
 
         if not (git_dir / ".git").exists():
-            return "Git sync not initialized for this vault. Run `kb vault init-git` to initialize."
+            return (
+                f"Vault: {vault_name}\nGit Directory: {git_dir}\n\n"
+                f"{pending_summary}\n\n"
+                "Git sync not initialized for this vault. "
+                "Run `kb vault init-git` to initialize."
+            )
 
         # Get current branch
         result_branch = subprocess.run(
@@ -547,7 +556,44 @@ class VaultManager:
             raise VaultError(f"git status failed: {_strip_ssh_warnings(result_status.stderr)}")
 
         status_output = result_status.stdout.strip()
-        return f"Vault: {name or self.get_current()}\nBranch: {branch}\nGit Directory: {git_dir}\n\n{status_output}"
+        return (
+            f"Vault: {vault_name}\nBranch: {branch}\nGit Directory: {git_dir}\n\n"
+            f"{pending_summary}\n\n{status_output}"
+        )
+
+    def _pending_export_summary(self, name: str | None = None) -> str:
+        """Summarise database changes not yet exported to the sync directory.
+
+        Read-only: nothing is exported or written.
+        """
+        from kb_mcp_lite.md_io import pending_export
+        from kb_mcp_lite.store.sqlite import SqliteStore
+
+        store = SqliteStore(self.resolve_path(name))
+        try:
+            pending = pending_export(store, self._sync_dir(name))
+        finally:
+            store.close()
+
+        if pending.total == 0:
+            return "Pending export: none — database and export directory are in sync."
+
+        lines = [
+            f"Pending export: {pending.total} document(s) differ from the export directory"
+        ]
+        for label, ids in (
+            ("added", pending.added),
+            ("modified", pending.modified),
+            ("deleted", pending.deleted),
+        ):
+            if not ids:
+                continue
+            shown = ", ".join(ids[:5])
+            if len(ids) > 5:
+                shown += f", … and {len(ids) - 5} more"
+            lines.append(f"  {label}: {len(ids)} ({shown})")
+        lines.append("Run `kb vault commit -m <message>` to export and commit these changes.")
+        return "\n".join(lines)
 
 
 __all__ = [

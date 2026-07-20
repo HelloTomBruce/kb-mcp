@@ -149,3 +149,96 @@ class TestVaultIsolation:
         # Verify the doc is there
         result = runner.invoke(cli, ["list", "--json"], env=env)
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# kb vault status — pending export detection
+# ---------------------------------------------------------------------------
+
+
+def _git_env(env: dict[str, str]) -> dict[str, str]:
+    """Add a deterministic git identity so ``kb vault commit`` works in tests."""
+    return {
+        **env,
+        "GIT_AUTHOR_NAME": "kb test",
+        "GIT_AUTHOR_EMAIL": "kb-test@example.com",
+        "GIT_COMMITTER_NAME": "kb test",
+        "GIT_COMMITTER_EMAIL": "kb-test@example.com",
+    }
+
+
+def _init_git(runner: CliRunner, env: dict[str, str]) -> None:
+    """Initialise git sync into a fresh external sync directory."""
+    sync_dir = Path(env["KB_MCP_HOME"]).parent / "sync"
+    sync_dir.mkdir(exist_ok=True)
+    result = runner.invoke(cli, ["vault", "init-git", "--sync-dir", str(sync_dir)], env=env)
+    assert result.exit_code == EXIT_OK
+
+
+def _add_doc(runner: CliRunner, env: dict[str, str], title: str, body: str = "body") -> str:
+    result = runner.invoke(cli, [
+        "add", "--type", "lesson", "--title", title, "--body", body, "--json",
+    ], env=env)
+    assert result.exit_code == EXIT_OK
+    return json.loads(result.output)["id"]
+
+
+def _commit_all(runner: CliRunner, env: dict[str, str]) -> None:
+    result = runner.invoke(cli, ["vault", "commit", "-m", "snapshot"], env=env)
+    assert result.exit_code == EXIT_OK
+
+
+class TestVaultStatus:
+    def test_status_not_initialized_shows_pending_add(
+        self, runner: CliRunner, env: dict[str, str]
+    ) -> None:
+        doc_id = _add_doc(runner, env, "Pending Lesson")
+        result = runner.invoke(cli, ["vault", "status"], env=env)
+        assert result.exit_code == EXIT_OK
+        assert "Git sync not initialized" in result.output
+        assert "added: 1" in result.output
+        assert doc_id in result.output
+
+    def test_status_added_before_first_commit(
+        self, runner: CliRunner, env: dict[str, str]
+    ) -> None:
+        genv = _git_env(env)
+        _init_git(runner, genv)
+        doc_id = _add_doc(runner, genv, "Fresh Lesson")
+        result = runner.invoke(cli, ["vault", "status"], env=genv)
+        assert result.exit_code == EXIT_OK
+        assert "added: 1" in result.output
+        assert doc_id in result.output
+
+    def test_status_in_sync_after_commit(self, runner: CliRunner, env: dict[str, str]) -> None:
+        genv = _git_env(env)
+        _init_git(runner, genv)
+        _add_doc(runner, genv, "Committed Lesson")
+        _commit_all(runner, genv)
+        result = runner.invoke(cli, ["vault", "status"], env=genv)
+        assert result.exit_code == EXIT_OK
+        assert "Pending export: none" in result.output
+
+    def test_status_modified_after_update(self, runner: CliRunner, env: dict[str, str]) -> None:
+        genv = _git_env(env)
+        _init_git(runner, genv)
+        doc_id = _add_doc(runner, genv, "Changing Lesson")
+        _commit_all(runner, genv)
+        updated = runner.invoke(cli, ["update", doc_id, "--body", "new body"], env=genv)
+        assert updated.exit_code == EXIT_OK
+        result = runner.invoke(cli, ["vault", "status"], env=genv)
+        assert result.exit_code == EXIT_OK
+        assert "modified: 1" in result.output
+        assert doc_id in result.output
+
+    def test_status_deleted_after_delete(self, runner: CliRunner, env: dict[str, str]) -> None:
+        genv = _git_env(env)
+        _init_git(runner, genv)
+        doc_id = _add_doc(runner, genv, "Doomed Lesson")
+        _commit_all(runner, genv)
+        deleted = runner.invoke(cli, ["delete", doc_id], env=genv)
+        assert deleted.exit_code == EXIT_OK
+        result = runner.invoke(cli, ["vault", "status"], env=genv)
+        assert result.exit_code == EXIT_OK
+        assert "deleted: 1" in result.output
+        assert doc_id in result.output
