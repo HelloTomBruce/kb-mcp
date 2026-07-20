@@ -285,7 +285,7 @@ class TestVaultStatus:
 
 class TestVaultManagerOps:
     def test_rename_vault(self, tmp_path: Path) -> None:
-        from kb_mcp_lite.vault import VaultManager, VaultNotFoundError
+        from kb_mcp_lite.vault import VaultManager
 
         mgr = VaultManager(kb_home=tmp_path)
         mgr.create("old-name", description="test")
@@ -313,7 +313,7 @@ class TestVaultManagerOps:
             mgr.rename("a", "b")
 
     def test_remove_vault_registry_only(self, tmp_path: Path) -> None:
-        from kb_mcp_lite.vault import VaultManager, VaultNotFoundError
+        from kb_mcp_lite.vault import VaultManager
 
         mgr = VaultManager(kb_home=tmp_path)
         mgr.create("removable")
