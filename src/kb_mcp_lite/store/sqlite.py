@@ -7,13 +7,11 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple, TypeVar, Iterator
+from typing import Any, Dict, Iterable, List, Tuple, TypeVar, Iterator
 
 from kb_mcp_lite.schema import (
     Document,
     Link,
-    SearchHit,
-    DoctorReport,
     ImportReport,
     NotFoundError,
     DuplicateError,
@@ -641,6 +639,6 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
 
 # Import make_id at the end to avoid circular import
-from kb_mcp_lite.schema import make_id
+from kb_mcp_lite.schema import make_id  # noqa: E402
 
 __all__ = ["SqliteStore"]

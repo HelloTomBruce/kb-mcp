@@ -235,10 +235,6 @@ class StubStore(_Store):
 
     def resolve_alias(self, alias: str) -> str | None:
         return self._aliases.get(alias)
-        doc = self._docs[doc_id]
-        if doc.deleted_at is not None and not include_deleted:
-            raise NotFoundError(doc_id)
-        return doc
 
     def list(
         self,

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -15,7 +15,6 @@ from kb_mcp_lite.admin._helpers import (
     DOC_TYPES,
     SEARCH_MODES,
     create_default_store,
-    schema_version,
 )
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.vault import get_current_vault_name

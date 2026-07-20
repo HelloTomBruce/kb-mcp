@@ -14,12 +14,9 @@ from kb_mcp_lite.config import load_config as get_config
 from kb_mcp_lite.md_io import import_dir, export_dir
 from kb_mcp_lite.schema import (
     Document,
-    make_id,
     NotFoundError,
     DuplicateError,
-    DoctorReport,
 )
-from kb_mcp_lite.mcp_server import run as run_mcp_server
 from kb_mcp_lite.vault import VaultManager
 
 
@@ -454,8 +451,8 @@ def links(ctx: click.Context, doc_id: str, as_json: bool) -> None:
     incoming = store.incoming_links(doc_id)
     if as_json:
         _emit_json({
-            "outgoing": [{"to": l.to_id, "rel": l.rel, "created_at": l.created_at} for l in outgoing],
-            "incoming": [{"from": l.from_id, "rel": l.rel, "created_at": l.created_at} for l in incoming],
+            "outgoing": [{"to": link.to_id, "rel": link.rel, "created_at": link.created_at} for link in outgoing],
+            "incoming": [{"from": link.from_id, "rel": link.rel, "created_at": link.created_at} for link in incoming],
         })
     else:
         click.echo(f"Links for {doc_id}:")
@@ -464,15 +461,15 @@ def links(ctx: click.Context, doc_id: str, as_json: bool) -> None:
         if not outgoing:
             click.echo("  (none)")
         else:
-            for l in outgoing:
-                click.echo(f"  -> {l.to_id}  ({l.rel})")
+            for link in outgoing:
+                click.echo(f"  -> {link.to_id}  ({link.rel})")
         click.echo("")
         click.echo("Incoming:")
         if not incoming:
             click.echo("  (none)")
         else:
-            for l in incoming:
-                click.echo(f"  <- {l.from_id}  ({l.rel})")
+            for link in incoming:
+                click.echo(f"  <- {link.from_id}  ({link.rel})")
 
 
 # ---- kb history ---------------------------------------------------------------
@@ -552,7 +549,7 @@ def import_cmd(ctx: click.Context, directory: str, dry_run: bool, as_json: bool)
         if report.skipped > 0:
             click.echo(f"Skipped {report.skipped} files")
         if report.errors:
-            click.echo(f"\nErrors:")
+            click.echo("\nErrors:")
             for err in report.errors:
                 click.echo(f"  - {err}")
 

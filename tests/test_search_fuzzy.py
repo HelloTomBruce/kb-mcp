@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from kb_mcp_lite.schema import Document, SearchHit
+from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
 
 

@@ -9,7 +9,6 @@ no filesystem I/O beyond tempdirs for import/export.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -303,7 +302,7 @@ class TestSearch:
             store.add(Document(id=f"d/{i}", type="project", title=f"D{i}", body=f"hello {i}"))
         result = _invoke(runner, store, ["search", "hello", "--limit", "2"])
         assert result.exit_code == EXIT_OK
-        lines = [l for l in result.output.split("\n") if l.strip() and not l.startswith("   ")]
+        lines = [line for line in result.output.split("\n") if line.strip() and not line.startswith("   ")]
         # Limit controls output lines
         assert len(lines) <= 3  # 2 results + blank
 

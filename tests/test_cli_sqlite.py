@@ -9,14 +9,12 @@ filesystem.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from kb_mcp_lite.cli import cli
-from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
 
 
