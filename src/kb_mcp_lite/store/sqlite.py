@@ -35,7 +35,7 @@ def _sqlite_row_factory(cursor: sqlite3.Cursor, row: Tuple[Any, ...]) -> sqlite3
 def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
     """Open a sqlite3 connection that supports vec0 if possible."""
     try:
-        import pysqlite3 as _psql  # type: ignore[import-untyped]
+        import pysqlite3 as _psql
 
         conn = _psql.connect(db_path, isolation_level=None)
         conn.enable_load_extension(True)
@@ -44,7 +44,7 @@ def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
     except ImportError:
         pass
     try:
-        import sqlite_vec  # type: ignore[import-untyped]
+        import sqlite_vec
 
         conn = sqlite3.connect(db_path)
         sqlite_vec.load(conn)

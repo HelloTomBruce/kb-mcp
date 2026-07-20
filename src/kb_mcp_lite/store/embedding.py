@@ -161,7 +161,7 @@ class EmbeddingMixin:
             logging.getLogger("kb_mcp_lite").warning("embedding failed for %s: %s", doc.id, e)
             return
         try:
-            from sqlite_vec import serialize_float32  # type: ignore[import-untyped]
+            from sqlite_vec import serialize_float32
         except ImportError:
             return
         self._vec_conn = None

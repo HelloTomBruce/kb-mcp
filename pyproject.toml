@@ -83,6 +83,13 @@ strict_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 
+[[tool.mypy.overrides]]
+module = [
+  "pysqlite3",
+  "sqlite_vec",
+]
+ignore_missing_imports = true
+
 [tool.setuptools.package-data]
 "kb_mcp_lite" = [
   "migrations/*.sql",

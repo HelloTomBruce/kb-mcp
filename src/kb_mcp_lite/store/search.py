@@ -170,7 +170,7 @@ class SearchMixin:
         if vec_conn is None:
             raise ValidationError("vec0 extension not available; semantic search disabled")
         try:
-            from sqlite_vec import serialize_float32  # type: ignore[import-untyped]
+            from sqlite_vec import serialize_float32
         except ImportError as e:
             raise ValidationError("sqlite-vec not installed; run: pip install 'kb-mcp[vec]'") from e
 
