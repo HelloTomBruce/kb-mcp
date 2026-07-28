@@ -471,7 +471,6 @@ class TestImportDir:
         r = import_dir(store, vault)
         assert isinstance(r, ImportReport)
 
-
     def test_round_trip_preserves_links(self, tmp_path: Path, store: SqliteStore) -> None:
         """Export → re-import preserves cross-document links.
 
