@@ -1,4 +1,19 @@
-# kb-mcp v0.5.26 Release Notes
+# kb-mcp v0.5.27 Release Notes
+
+## Overview
+
+v0.5.27 fixes several import round-trip issues that surfaced after the
+filename-as-ID change in v0.5.26:
+
+- ``created_at`` and ``updated_at`` from frontmatter are now preserved
+  instead of being overwritten with ``now()``.
+- Links exported by older versions (using ``make_id``-style targets) are
+  automatically resolved to the new filename-based IDs during import.
+- Link order in exported YAML is stable (sorted by ``(to_id, rel)``),
+  preventing phantom diffs in ``pending_export`` / ``kb vault status``.
+- Mypy type error fixed in ``doc_from_frontmatter``.
+
+## What's new in v0.5.26
 
 ## Overview
 
@@ -11,7 +26,7 @@ This makes imports predictable: the file ``proj/kb-mcp.md`` always gets
 ID ``proj/kb-mcp``, regardless of its frontmatter ``title``, and directory
 hierarchy maps naturally to ID namespacing.
 
-## What's new in v0.6.0
+## What's new in v0.5.26
 
 ### Filename-based document IDs on import
 
