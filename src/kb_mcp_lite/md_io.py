@@ -259,7 +259,7 @@ def doc_from_frontmatter(
     # ID priority: 1) explicit frontmatter id, 2) file_id (from filename),
     # 3) auto-generated from type + title.
     explicit_id = fm.get("id")
-    if explicit_id:
+    if isinstance(explicit_id, str) and explicit_id:
         doc_id = explicit_id
     elif file_id:
         doc_id = file_id
