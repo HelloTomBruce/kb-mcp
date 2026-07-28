@@ -113,7 +113,8 @@ def test_search_lab_and_import_export(tmp_path: Path) -> None:
     )
     assert import_response.status_code == 200
     assert "Imported Project" not in import_response.text
-    assert store.get("proj/imported-project").title == "Imported Project"
+    # Now filename = id: the zip contains "entry.md" → id = "entry"
+    assert store.get("entry").title == "Imported Project"
 
     export_response = client.post("/exports")
     assert export_response.status_code == 200

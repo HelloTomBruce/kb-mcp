@@ -210,7 +210,12 @@ def _parse_iso_dt(value: Any) -> datetime:
     return dt
 
 
-def doc_from_frontmatter(fm: Frontmatter, body: str, source: str | None = None) -> Document:
+def doc_from_frontmatter(
+    fm: Frontmatter,
+    body: str,
+    source: str | None = None,
+    file_id: str | None = None,
+) -> Document:
     """Build a :class:`Document` from parsed frontmatter + body.
 
     Public helper so callers (e.g. tests) can reuse the conversion
@@ -218,6 +223,11 @@ def doc_from_frontmatter(fm: Frontmatter, body: str, source: str | None = None) 
     ``tags``, ``created_at``, ``updated_at``. The ``source`` argument
     overrides whatever is in the frontmatter (callers from
     :func:`import_dir` always pass the file's relative path).
+
+    ``file_id`` is the import-time ID derived from the filename
+    (relative path minus ``.md`` extension). When provided, it is
+    used as the document ID instead of ``make_id(type, title)``.
+    Frontmatter may still override by explicitly setting ``id``.
 
     Raises:
         ValidationError: if required fields are missing or have an
@@ -246,8 +256,18 @@ def doc_from_frontmatter(fm: Frontmatter, body: str, source: str | None = None) 
     created_at_raw = fm.get("created_at")
     updated_at_raw = fm.get("updated_at")
 
+    # ID priority: 1) explicit frontmatter id, 2) file_id (from filename),
+    # 3) auto-generated from type + title.
+    explicit_id = fm.get("id")
+    if explicit_id:
+        doc_id = explicit_id
+    elif file_id:
+        doc_id = file_id
+    else:
+        doc_id = make_id(type_, title)
+
     return Document(
-        id=make_id(type_, title),
+        id=doc_id,
         type=type_,
         title=title,
         body=body or "",
@@ -350,7 +370,9 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
                 text = path.read_text(encoding="utf-8")
                 fm, body = parse_frontmatter(text)
                 rel_source = str(path.relative_to(base))
-                doc = doc_from_frontmatter(fm, body, source=rel_source)
+                # ID = relative path minus ".md" extension (e.g. "proj/kb-mcp").
+                file_id = Path(rel_source).with_suffix("").as_posix()
+                doc = doc_from_frontmatter(fm, body, source=rel_source, file_id=file_id)
                 docs.append(doc)
 
                 # Collect links from frontmatter.
@@ -531,6 +553,10 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
             raise ValidationError(
                 f"refusing to overwrite existing file {candidate} (use force=True to overwrite)"
             )
+
+        # Ensure parent directory exists (important for nested paths
+        # like "sub/nested.md" when filename is used as document ID).
+        candidate.parent.mkdir(parents=True, exist_ok=True)
 
         candidate.write_text(
             render_document(doc, outlinks=store.outlinks(doc.id)),

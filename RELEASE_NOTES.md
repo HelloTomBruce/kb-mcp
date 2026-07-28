@@ -1,8 +1,41 @@
+# kb-mcp v0.6.0 Release Notes
+
+## Overview
+
+v0.6.0 changes the import ID strategy: when importing Markdown files via
+``import_dir`` (CLI ``kb import`` / zip upload / ``kb vault pull``),
+the **filename** (relative path minus ``.md``) is now used as the document
+ID, instead of auto-generating one from ``type+title``.
+
+This makes imports predictable: the file ``proj/kb-mcp.md`` always gets
+ID ``proj/kb-mcp``, regardless of its frontmatter ``title``, and directory
+hierarchy maps naturally to ID namespacing.
+
+## What's new in v0.6.0
+
+### Filename-based document IDs on import
+
+- ``import_dir`` now passes ``file_id`` (relative path minus ``.md``) to
+  ``doc_from_frontmatter``.
+- ``doc_from_frontmatter`` gains a ``file_id`` parameter. ID priority:
+  1. frontmatter ``id`` (explicit override)
+  2. ``file_id`` (from filename)
+  3. ``make_id(type, title)`` (auto-generated, unchanged fallback)
+- ``export_dir`` creates parent directories when the source path contains
+  subdirectories (e.g. ``sub/nested.md``).
+
+### Backward compatibility
+
+- ``kb_add`` (MCP tool) is **unaffected** — it still uses ``make_id``.
+- Export → re-import round-trips are **preserved** via source-based dedup.
+- Existing documents with explicit IDs set via ``kb_add`` or the admin UI
+  are not touched.
+
 # kb-mcp v0.4.0 Release Notes
 
 ## Overview
 
-kb-mcp v0.4.0 introduces **multi-vault** support and **Git-based team sync**,
+kb-mcp v0.4.0 introduces **multi-vault** support and **Git-based team sync`,
 turning kb-mcp from a personal knowledge base into a shareable team knowledge
 base.
 
