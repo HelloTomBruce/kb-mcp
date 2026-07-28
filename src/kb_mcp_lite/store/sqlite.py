@@ -291,8 +291,12 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             pass
 
         now = datetime.now(timezone.utc)
-        doc.created_at = now
-        doc.updated_at = now
+        # Preserve timestamps set by the caller (e.g. from frontmatter).
+        # The pydantic default_factory already sets both to now() if absent.
+        if not doc.created_at:
+            doc.created_at = now
+        if not doc.updated_at:
+            doc.updated_at = now
 
         with self._txn() as cur:
             cur.execute(

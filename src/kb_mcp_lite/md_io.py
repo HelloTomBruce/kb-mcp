@@ -138,7 +138,10 @@ def render_document(doc: Document, outlinks: list[Link] | None = None) -> str:
     if doc.updated_at is not None:
         fm["updated_at"] = doc.updated_at.isoformat()
     if outlinks:
-        fm["links"] = [{"to": link.to_id, "rel": link.rel} for link in outlinks]
+        fm["links"] = [
+            {"to": link.to_id, "rel": link.rel}
+            for link in sorted(outlinks, key=lambda l: l.to_id)
+        ]
 
     post = frontmatter.Post(doc.body or "", **fm)
     return frontmatter.dumps(post)
