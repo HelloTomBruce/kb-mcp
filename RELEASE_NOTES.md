@@ -1,8 +1,8 @@
-# kb-mcp v0.6.0 Release Notes
+# kb-mcp v0.5.26 Release Notes
 
 ## Overview
 
-v0.6.0 changes the import ID strategy: when importing Markdown files via
+v0.5.26 changes the import ID strategy: when importing Markdown files via
 ``import_dir`` (CLI ``kb import`` / zip upload / ``kb vault pull``),
 the **filename** (relative path minus ``.md``) is now used as the document
 ID, instead of auto-generating one from ``type+title``.
