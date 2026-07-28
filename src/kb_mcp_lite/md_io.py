@@ -140,7 +140,7 @@ def render_document(doc: Document, outlinks: list[Link] | None = None) -> str:
     if outlinks:
         fm["links"] = [
             {"to": link.to_id, "rel": link.rel}
-            for link in sorted(outlinks, key=lambda l: (l.to_id, l.rel))
+            for link in sorted(outlinks, key=lambda lnk: (lnk.to_id, lnk.rel))
         ]
 
     post = frontmatter.Post(doc.body or "", **fm)
