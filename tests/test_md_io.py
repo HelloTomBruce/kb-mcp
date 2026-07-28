@@ -472,6 +472,106 @@ class TestImportDir:
         assert isinstance(r, ImportReport)
 
 
+    def test_round_trip_preserves_links(self, tmp_path: Path, store: SqliteStore) -> None:
+        """Export → re-import preserves cross-document links.
+
+        Regression: when filename-as-ID changed the import ID strategy,
+        links in frontmatter referenced stale make_id targets and were
+        silently dropped on re-import.
+        """
+        vault = tmp_path / "src"
+        vault.mkdir()
+
+        _write(
+            vault / "alpha.md",
+            "---\ntype: project\ntitle: Alpha\n---\n# Alpha\n\nBody.\n",
+        )
+        _write(
+            vault / "beta.md",
+            "---\ntype: decision\ntitle: Beta\n---\n# Beta\n\nBody.\n",
+        )
+
+        # First import → both docs get filename-based IDs.
+        r1 = import_dir(store, vault)
+        assert r1.inserted == 2
+        assert r1.errors == []
+
+        # Create a link between them.
+        store.link("alpha", "beta", rel="references")
+
+        # Export to a separate directory.
+        export_path = tmp_path / "exported"
+        export_dir(store, export_path, force=True)
+
+        # The exported file should have links in frontmatter.
+        exported = (export_path / "alpha.md").read_text(encoding="utf-8")
+        assert "links:" in exported
+        assert "beta" in exported
+
+        # Re-import from the export directory — must preserve links.
+        r2 = import_dir(store, export_path)
+        assert r2.errors == [], f"re-import errors: {r2.errors}"
+
+        # Verify the link still exists after re-import.
+        outlinks = store.outlinks("alpha")
+        assert len(outlinks) == 1
+        assert outlinks[0].to_id == "beta"
+        assert outlinks[0].rel == "references"
+
+        # Also verify the inbound link is preserved.
+        backlinks = store.backlinks("beta")
+        assert len(backlinks) == 1
+        assert backlinks[0].from_id == "alpha"
+
+    def test_import_resolves_old_style_link_targets(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """Importing files with old-style make_id link targets (e.g.
+        "proj/alpha") resolves them to new filename-based IDs.
+
+        Regression: after the import ID strategy changed, links exported
+        by an older version referenced targets like "proj/alpha" but the
+        document now has ID "alpha". The import must map the old target
+        to the new ID.
+        """
+        vault = tmp_path / "src"
+        vault.mkdir()
+
+        # These files simulate an old export: the frontmatter links
+        # reference make_id-style targets.
+        _write(
+            vault / "alpha.md",
+            "---\n"
+            "type: project\n"
+            "title: Alpha\n"
+            "links:\n"
+            "  - to: dec/beta\n"  # old make_id target
+            "    rel: references\n"
+            "---\n"
+            "# Alpha\n\nBody.\n",
+        )
+        _write(
+            vault / "beta.md",
+            "---\ntype: decision\ntitle: Beta\n---\n# Beta\n\nBody.\n",
+        )
+
+        r = import_dir(store, vault)
+        assert r.errors == [], f"import errors: {r.errors}"
+
+        # The link from alpha should resolve to "beta" (filename-based ID)
+        # instead of "dec/beta" (old make_id target).
+        outlinks = store.outlinks("alpha")
+        assert len(outlinks) == 1
+        assert outlinks[0].to_id == "beta"
+        assert outlinks[0].rel == "references"
+
+        # Sanity: "dec/beta" does not exist.
+        from kb_mcp_lite.schema import NotFoundError
+
+        with pytest.raises(NotFoundError):
+            store.get("dec/beta")
+
+
 # ---------------------------------------------------------------------------
 # export_dir — vault emission
 # ---------------------------------------------------------------------------

@@ -402,13 +402,24 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
     # ("update by source path" per architecture § 4.3).
     report = store.import_many(docs)
 
+    # Build old-ID → new-ID mapping for imported docs. Links exported by
+    # older versions used make_id(type, title) targets; after the switch to
+    # filename-based IDs those old targets are stale. Map them to the new ID
+    # so cross-doc links survive re-import.
+    old_id_map: dict[str, str] = {}
+    for doc in docs:
+        old_id = make_id(doc.type, doc.title)
+        if old_id != doc.id:
+            old_id_map[old_id] = doc.id
+
     # Create links after all documents are in the store.
     link_errors: list[str] = []
     for from_id, to_id, rel, source_path in pending_links:
+        resolved_to = old_id_map.get(to_id, to_id)
         try:
-            store.link(from_id, to_id, rel=rel)
+            store.link(from_id, resolved_to, rel=rel)
         except Exception as e:  # noqa: BLE001 — surface per-link error
-            link_errors.append(f"{source_path}: link {from_id} -> {to_id} ({rel}): {e}")
+            link_errors.append(f"{source_path}: link {from_id} -> {resolved_to} ({rel}): {e}")
 
     return ImportReport(
         inserted=report.inserted,

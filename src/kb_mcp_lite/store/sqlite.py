@@ -631,6 +631,15 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                                 if k in {"title", "body", "tags", "source", "aliases"}
                             },
                         )
+                        # Restore the original updated_at from the imported doc;
+                        # update() unconditionally bumps it to now(), which would
+                        # make every re-imported doc appear as pending-modify in
+                        # vault status / pending_export.
+                        with self._txn() as cur:
+                            cur.execute(
+                                "UPDATE documents SET updated_at = ? WHERE id = ?",
+                                (doc.updated_at.isoformat(), doc.id),
+                            )
                         report.updated += 1
                         continue
                 self.add(doc)
