@@ -1,3 +1,25 @@
+# kb-mcp v0.6.1 Release Notes
+
+## Overview
+
+v0.6.1 fixes the version sync issue: v0.5.27 was published with
+`__init__.py` still reporting `0.5.25`, causing `kb --version` to show
+the wrong version. The version string in `__init__.py` is now synced with
+`pyproject.toml` before build.
+
+## What's changed
+
+- **sync**: `__version__` in `__init__.py` now matches `pyproject.toml`
+- **style**: ruff format + lint cleanup
+
+## Installation
+
+```bash
+pip install kb-mcp-lite==0.6.1
+```
+
+---
+
 # kb-mcp v0.5.27 Release Notes
 
 ## Overview
