@@ -1,3 +1,29 @@
+# kb-mcp v0.6.2 Release Notes
+
+## Overview
+
+v0.6.2 fixes the MCP SDK dependency break: the unbounded `mcp>=1.0`
+constraint allowed MCP SDK 2.x to be installed, which removed
+`mcp.server.fastmcp` (the FastMCP API this project builds on), causing
+`kb serve` to fail with the misleading error
+"mcp package not installed; run: pip install mcp".
+
+The dependency is now capped at `mcp>=1.0,<2` so a plain `pip install`
+resolves to the latest 1.x SDK (1.29.0).
+
+## What's changed
+
+- **fix**: cap `mcp>=1.0,<2` in `pyproject.toml` to exclude MCP SDK 2.x
+- **serve**: `kb serve` works again after installing MCP SDK 1.x
+
+## Installation
+
+```bash
+pip install kb-mcp-lite==0.6.2
+```
+
+---
+
 # kb-mcp v0.6.1 Release Notes
 
 ## Overview
