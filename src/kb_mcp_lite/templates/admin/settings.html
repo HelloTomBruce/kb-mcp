@@ -29,10 +29,10 @@
       <div><span>Config file</span><strong>{{ config_path }}</strong></div>
     </div>
     <div style="margin-top:12px;">
-      <textarea id="config-editor" style="width:100%;min-height:200px;font-family:monospace;font-size:13px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-alt);color:var(--text);resize:vertical;">{{ config_content }}</textarea>
+      <textarea id="config-editor" style="width:100%;min-height:200px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--input);border-radius:var(--radius);background:var(--background);color:var(--foreground);resize:vertical;">{{ config_content }}</textarea>
       <div style="margin-top:8px;display:flex;gap:8px;">
-        <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
-        <span id="config-save-result" style="font-size:13px;color:var(--muted);align-self:center;"></span>
+        <button class="button primary" onclick="saveConfig()">Save Config</button>
+        <span id="config-save-result" style="font-size:13px;color:var(--muted-foreground);align-self:center;"></span>
       </div>
     </div>
   </section>
@@ -45,21 +45,21 @@
           <div class="row-title">Import from sync directory</div>
           <div class="row-meta">Import markdown files from the vault's <code>sync_dir/md/</code></div>
         </div>
-        <button class="btn btn-primary" onclick="runVaultAction('/api/vaults/import', 'Import')">Import</button>
+        <button class="button primary" onclick="runVaultAction('/api/vaults/import', 'Import')">Import</button>
       </div>
       <div class="list-row">
         <div>
           <div class="row-title">Git commit</div>
           <div class="row-meta">Export documents to markdown and git commit</div>
         </div>
-        <button class="btn btn-primary" onclick="runVaultCommit()">Commit</button>
+        <button class="button primary" onclick="runVaultCommit()">Commit</button>
       </div>
       <div class="list-row">
         <div>
           <div class="row-title">Rebuild embeddings</div>
           <div class="row-meta">Recompute semantic-search vectors for all documents</div>
         </div>
-        <button class="btn btn-primary" onclick="runVaultAction('/api/vaults/embed', 'Embed')">Embed</button>
+        <button class="button primary" onclick="runVaultAction('/api/vaults/embed', 'Embed')">Embed</button>
       </div>
     </div>
     <div id="action-result" style="margin-top:12px;display:none;"></div>

@@ -28,7 +28,7 @@
       <button type="button" id="graph-reset-btn" class="button ghost small-button">Reset</button>
     </form>
   </div>
-  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+  <div class="graph-controls">
     <label class="graph-legend-item">
       <input type="checkbox" id="toggle-physics" checked />
       <span>Physics</span>
@@ -41,10 +41,27 @@
 
 <div id="graph-container"></div>
 
+<div id="graph-tooltip" class="graph-tooltip"></div>
+
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
 let network = null;
-let currentMode = "full"; // "full" or "subgraph"
+let currentMode = "full";
+let currentGraphData = null;
+
+// Color palette for different document types
+const typeColors = {
+  project: "#3b82f6",
+  decision: "#8b5cf6",
+  lesson: "#10b981",
+  glossary: "#f59e0b",
+  person: "#ec4899",
+  faq: "#06b6d4",
+  api: "#6366f1",
+  runbook: "#f43f5e",
+  release: "#14b8a6",
+  default: "#64748b"
+};
 
 async function loadGraph(rootId, depth) {
   let url = "/api/graph";
@@ -55,9 +72,23 @@ async function loadGraph(rootId, depth) {
   return resp.json();
 }
 
+function getNodeColor(type) {
+  return typeColors[type] || typeColors.default;
+}
+
 function buildNetwork(graphData) {
   const { nodes, edges } = graphData;
   const container = document.getElementById("graph-container");
+  
+  // Detect dark mode
+  const isDark = document.documentElement.classList.contains("dark");
+  const nodeFontColor = isDark ? "#e2e8f0" : "#1e293b";
+  const edgeFontColor = isDark ? "#94a3b8" : "#64748b";
+  const edgeColor = isDark ? "#475569" : "#cbd5e1";
+  const edgeHoverColor = isDark ? "#60a5fa" : "#3b82f6";
+  const nodeBorderColor = isDark ? "#1e293b" : "#ffffff";
+  const hoverBorderColor = isDark ? "#60a5fa" : "#3b82f6";
+  const selectedBorderColor = isDark ? "#818cf8" : "#6366f1";
 
   // Stats
   document.getElementById("graph-stats").innerHTML =
@@ -67,7 +98,7 @@ function buildNetwork(graphData) {
   // Type legend
   const typeSet = new Map();
   nodes.forEach(n => {
-    if (!typeSet.has(n.type)) typeSet.set(n.type, n.color);
+    if (!typeSet.has(n.type)) typeSet.set(n.type, getNodeColor(n.type));
   });
   const legend = document.getElementById("type-legend");
   legend.innerHTML = "";
@@ -78,45 +109,128 @@ function buildNetwork(graphData) {
     legend.appendChild(chip);
   });
 
+  // Process nodes - add color based on type
+  const processedNodes = nodes.map(n => ({
+    ...n,
+    color: {
+      background: getNodeColor(n.type),
+      border: nodeBorderColor,
+      hover: { background: getNodeColor(n.type), border: hoverBorderColor },
+      highlight: { background: getNodeColor(n.type), border: selectedBorderColor }
+    },
+    font: {
+      enabled: true,
+      color: nodeFontColor,
+      face: "Noto Sans, Inter, Segoe UI, sans-serif",
+      size: n.size || 14,
+      strokeWidth: 3,
+      strokeColor: isDark ? "#0f172a" : "#ffffff"
+    },
+    shadow: {
+      enabled: true,
+      color: isDark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.15)",
+      size: 8,
+      x: 0,
+      y: 2
+    }
+  }));
+
+  // Process edges
+  const processedEdges = edges.map(e => ({
+    ...e,
+    color: {
+      color: edgeColor,
+      highlight: edgeHoverColor,
+      hover: edgeHoverColor,
+      opacity: 0.6
+    },
+    font: {
+      enabled: true,
+      color: edgeFontColor,
+      background: "none",
+      strokeWidth: 0,
+      size: 10
+    },
+    smooth: {
+      type: "cubicBezier",
+      forceDirection: "none",
+      roundness: 0.4
+    },
+    shadow: false
+  }));
+
   if (network) {
     network.destroy();
   }
 
-  network = new vis.Network(container, { nodes, edges }, {
+  network = new vis.Network(container, { nodes: processedNodes, edges: processedEdges }, {
     nodes: {
       shape: "dot",
-      size: 14,
-      font: { size: 13, color: "#0f1419", face: "Inter, Segoe UI, sans-serif" },
+      size: 16,
       borderWidth: 2,
       borderWidthSelected: 3,
-      color: { border: "#ffffff" },
-      chosen: { node: (values) => { values.size = 24; } },
+      chosen: { 
+        node: (values) => { 
+          values.size = 22;
+          values.borderWidth = 3;
+        } 
+      },
     },
     edges: {
-      arrows: { to: { enabled: true, scaleFactor: 0.6 } },
-      font: { size: 10, color: "#536471", background: "#ffffff", strokeWidth: 0 },
-      color: { color: "#ccd6dd", hover: "#1d9bf0" },
-      width: 1.2,
-      smooth: { type: "continuous" },
+      arrows: { 
+        to: { 
+          enabled: true, 
+          scaleFactor: 0.5,
+          type: "arrow"
+        } 
+      },
+      width: 1.5,
     },
     physics: {
       enabled: document.getElementById("toggle-physics").checked,
       solver: "forceAtlas2Based",
       forceAtlas2Based: {
-        gravitationalConstant: -40,
-        centralGravity: 0.005,
-        springLength: 140,
-        springConstant: 0.08,
+        gravitationalConstant: -50,
+        centralGravity: 0.01,
+        springLength: 120,
+        springConstant: 0.06,
+        damping: 0.4,
+        avoidOverlap: 0.8
       },
-      stabilization: { iterations: 200 },
+      stabilization: { 
+        iterations: 300,
+        fit: true
+      },
+      minVelocity: 0.75
     },
     interaction: {
       hover: true,
-      tooltipDelay: 200,
+      tooltipDelay: 150,
       zoomView: true,
       dragView: true,
-      navigationButtons: true,
+      navigationButtons: false,
+      keyboard: {
+        enabled: true,
+        bindToWindow: false
+      },
+      hideEdgesOnDrag: true,
+      hideEdgesOnZoom: true,
+      multiselect: false,
+      selectConnectedEdges: true
     },
+    layout: {
+      improvedLayout: true,
+      hierarchical: false
+    }
+  });
+
+  // Hover effects
+  network.on("hoverNode", (params) => {
+    container.style.cursor = "pointer";
+  });
+
+  network.on("blurNode", (params) => {
+    container.style.cursor = "default";
   });
 
   // Click → navigate
@@ -129,11 +243,26 @@ function buildNetwork(graphData) {
       }
     }
   });
+
+  // Double click → focus on node
+  network.on("doubleClick", (params) => {
+    if (params.nodes.length === 1) {
+      const nodeId = params.nodes[0];
+      network.focus(nodeId, {
+        scale: 1.5,
+        animation: {
+          duration: 500,
+          easingFunction: "easeInOutQuad"
+        }
+      });
+    }
+  });
 }
 
 async function focusSubgraph(rootId, depth) {
   document.getElementById("graph-subgraph-badge").style.display = "none";
   const data = await loadGraph(rootId, depth);
+  currentGraphData = data;
   buildNetwork(data);
   currentMode = "subgraph";
   document.getElementById("graph-subgraph-badge").innerHTML =
@@ -144,6 +273,7 @@ async function focusSubgraph(rootId, depth) {
 async function resetGraph() {
   document.getElementById("graph-subgraph-badge").style.display = "none";
   const data = await loadGraph();
+  currentGraphData = data;
   buildNetwork(data);
   currentMode = "full";
 }
@@ -158,11 +288,8 @@ document.getElementById("subgraph-form").addEventListener("submit", async (e) =>
   if (!input) return;
 
   const depth = parseInt(document.getElementById("graph-depth-select").value, 10);
-
-  // Try as document id first
   let rootId = input;
 
-  // If it contains a "/" it's likely a doc id; otherwise search by title
   if (!input.includes("/")) {
     try {
       const searchResp = await fetch(`/api/search?query=${encodeURIComponent(input)}&limit=1`);
@@ -184,26 +311,34 @@ document.getElementById("toggle-physics").addEventListener("change", (e) => {
     network.setOptions({ physics: { enabled: e.target.checked } });
   }
 });
+
+// ── Theme change listener ────────────────────────────────────────────
+window.addEventListener("themechange", () => {
+  if (currentGraphData) {
+    buildNetwork(currentGraphData);
+  }
+});
 </script>
 
 <style>
 #graph-container {
   width: 100%;
-  height: calc(100vh - 240px);
+  height: calc(100vh - 220px);
   min-height: 500px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: var(--radius);
+  background: var(--card);
   box-shadow: var(--shadow);
   overflow: hidden;
+  transition: background 0.2s;
 }
 
 .graph-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 
@@ -214,6 +349,13 @@ document.getElementById("toggle-physics").addEventListener("change", (e) => {
   flex-wrap: wrap;
 }
 
+.graph-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .graph-search-form {
   display: flex;
   align-items: center;
@@ -221,91 +363,132 @@ document.getElementById("toggle-physics").addEventListener("change", (e) => {
 }
 
 .graph-search-input {
-  width: 220px;
-  min-height: 36px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1.5px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  width: 200px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--input);
+  background: var(--background);
+  color: var(--foreground);
   font-size: 13px;
   font-weight: 500;
 }
 
 .graph-search-input:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-glow);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px oklch(72.3% .014 214.4 / .3);
 }
 
 .graph-depth-select {
-  min-height: 36px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1.5px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--input);
+  background: var(--background);
+  color: var(--foreground);
   font-size: 13px;
   font-weight: 500;
 }
 
 .graph-depth-select:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px oklch(72.3% .014 214.4 / .3);
 }
 
 .graph-subgraph-badge {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  background: var(--primary-soft);
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: oklch(50% .134 242.749 / .1);
   color: var(--primary);
   font-size: 13px;
-  font-weight: 600;
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  font-weight: 500;
+  border: 1px solid oklch(50% .134 242.749 / .2);
 }
 
 .graph-legend {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .graph-legend-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--muted);
+  gap: 5px;
+  font-size: 12px;
+  color: var(--foreground);
+  font-weight: 500;
+  padding: 3px 8px;
+  background: var(--muted);
+  border-radius: 9999px;
 }
 
 .graph-legend-chip i {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
 .graph-legend-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--foreground);
   cursor: pointer;
+  user-select: none;
 }
 
 .graph-legend-item input {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.graph-tooltip {
+  position: fixed;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  color: var(--foreground);
+  pointer-events: none;
+  z-index: 1000;
+  display: none;
 }
 
 .vis-network:focus {
   outline: none;
+}
+
+/* Navigation buttons styling */
+.vis-navigation {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+}
+
+.vis-button {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: var(--radius) !important;
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.vis-button:hover {
+  background: var(--muted) !important;
 }
 </style>
 {% endblock %}
