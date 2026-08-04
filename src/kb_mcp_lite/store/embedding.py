@@ -27,16 +27,16 @@ class EmbeddingMixin:
 
     def similar_docs(self, doc_id: str, limit: int = 10) -> list[tuple[Document, float]]:
         """Return documents most similar to ``doc_id`` by embedding cosine distance."""
-        vec_conn = self._vec_conn_lazy()
-        if vec_conn is None:
-            return []
-
         row = self._conn.execute(
             "SELECT rowid FROM documents WHERE id = ? AND deleted_at IS NULL",
             (doc_id,),
         ).fetchone()
         if row is None:
             raise NotFoundError(doc_id)
+
+        vec_conn = self._vec_conn_lazy()
+        if vec_conn is None:
+            return []
 
         try:
             emb_row = vec_conn.execute(

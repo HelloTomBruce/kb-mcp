@@ -5,7 +5,7 @@
 
 `pip install kb-mcp-lite` — 让任何AI编程助手都拥有结构化、可查询、可同步的团队"第二大脑"
 
-[![PyPI version](https://img.shields.io/badge/pypi-v0.5.10-blue)](https://pypi.org/project/kb-mcp-lite/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.6.3-blue)](https://pypi.org/project/kb-mcp-lite/)
 [![Python](https://img.shields.io/badge/python-≥3.10-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-兼容-purple)](https://modelcontextprotocol.io/)
@@ -107,7 +107,7 @@
 
 ### 7. 🌐 MCP协议原生支持
 完全兼容MCP（Model Context Protocol）标准协议，任何支持MCP的客户端（Claude Desktop、Cursor、Composio等）都可以直接接入，AI自动获得以下能力：
-#### 12个内置工具
+#### 15个内置工具
 | 工具名称 | 功能说明 | AI使用场景 |
 |---|---|---|
 | `kb_search` | 全文搜索 | AI遇到问题时，先搜索团队知识库有没有相关解决方案 |
@@ -122,6 +122,11 @@
 | `kb_restore` | 恢复到历史版本 | 误修改后回滚 |
 | `kb_diff` | 对比版本差异 | AI查看文档修改了什么内容 |
 | `kb_restore_deleted` | 恢复已删除文档 | 误删后恢复 |
+| `kb_doctor` | 健康检查 | AI先确认知识库结构和索引是否正常 |
+| `kb_similar` | 相似文档推荐 | AI找相关上下文，避免重复沉淀 |
+| `kb_duplicates` | 重复文档检测 | AI发现并合并重复知识 |
+
+> 批量导入/导出、`prune`、`reindex`、vault 和 Git 同步属于 CLI/Admin 生命周期能力，不会作为 MCP 文件系统工具暴露。
 
 #### 13个结构化资源
 | 资源URI | 返回内容 |
@@ -135,9 +140,9 @@
 | `kb://list` | 所有文档列表 |
 | `kb://list/{type}` | 按类型筛选的文档列表 |
 | `kb://changes` | 最近变更记录 |
-| `kb://history/{id}` | 指定文档的版本历史 |
+| `kb://history/{type}/{slug}` | 指定文档的版本历史 |
 | `kb://search/{query}` | 搜索结果 |
-| `kb://export/{id}` | 导出文档为Markdown |
+| `kb://export/{type}/{slug}` | 导出文档为Markdown |
 | `kb://help/{doc}` | 帮助文档 |
 
 #### 7个交互Prompt
@@ -146,7 +151,7 @@
 | `new-doc` | 引导式创建新文档 |
 | `link-analysis` | 分析文档链接关系 |
 | `search-guide` | 智能搜索助手 |
-| `import-docs` | 批量导入文档 |
+| `import-docs` | 导入文档指引 |
 | `doctor` | 知识库健康检查 |
 | `maintenance` | 知识库维护指导 |
 | `onboarding` | 新手上手指南 |
@@ -455,5 +460,3 @@ src/kb_mcp_lite/
 
 ## 📄 许可证
 MIT License，可自由使用、修改、分发，保留版权声明即可。
-
-

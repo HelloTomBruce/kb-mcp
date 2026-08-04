@@ -131,6 +131,8 @@ def render_document(doc: Document, outlinks: list[Link] | None = None) -> str:
         "title": doc.title,
         "tags": list(doc.tags),
     }
+    if doc.aliases:
+        fm["aliases"] = list(doc.aliases)
     if doc.source is not None:
         fm["source"] = doc.source
     if doc.created_at is not None:

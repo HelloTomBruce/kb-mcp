@@ -514,7 +514,7 @@ wheels = [
 
 [[package]]
 name = "kb-mcp-lite"
-version = "0.6.2"
+version = "0.6.3"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -531,9 +531,11 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pysqlite3" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "sqlite-vec" },
     { name = "types-pyyaml" },
 ]
 vec = [
@@ -550,12 +552,14 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.0,<2" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2.5" },
+    { name = "pysqlite3", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "pysqlite3", marker = "extra == 'vec'", specifier = ">=0.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "python-frontmatter", specifier = ">=1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "ruff", marker = "extra == 'dev'" },
+    { name = "sqlite-vec", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "sqlite-vec", marker = "extra == 'vec'", specifier = ">=0.1.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "uvicorn", specifier = ">=0.30" },

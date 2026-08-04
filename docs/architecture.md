@@ -13,7 +13,7 @@ a library. Anyone just *using* kb-mcp can stop reading here.
 ## 1. Module layout
 
 ```
-src/kb_mcp/
+src/kb_mcp_lite/
 ├── __init__.py          # re-exports the public API
 ├── schema.py            # pydantic models, TypeRegistry, exceptions, ID helpers
 ├── store.py             # Store Protocol (no implementation)
@@ -69,7 +69,7 @@ from kb_mcp import (
 )
 ```
 
-The `Store` Protocol is importable from `kb_mcp.store` but **not** from
+The `Store` Protocol is importable from `kb_mcp_lite.store` but **not** from
 `kb_mcp` directly — users who want to type-hint against it must reach in.
 
 ---
@@ -78,7 +78,7 @@ The `Store` Protocol is importable from `kb_mcp.store` but **not** from
 
 ### 3.1 SQLite DDL
 
-The full DDL is in [`migrations/0001_init.sql`](../src/kb_mcp/migrations/0001_init.sql).
+The full DDL is in [`migrations/0001_init.sql`](../src/kb_mcp_lite/migrations/0001_init.sql).
 This section explains the design choices; the file itself is the
 authoritative source.
 
@@ -160,7 +160,7 @@ applied; out-of-order version numbers are rejected.
 
 ### 3.2 Pydantic models
 
-See [`src/kb_mcp/schema.py`](../src/kb_mcp/schema.py). Key invariants:
+See [`src/kb_mcp_lite/schema.py`](../src/kb_mcp_lite/schema.py). Key invariants:
 
 - `Document.id` matches `^[a-z0-9][a-z0-9/_-]*$`
 - `Document.tags` items match `^[a-z0-9][a-z0-9_-]*$` (lowercase, no spaces)
@@ -175,7 +175,7 @@ See [`src/kb_mcp/schema.py`](../src/kb_mcp/schema.py). Key invariants:
 
 ### 3.3 ID scheme
 
-`kb_mcp.schema.make_id(type, title)` returns `<prefix>/<slug>`, where:
+`kb_mcp_lite.schema.make_id(type, title)` returns `<prefix>/<slug>`, where:
 
 - prefix is `proj | dec | lesson | glossary | person | faq` for the six
   built-in types
@@ -212,7 +212,7 @@ re-import does not destroy data, only marks it for pruning.
 
 ### 4.1 `Store` Protocol
 
-Defined in [`src/kb_mcp/store.py`](../src/kb_mcp/store.py). Method-by-method:
+Defined in [`src/kb_mcp_lite/store.py`](../src/kb_mcp_lite/store.py). Method-by-method:
 
 | Method | Returns | Raises |
 |---|---|---|
@@ -239,7 +239,7 @@ them against any class registered as a `Store`.
 ### 4.2 `TypeRegistry`
 
 ```python
-from kb_mcp.schema import TypeRegistry, default_registry
+from kb_mcp_lite.schema import TypeRegistry, default_registry
 
 registry = TypeRegistry()                # empty
 registry = default_registry              # ships with 6 built-ins
@@ -253,7 +253,7 @@ For v0.1.0, custom types are still backed by the same SQLite schema —
 they only differ in the pydantic model used for validation. This keeps
 the migration story simple. v0.2+ may add per-type table extensions.
 
-### 4.3 Markdown I/O API (`kb_mcp.md_io`)
+### 4.3 Markdown I/O API (`kb_mcp_lite.md_io`)
 
 ```python
 def parse_frontmatter(text: str) -> tuple[Frontmatter, str]: ...
@@ -279,6 +279,10 @@ whose resolved path escapes `dir`.
 
 ### 4.4 MCP tool schemas
 
+The current MCP surface is defined in `mcp_server.py`: 15 tools, 13
+resources, and 7 prompts. The authoritative inventory is asserted by
+`tests/test_mcp_e2e.py`; the representative input models are:
+
 ```python
 # kb_search
 class KbSearchInput(BaseModel):
@@ -286,6 +290,8 @@ class KbSearchInput(BaseModel):
     type: str | None = None
     tags: list[str] | None = None
     limit: int = Field(default=10, ge=1, le=100)
+    mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|semantic|hybrid|rrf)$")
+    rrf_k: int = Field(default=60, ge=1, le=200)
 
 # kb_get
 class KbGetInput(BaseModel):
@@ -297,13 +303,24 @@ class KbAddInput(BaseModel):
     title: str = Field(min_length=1, max_length=512)
     body: str = Field(default="", max_length=1_000_000)
     tags: list[str] | None = None
+    aliases: list[str] | None = None
     source: str | None = None
+    id: str | None = None
 
 # kb_link
 class KbLinkInput(BaseModel):
     from_id: str
     to_id: str
     rel: str = Field(default="relates-to", min_length=1, max_length=64)
+
+# diagnostics
+class KbSimilarInput(BaseModel):
+    id: str = Field(min_length=1)
+    limit: int = Field(default=10, ge=1, le=100)
+
+class KbDuplicatesInput(BaseModel):
+    threshold: float = Field(default=0.15, ge=0.0, le=2.0)
+    limit: int = Field(default=50, ge=1, le=500)
 ```
 
 Error handling — tool errors use MCP's `isError` content convention (not

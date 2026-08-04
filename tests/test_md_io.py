@@ -202,6 +202,20 @@ class TestRenderDocument:
         assert "<em>" not in text
         assert "<a href" not in text
 
+    def test_aliases_round_trip_through_frontmatter(self) -> None:
+        """Aliases are preserved in rendered Markdown frontmatter."""
+        doc = Document(
+            id="proj/kb-mcp",
+            type="project",
+            title="kb-mcp",
+            body="Body",
+            aliases=["kb", "kb-mcp-lite"],
+        )
+        text = render_document(doc)
+        fm, body = parse_frontmatter(text)
+        assert fm["aliases"] == ["kb", "kb-mcp-lite"]
+        assert body == "Body"
+
     def test_stable_key_ordering(self) -> None:
         """Rendering is deterministic — same input, same output."""
         doc = Document(

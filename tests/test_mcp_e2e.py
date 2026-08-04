@@ -23,6 +23,8 @@ from typing import Any, Iterator
 
 import pytest
 
+from kb_mcp_lite.md_io import parse_frontmatter
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -214,7 +216,7 @@ def mcp_proc(tmp_db: Path) -> Iterator[subprocess.Popen]:
 
 
 class TestDiscovery:
-    """MCP server advertises the 4 kb tools."""
+    """MCP server advertises the 15 kb tools."""
 
     def test_tools_list(self, mcp_proc: subprocess.Popen) -> None:
         """tools/list returns kb_search, kb_get, kb_add, kb_link."""
@@ -237,6 +239,9 @@ class TestDiscovery:
             "kb_restore",
             "kb_diff",
             "kb_restore_deleted",
+            "kb_doctor",
+            "kb_similar",
+            "kb_duplicates",
         }
 
 
@@ -426,6 +431,49 @@ class TestErrorCodes:
 
 
 # ---------------------------------------------------------------------------
+# Diagnostics tools
+# ---------------------------------------------------------------------------
+
+
+class TestDiagnostics:
+    """kb_doctor, kb_similar, and kb_duplicates work over MCP."""
+
+    def test_semantic_mode_reaches_embedder_check(self, mcp_proc: subprocess.Popen) -> None:
+        """mode='semantic' passes input validation and reports missing embedder."""
+        resp = _call_tool(mcp_proc, "kb_search", {"query": "anything", "mode": "semantic"})
+        err = _extract_error(resp)
+        assert err is not None, f"expected error without embedder, got: {resp}"
+        assert err[0] == -32602
+        assert "embedder" in err[1].lower()
+
+    def test_doctor(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_doctor returns a structured health report."""
+        resp = _call_tool(mcp_proc, "kb_doctor", {})
+        data = _extract_result(resp)
+        assert isinstance(data, dict)
+        assert "ok" in data
+        assert isinstance(data["checks"], list)
+        assert len(data["checks"]) >= 4
+
+    def test_similar(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_similar returns an empty result set when no embedder is enabled."""
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "SimilarSource"})
+        resp = _call_tool(mcp_proc, "kb_similar", {"id": "proj/similarsource"})
+        data = _extract_result(resp)
+        assert data["id"] == "proj/similarsource"
+        assert data["results"] == []
+        assert data["count"] == 0
+
+    def test_duplicates(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_duplicates returns an empty pair list when vectors are unavailable."""
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "DupSource"})
+        resp = _call_tool(mcp_proc, "kb_duplicates", {})
+        data = _extract_result(resp)
+        assert data["pairs"] == []
+        assert data["count"] == 0
+
+
+# ---------------------------------------------------------------------------
 # Resources (v0.3)
 # ---------------------------------------------------------------------------
 
@@ -434,15 +482,38 @@ class TestResources:
     """MCP server exposes resources via resources/list and resources/read."""
 
     def test_list_resources(self, mcp_proc: subprocess.Popen) -> None:
-        """resources/list returns types and stats resources."""
+        """resources/list returns the full resource inventory."""
         rid = _next_id()
         _send(mcp_proc, {"jsonrpc": "2.0", "id": rid, "method": "resources/list"})
         resp = _recv_until_id(mcp_proc, rid)
         assert "result" in resp, f"resources/list failed: {resp}"
         resources = resp["result"].get("resources", [])
-        uris = {r["uri"] for r in resources}
-        assert "kb://types" in uris, f"Expected kb://types in resources, got: {uris}"
-        assert "kb://stats" in uris, f"Expected kb://stats in resources, got: {uris}"
+        static_uris = {r["uri"] for r in resources}
+        assert static_uris == {
+            "kb://types",
+            "kb://stats",
+            "kb://list",
+            "kb://changes",
+        }
+
+        rid = _next_id()
+        _send(mcp_proc, {"jsonrpc": "2.0", "id": rid, "method": "resources/templates/list"})
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/templates/list failed: {resp}"
+        template_resources = resp["result"].get("resourceTemplates", [])
+        template_uris = {r["uriTemplate"] for r in template_resources}
+        assert template_uris == {
+            "kb://doc/{type}/{slug}",
+            "kb://links/{type}/{slug}",
+            "kb://graph/{type}/{slug}",
+            "kb://graph/{type}/{slug}/{depth}",
+            "kb://list/{type}",
+            "kb://history/{type}/{slug}",
+            "kb://search/{query}",
+            "kb://export/{type}/{slug}",
+            "kb://help/{doc}",
+        }
+        assert len(static_uris | template_uris) == 13
 
     def test_read_doc_resource(self, mcp_proc: subprocess.Popen) -> None:
         """resources/read kb://doc/{id} returns the document."""
@@ -555,6 +626,82 @@ class TestResources:
         assert "docs_by_type" in data
         assert "total_links" in data
 
+    def test_read_export_resource(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read kb://export/{id} returns round-trippable Markdown."""
+        _call_tool(
+            mcp_proc,
+            "kb_add",
+            {
+                "type": "project",
+                "title": "ExportDoc",
+                "body": "# Body",
+                "tags": ["mcp"],
+                "aliases": ["export-alias"],
+            },
+        )
+        _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "ExportTarget"})
+        _call_tool(
+            mcp_proc,
+            "kb_link",
+            {"from_id": "proj/exportdoc", "to_id": "proj/exporttarget"},
+        )
+
+        rid = _next_id()
+        _send(
+            mcp_proc,
+            {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "method": "resources/read",
+                "params": {"uri": "kb://export/proj/exportdoc"},
+            },
+        )
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [{}])
+        text = contents[0].get("text", "")
+        fm, body = parse_frontmatter(text)
+        assert fm["title"] == "ExportDoc"
+        assert fm["aliases"] == ["export-alias"]
+        assert fm["links"][0]["to"] == "proj/exporttarget"
+        assert body == "# Body"
+
+    def test_read_help_resource(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read kb://help/quickstart returns packaged help."""
+        rid = _next_id()
+        _send(
+            mcp_proc,
+            {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "method": "resources/read",
+                "params": {"uri": "kb://help/quickstart"},
+            },
+        )
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [{}])
+        text = contents[0].get("text", "")
+        assert text.startswith("# kb-mcp Quickstart")
+
+    def test_read_help_resource_unknown(self, mcp_proc: subprocess.Popen) -> None:
+        """resources/read for an unknown help doc returns Not Found."""
+        rid = _next_id()
+        _send(
+            mcp_proc,
+            {
+                "jsonrpc": "2.0",
+                "id": rid,
+                "method": "resources/read",
+                "params": {"uri": "kb://help/does-not-exist"},
+            },
+        )
+        resp = _recv_until_id(mcp_proc, rid)
+        assert "result" in resp, f"resources/read failed: {resp}"
+        contents = resp["result"].get("contents", [{}])
+        text = contents[0].get("text", "")
+        assert "# Not Found" in text
+
 
 # ---------------------------------------------------------------------------
 # Prompts (v0.3)
@@ -565,15 +712,22 @@ class TestPrompts:
     """MCP server exposes prompts via prompts/list and prompts/get."""
 
     def test_list_prompts(self, mcp_proc: subprocess.Popen) -> None:
-        """prompts/list returns new-doc and link-analysis."""
+        """prompts/list returns the full prompt inventory."""
         rid = _next_id()
         _send(mcp_proc, {"jsonrpc": "2.0", "id": rid, "method": "prompts/list"})
         resp = _recv_until_id(mcp_proc, rid)
         assert "result" in resp, f"prompts/list failed: {resp}"
         prompts = resp["result"].get("prompts", [])
         names = {p["name"] for p in prompts}
-        assert "new-doc" in names, f"Expected new-doc in prompts, got: {names}"
-        assert "link-analysis" in names, f"Expected link-analysis in prompts, got: {names}"
+        assert names == {
+            "new-doc",
+            "link-analysis",
+            "search-guide",
+            "import-docs",
+            "doctor",
+            "maintenance",
+            "onboarding",
+        }
 
 
 # ---------------------------------------------------------------------------

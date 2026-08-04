@@ -1,3 +1,24 @@
+# kb-mcp v0.6.3 Release Notes
+
+## What's changed
+
+- **MCP tools**: added `kb_doctor`, `kb_similar`, and `kb_duplicates`;
+  the tool surface is now 15 tools.
+- **Search**: explicit `semantic` mode is accepted by `kb_search` when an
+  embedder is configured.
+- **Resources**: `kb://export/{id}` now returns round-trippable Markdown
+  with frontmatter, aliases, and outlinks. `kb://history` and
+  `kb://export` now use `{type}/{slug}` so document IDs with a slash can
+  be addressed.
+- **Help**: built-in help documents are packaged with the distribution and
+  served from an allowlist instead of the source-tree `docs/` directory.
+- **Prompts**: `new-doc` covers all 9 built-in document types, and
+  maintenance/import prompts clearly separate MCP actions from CLI-only
+  lifecycle operations.
+- **Tests**: MCP tool/resource/prompt inventories are asserted exactly.
+
+---
+
 # kb-mcp v0.6.2 Release Notes
 
 ## Overview

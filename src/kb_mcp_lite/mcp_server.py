@@ -2,13 +2,14 @@
 
 Exposes tools, Resources, and Prompts over stdio transport:
 
-**Tools (12):** kb_search, kb_get, kb_add, kb_link, kb_list, kb_update,
-kb_delete, kb_unlink, kb_history, kb_restore, kb_diff, kb_restore_deleted
+**Tools (15):** kb_search, kb_get, kb_add, kb_link, kb_list, kb_update,
+kb_delete, kb_unlink, kb_history, kb_restore, kb_diff, kb_restore_deleted,
+kb_doctor, kb_similar, kb_duplicates
 
-**Resources (12):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
+**Resources (13):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
 kb://types, kb://stats, kb://graph/{type}/{slug}/{depth},
-kb://list[/{type}], kb://changes, kb://history/{id},
-kb://search/{query}, kb://export/{id}, kb://help/{doc}
+kb://list[/{type}], kb://changes, kb://history/{type}/{slug},
+kb://search/{query}, kb://export/{type}/{slug}, kb://help/{doc}
 
 **Prompts (7):** new-doc(type), link-analysis(id), search-guide, import-docs,
 doctor, maintenance, onboarding
@@ -41,6 +42,7 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
+from kb_mcp_lite.md_io import render_document
 from kb_mcp_lite.schema import (
     Document,
     DuplicateError,
@@ -63,7 +65,7 @@ class KbSearchInput(BaseModel):
     type: str | None = None
     tags: List[str] | None = None
     limit: int = Field(default=10, ge=1, le=100)
-    mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|hybrid|rrf)$")
+    mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|semantic|hybrid|rrf)$")
     rrf_k: int = Field(default=60, ge=1, le=200)
 
 
@@ -112,6 +114,16 @@ class KbUnlinkInput(BaseModel):
     from_id: str = Field(min_length=1)
     to_id: str = Field(min_length=1)
     rel: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class KbSimilarInput(BaseModel):
+    id: str = Field(min_length=1)
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class KbDuplicatesInput(BaseModel):
+    threshold: float = Field(default=0.15, ge=0.0, le=2.0)
+    limit: int = Field(default=50, ge=1, le=500)
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +182,108 @@ def _setup_logging(level: str | None = None) -> logging.Logger:
     logger.addHandler(handler)
 
     return logger
+
+
+# ---------------------------------------------------------------------------
+# Prompt templates
+# ---------------------------------------------------------------------------
+
+_DOC_TEMPLATES: dict[str, str] = {
+    "project": (
+        "# {title}\n\n"
+        "## Purpose\n\n"
+        "(What does this project do? Why does it exist?)\n\n"
+        "## Stack\n\n"
+        "- Language:\n- Framework:\n- Database:\n- Infrastructure:\n\n"
+        "## Status\n\n"
+        "(active / maintenance / archived)\n\n"
+        "## Owners\n\n"
+        "(who maintains this)\n\n"
+        "## Links\n\n"
+        "- Related docs: \n"
+    ),
+    "decision": (
+        "# {title}\n\n"
+        "## Context\n\n"
+        "(What prompted this decision? What problem does it solve?)\n\n"
+        "## Options Considered\n\n"
+        "- Option A: \n- Option B: \n\n"
+        "## Decision\n\n"
+        "(Chosen option and why)\n\n"
+        "## Consequences\n\n"
+        "(What does this decision affect? Any follow-up work?)\n\n"
+    ),
+    "lesson": (
+        "# {title}\n\n"
+        "## What Happened\n\n"
+        "(Description of the situation)\n\n"
+        "## Root Cause\n\n"
+        "(Why did it happen?)\n\n"
+        "## Resolution\n\n"
+        "(How was it fixed or mitigated?)\n\n"
+        "## Prevention\n\n"
+        "(How to avoid this in the future)\n\n"
+    ),
+    "glossary": (
+        "# {title}\n\n"
+        "## Definition\n\n"
+        "(One-sentence definition of the term)\n\n"
+        "## Details\n\n"
+        "(Elaboration, examples, or context)\n\n"
+        "## Related Terms\n\n"
+        "- \n\n"
+    ),
+    "person": (
+        "# {title}\n\n"
+        "## Role\n\n"
+        "(Title / responsibility)\n\n"
+        "## Expertise\n\n"
+        "- \n\n"
+        "## Projects\n\n"
+        "- \n\n"
+    ),
+    "faq": (
+        "# {title}\n\n## Answer\n\n(Concise answer to the question)\n\n## References\n\n- \n\n"
+    ),
+    "api": (
+        "# {title}\n\n"
+        "## Endpoint\n\n"
+        "(Path and HTTP method)\n\n"
+        "## Request\n\n"
+        "(Parameters, headers, and request body)\n\n"
+        "## Response\n\n"
+        "(Success and error response shapes)\n\n"
+        "## Auth & Errors\n\n"
+        "(Authentication, rate limits, and error codes)\n\n"
+    ),
+    "runbook": (
+        "# {title}\n\n"
+        "## Trigger\n\n"
+        "(When to run this procedure)\n\n"
+        "## Prerequisites\n\n"
+        "- \n\n"
+        "## Steps\n\n"
+        "1. \n2. \n3. \n\n"
+        "## Verification\n\n"
+        "(How to confirm success)\n\n"
+        "## Rollback\n\n"
+        "(What to do if something fails)\n\n"
+    ),
+    "release": (
+        "# {title}\n\n"
+        "## Version & Date\n\n"
+        "(Version number and release date)\n\n"
+        "## Changes\n\n"
+        "- \n\n"
+        "## Impact\n\n"
+        "(Breaking changes, migrations, affected users)\n\n"
+        "## Rollback\n\n"
+        "(How to revert if needed)\n\n"
+    ),
+}
+
+_DEFAULT_DOC_TEMPLATE = _DOC_TEMPLATES["decision"]
+_HELP_DOCS = ("architecture", "cli-reference", "quickstart")
 
 
 # ---------------------------------------------------------------------------
@@ -750,6 +864,99 @@ def _make_server(vault: str | None = None) -> Any:
             logger.exception("kb_restore_deleted failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
+    # ---- kb_doctor --------------------------------------------------------
+
+    @mcp.tool()
+    def kb_doctor() -> Any:
+        """Run knowledge base health checks.
+
+        Returns:
+            A DoctorReport dict with ``ok`` and ``checks``.
+        """
+        logger.info("kb_doctor")
+        try:
+            report = store.doctor()
+            return report.model_dump(mode="json")
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_doctor failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_similar -------------------------------------------------------
+
+    @mcp.tool()
+    def kb_similar(id: str, limit: int = 10) -> Any:
+        """Find documents most similar to a document by embedding distance.
+
+        Args:
+            id: Document id.
+            limit: Max results 1..100 (default 10).
+
+        Returns:
+            {id, results: [{id, title, type, distance}], count}.
+        """
+        try:
+            inp = KbSimilarInput(id=id, limit=limit)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_similar id=%r limit=%d", inp.id, inp.limit)
+        try:
+            similar = store.similar_docs(inp.id, limit=inp.limit)
+            return {
+                "id": inp.id,
+                "results": [
+                    {
+                        "id": doc.id,
+                        "title": doc.title,
+                        "type": doc.type,
+                        "distance": distance,
+                    }
+                    for doc, distance in similar
+                ],
+                "count": len(similar),
+            }
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_similar failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_duplicates ----------------------------------------------------
+
+    @mcp.tool()
+    def kb_duplicates(threshold: float = 0.15, limit: int = 50) -> Any:
+        """Scan active documents for near-duplicate pairs.
+
+        Args:
+            threshold: Cosine-distance cutoff (default 0.15; lower is more
+                similar).
+            limit: Max pairs 1..500 (default 50).
+
+        Returns:
+            {pairs: [{id_a, id_b, distance}], count}.
+        """
+        try:
+            inp = KbDuplicatesInput(threshold=threshold, limit=limit)
+        except Exception as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_duplicates threshold=%r limit=%d", inp.threshold, inp.limit)
+        try:
+            pairs = store.find_duplicates(threshold=inp.threshold, limit=inp.limit)
+            return {
+                "pairs": [
+                    {"id_a": id_a, "id_b": id_b, "distance": distance}
+                    for id_a, id_b, distance in pairs
+                ],
+                "count": len(pairs),
+            }
+        except Exception as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_duplicates failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
     # ---- Resources -------------------------------------------------------
 
     @mcp.resource(
@@ -1013,18 +1220,19 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- Resource: kb://history --------------------------------------------
 
     @mcp.resource(
-        "kb://history/{id}",
+        "kb://history/{type}/{slug}",
         name="history",
         description="Version history for a document (JSON)",
         mime_type="application/json",
     )
-    def kb_resource_history(id: str) -> str:
+    def kb_resource_history(type: str, slug: str) -> str:
         """Return the version history for a document."""
-        logger.info("resource kb://history id=%r", id)
+        doc_id = f"{type}/{slug}"
+        logger.info("resource kb://history id=%r", doc_id)
         try:
-            history = store.document_history(id)
+            history = store.document_history(doc_id)
             return json.dumps(
-                {"id": id, "history": history, "count": len(history)},
+                {"id": doc_id, "history": history, "count": len(history)},
                 ensure_ascii=False,
             )
         except Exception as e:
@@ -1066,24 +1274,20 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- Resource: kb://export ---------------------------------------------
 
     @mcp.resource(
-        "kb://export/{id}",
+        "kb://export/{type}/{slug}",
         name="export",
         description="Full document body as Markdown",
         mime_type="text/markdown",
     )
-    def kb_resource_export(id: str) -> str:
-        """Return the document body rendered as Markdown."""
-        logger.info("resource kb://export id=%r", id)
+    def kb_resource_export(type: str, slug: str) -> str:
+        """Return the document rendered as round-trippable Markdown."""
+        doc_id = f"{type}/{slug}"
+        logger.info("resource kb://export id=%r", doc_id)
         try:
-            doc = store.get(id)
-            header = f"# {doc.title}\n\n"
-            if doc.tags:
-                header += f"Tags: {', '.join(doc.tags)}\n\n"
-            if doc.source:
-                header += f"Source: {doc.source}\n\n"
-            return header + doc.body
+            doc = store.get(doc_id)
+            return render_document(doc, outlinks=store.outlinks(doc_id))
         except Exception as e:
-            return f"# Error\n\nCould not export document {id!r}: {e}"
+            return f"# Error\n\nCould not export document {doc_id!r}: {e}"
 
     # ---- Resource: kb://help -----------------------------------------------
 
@@ -1094,21 +1298,20 @@ def _make_server(vault: str | None = None) -> Any:
         mime_type="text/markdown",
     )
     def kb_resource_help(doc: str) -> str:
-        """Return a built-in help document from the docs/ directory."""
+        """Return a built-in help document packaged with the server."""
         logger.info("resource kb://help doc=%r", doc)
         try:
-            from pathlib import Path
+            from importlib import resources
 
-            pkg_dir = Path(__file__).resolve().parent  # src/kb_mcp_lite/
-            docs_dir = pkg_dir.parent.parent / "docs"  # project root / docs/
-            doc_file = docs_dir / f"{doc}.md"
-            if not doc_file.exists():
-                available = sorted(p.name.replace(".md", "") for p in docs_dir.glob("*.md"))
+            if doc not in _HELP_DOCS:
+                available = ", ".join(_HELP_DOCS)
                 return (
                     f"# Not Found\n\nHelp document `{doc}` not found."
-                    f"\n\nAvailable documents: {', '.join(available)}"
+                    f"\n\nAvailable documents: {available}"
                 )
-            return doc_file.read_text(encoding="utf-8")
+            help_dir = resources.files("kb_mcp_lite").joinpath("help")
+            help_file = help_dir.joinpath(f"{doc}.md")
+            return help_file.read_text(encoding="utf-8")
         except Exception as e:
             return f"# Error\n\nCould not read help document: {e}"
 
@@ -1123,74 +1326,13 @@ def _make_server(vault: str | None = None) -> Any:
         """Return a Markdown skeleton for a given document type.
 
         Args:
-            type: Document type — project, decision, lesson, glossary, person, faq.
+            type: Built-in type — project, decision, lesson, glossary, person,
+                faq, api, runbook, release.
 
         Returns:
             A fill-in-the-blank Markdown template.
         """
-        templates = {
-            "project": (
-                "# {title}\n\n"
-                "## Purpose\n\n"
-                "(What does this project do? Why does it exist?)\n\n"
-                "## Stack\n\n"
-                "- Language:\n- Framework:\n- Database:\n- Infrastructure:\n\n"
-                "## Status\n\n"
-                "(active / maintenance / archived)\n\n"
-                "## Owners\n\n"
-                "(who maintains this)\n\n"
-                "## Links\n\n"
-                "- Related docs: \n"
-            ),
-            "decision": (
-                "# {title}\n\n"
-                "## Context\n\n"
-                "(What prompted this decision? What problem does it solve?)\n\n"
-                "## Options Considered\n\n"
-                "- Option A: \n- Option B: \n\n"
-                "## Decision\n\n"
-                "(Chosen option and why)\n\n"
-                "## Consequences\n\n"
-                "(What does this decision affect? Any follow-up work?)\n\n"
-            ),
-            "lesson": (
-                "# {title}\n\n"
-                "## What Happened\n\n"
-                "(Description of the situation)\n\n"
-                "## Root Cause\n\n"
-                "(Why did it happen?)\n\n"
-                "## Resolution\n\n"
-                "(How was it fixed or mitigated?)\n\n"
-                "## Prevention\n\n"
-                "(How to avoid this in the future)\n\n"
-            ),
-            "glossary": (
-                "# {title}\n\n"
-                "## Definition\n\n"
-                "(One-sentence definition of the term)\n\n"
-                "## Details\n\n"
-                "(Elaboration, examples, or context)\n\n"
-                "## Related Terms\n\n"
-                "- \n\n"
-            ),
-            "person": (
-                "# {title}\n\n"
-                "## Role\n\n"
-                "(Title / responsibility)\n\n"
-                "## Expertise\n\n"
-                "- \n\n"
-                "## Projects\n\n"
-                "- \n\n"
-            ),
-            "faq": (
-                "# {title}\n\n"
-                "## Answer\n\n"
-                "(Concise answer to the question)\n\n"
-                "## References\n\n"
-                "- \n\n"
-            ),
-        }
-        skeleton = templates.get(type, templates["decision"])
+        skeleton = _DOC_TEMPLATES.get(type, _DEFAULT_DOC_TEMPLATE)
         return (
             f"You are adding a **{type}** document to the knowledge base.\n\n"
             "Fill in this template:\n\n"
@@ -1287,8 +1429,9 @@ def _make_server(vault: str | None = None) -> Any:
             "Body content here...\n"
             "```\n\n"
             "### Using the CLI\n"
-            "Run `kb import <directory>` to batch-import all `.md` files in a directory.\n"
-            "Run `kb import <directory> --dry-run` to preview without writing.\n\n"
+            "Batch import is a CLI-only lifecycle operation and is NOT available through "
+            "this MCP server. Run `kb import <directory>` to batch-import all `.md` files, "
+            "or `kb import <directory> --dry-run` to preview without writing.\n\n"
             "### Using kb_add\n"
             "For a single document, use the `kb_add` tool:\n"
             "```\n"
@@ -1323,15 +1466,17 @@ def _make_server(vault: str | None = None) -> Any:
             "3. **Orphan links** — No links pointing to non-existent documents\n"
             "4. **Valid type/title** — All documents have non-empty type and title\n\n"
             "### How to run\n"
-            "Use the `kb doctor` CLI command, or:\n"
-            "1. read `kb://types` to verify document types are registered\n"
-            "2. read `kb://stats` to see document counts and trends\n"
-            "3. read `kb://changes` to review recent modifications\n\n"
+            "1. Call the `kb_doctor` tool to run the health checks.\n"
+            "2. Read `kb://types` to verify document types are registered.\n"
+            "3. Read `kb://stats` to see document counts and trends.\n"
+            "4. Read `kb://changes` to review recent modifications.\n\n"
             "### Common issues and fixes\n"
             "- **Orphan links**: A document was deleted but links pointing to it remain.\n"
             "  Use `kb_unlink` to clean them up.\n"
-            "- **FTS mismatch**: Run `kb reindex` via the CLI to rebuild the search index.\n"
-            "- **Soft-deleted clutter**: Run `kb prune` to hard-delete old soft-deleted documents.\n"
+            "- **FTS mismatch**: Rebuild via the CLI (`kb reindex`); this operation is "
+            "not available through MCP.\n"
+            "- **Soft-deleted clutter**: Prune via the CLI (`kb prune`); this operation "
+            "is not available through MCP.\n"
         )
 
     # ---- Prompt: maintenance -----------------------------------------------
@@ -1345,28 +1490,27 @@ def _make_server(vault: str | None = None) -> Any:
         """Return a guide for knowledge base maintenance operations."""
         return (
             "## Knowledge Base Maintenance\n\n"
-            "### Prune old soft-deleted documents\n"
-            "Run `kb prune` (CLI) to hard-delete documents that were soft-deleted "
-            "more than 30 days ago. This recovers space and keeps the audit log clean.\n\n"
-            "### Rebuild the search index\n"
-            "Run `kb reindex` (CLI) if the FTS index gets out of sync with the document table. "
-            "This is rare — check with `kb doctor` first.\n\n"
-            "### Find near-duplicate documents\n"
-            "The store supports `similar_docs()` and `find_duplicates()` for detection.\n"
-            "Use `kb://types` and `kb://list/` to review the knowledge base for overlap.\n\n"
-            "### Compact the database\n"
-            "Run `VACUUM` via the SQLite CLI to reclaim space after a large prune or delete:\n"
-            "```\n"
-            'sqlite3 ~/.local/share/kb-mcp/default/kb.db "VACUUM;"\n'
-            "```\n\n"
-            "### Export / backup\n"
-            "Run `kb export <directory>` to dump all documents as Markdown files.\n"
-            "This is useful for version control integration or manual review.\n\n"
+            "### Start with health\n"
+            "Call `kb_doctor` first. If it reports orphan links or FTS drift, fix the "
+            "MCP-reachable issues here and use the CLI for lifecycle operations.\n\n"
+            "### Find duplicates\n"
+            "Call `kb_duplicates` to scan for near-duplicate pairs. For a specific "
+            "document, call `kb_similar` to see which documents are most related.\n\n"
             "### Merge duplicate documents\n"
-            "1. Find duplicates with `find_duplicates()` or manual review.\n"
-            "2. Merge content from the duplicate into the canonical document via `kb_update`.\n"
-            "3. Re-link edges: use `kb_link` to point references to the canonical id.\n"
-            "4. Soft-delete the duplicate with `kb_delete`.\n"
+            "1. Call `kb_get` on both documents to compare content.\n"
+            "2. Merge content into the canonical document via `kb_update`.\n"
+            "3. Re-link edges with `kb_link` to point references at the canonical id.\n"
+            "4. Soft-delete the duplicate with `kb_delete`.\n\n"
+            "### CLI-only lifecycle operations\n"
+            "- `kb prune` hard-deletes old soft-deleted documents.\n"
+            "- `kb reindex` rebuilds the FTS index.\n"
+            "- `kb import` / `kb export` move Markdown files to and from the database.\n"
+            "- `kb vault` manages vaults and Git sync.\n"
+            "These operations are not exposed through this MCP server; do not claim to "
+            "run them here.\n\n"
+            "### Backup\n"
+            "Use `kb export <directory>` from the CLI to create a Markdown backup "
+            "suitable for version control integration.\n"
         )
 
     # ---- Prompt: onboarding ------------------------------------------------
@@ -1388,7 +1532,10 @@ def _make_server(vault: str | None = None) -> Any:
             "- **lesson** — Post-mortem / lessons learned\n"
             "- **glossary** — Term definition\n"
             "- **person** — A person the agent should recognise\n"
-            "- **faq** — Frequently asked question\n\n"
+            "- **faq** — Frequently asked question\n"
+            "- **api** — API endpoint documentation\n"
+            "- **runbook** — Operational procedure or SOP\n"
+            "- **release** — Release log and rollback notes\n\n"
             "### Quick Start\n"
             "1. Read `kb://stats` for an overview of what's stored.\n"
             "2. Read `kb://types` to see the full field schemas.\n"
@@ -1402,7 +1549,9 @@ def _make_server(vault: str | None = None) -> Any:
             "- **Linked graph** of typed relationships between documents\n"
             "- **Version history** — every change is tracked and revertible\n"
             "- **Similarity** — find related documents by semantic similarity\n"
-            "- **Multi-vault** — isolate knowledge bases for different contexts\n\n"
+            "- **Multi-vault** — isolate knowledge bases for different contexts\n"
+            "- **Health & duplicates** — `kb_doctor` and `kb_duplicates` help audit "
+            "the knowledge base\n\n"
             "### Need help?\n"
             "- Run the `search-guide` prompt for search tips.\n"
             "- Run the `doctor` prompt to check knowledge base health.\n"
@@ -1446,6 +1595,8 @@ __all__ = [
     "KbUpdateInput",
     "KbDeleteInput",
     "KbUnlinkInput",
+    "KbSimilarInput",
+    "KbDuplicatesInput",
 ]
 
 
