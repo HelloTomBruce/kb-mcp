@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import pytest
 
 from kb_mcp_lite.md_io import parse_frontmatter
 

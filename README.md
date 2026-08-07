@@ -5,7 +5,7 @@
 
 `pip install kb-mcp-lite` — 让任何AI编程助手都拥有结构化、可查询、可同步的团队"第二大脑"
 
-[![PyPI version](https://img.shields.io/badge/pypi-v0.6.3-blue)](https://pypi.org/project/kb-mcp-lite/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.6.4-blue)](https://pypi.org/project/kb-mcp-lite/)
 [![Python](https://img.shields.io/badge/python-≥3.10-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-兼容-purple)](https://modelcontextprotocol.io/)
