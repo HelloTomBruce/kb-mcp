@@ -120,30 +120,83 @@ class SearchMixin:
         limit: int,
         k: int = 60,
     ) -> List[SearchHit]:
-        """Reciprocal-rank fusion of lexical + fuzzy + semantic results."""
+        """Weighted reciprocal-rank fusion of lexical + fuzzy + semantic results."""
         fetch_n = limit * 3
         lexical = self._search_fts(query, type=type, tags=tags, limit=fetch_n, table="docs_fts")
+        # If strict AND yields no results, retry with OR to extract exact term matches
+        if not lexical and len(query.split()) > 1:
+            or_query = " OR ".join(f'"{t.strip()}"' for t in query.split() if t.strip())
+            try:
+                # Bypass strict AND by injecting a custom OR query safely
+                sql = """
+                    SELECT d.*,
+                           snippet(docs_fts, 1, '<b>', '</b>', '…', 12) AS snip,
+                           bm25(docs_fts) AS score
+                    FROM docs_fts
+                    JOIN documents d ON d.rowid = docs_fts.rowid
+                    WHERE docs_fts MATCH ?
+                      AND d.deleted_at IS NULL
+                """
+                params = [or_query]
+                if type:
+                    sql += " AND d.type = ?"
+                    params.append(type)
+                sql += " ORDER BY score LIMIT ?"
+                params.append(fetch_n)
+                rows = self._conn.execute(sql, params).fetchall()
+                for r in rows:
+                    d = dict(r)
+                    snippet_text = d.pop("snip", "") or ""
+                    score = float(d.pop("score", 0.0))
+                    doc = self._row_to_doc_dict(d)
+                    lexical.append(SearchHit(doc=doc, snippet=snippet_text, score=score))
+            except sqlite3.OperationalError:
+                pass
+
         fuzzy = self._search_fts(query, type=type, tags=tags, limit=fetch_n, table="docs_fts_trgm")
         try:
             semantic = self._search_semantic(query, type=type, tags=tags, limit=fetch_n)
         except Exception:
             semantic = []
 
+        # Define channel weights: lexical has high precision, semantic has high intent, fuzzy is backup
+        w_lexical = 1.6
+        w_fuzzy = 0.4
+        w_semantic = 1.2
+
+        # Adjust weights if semantic search is disabled
+        if not semantic:
+            w_lexical = 2.0
+            w_fuzzy = 0.4
+            k = 30  # Adjust penalty constant for fewer channels
+
         rrf_scores: dict[str, tuple[float, str, Document]] = {}
+
+        def merge_hit(hit: SearchHit, rank: int, weight: float) -> None:
+            contrib = weight * (1.0 / (k + rank))
+            cur_score, cur_snip, doc = rrf_scores.get(hit.doc.id, (0.0, "", hit.doc))
+            
+            # Smart Snippet Merge: Prefer snippets containing HTML tags like <b>
+            new_snip = hit.snippet or ""
+            if cur_snip:
+                has_html_cur = "<b>" in cur_snip
+                has_html_new = "<b>" in new_snip
+                # Keep the current one if it has HTML highlight and the new one doesn't
+                if has_html_cur and not has_html_new:
+                    snippet = cur_snip
+                else:
+                    snippet = new_snip
+            else:
+                snippet = new_snip
+
+            rrf_scores[hit.doc.id] = (cur_score + contrib, snippet, doc)
+
         for rank_1based, hit in enumerate(lexical, start=1):
-            contrib = 1.0 / (k + rank_1based)
-            cur_score, _, _ = rrf_scores.get(hit.doc.id, (0.0, "", hit.doc))
-            rrf_scores[hit.doc.id] = (cur_score + contrib, hit.snippet, hit.doc)
+            merge_hit(hit, rank_1based, w_lexical)
         for rank_1based, hit in enumerate(fuzzy, start=1):
-            contrib = 1.0 / (k + rank_1based)
-            cur_score, cur_snip, doc = rrf_scores.get(hit.doc.id, (0.0, "", hit.doc))
-            snippet = cur_snip or hit.snippet
-            rrf_scores[hit.doc.id] = (cur_score + contrib, snippet, doc)
+            merge_hit(hit, rank_1based, w_fuzzy)
         for rank_1based, hit in enumerate(semantic, start=1):
-            contrib = 1.0 / (k + rank_1based)
-            cur_score, cur_snip, doc = rrf_scores.get(hit.doc.id, (0.0, "", hit.doc))
-            snippet = cur_snip or hit.snippet
-            rrf_scores[hit.doc.id] = (cur_score + contrib, snippet, doc)
+            merge_hit(hit, rank_1based, w_semantic)
 
         sorted_ids = sorted(rrf_scores.keys(), key=lambda i: -rrf_scores[i][0])
         hits: list[SearchHit] = []
