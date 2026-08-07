@@ -183,6 +183,7 @@ def overview_payload(store: SqliteStore) -> dict[str, Any]:
     orphan_count = sum(
         1 for doc in active_docs if not store.backlinks(doc.id) and not store.outlinks(doc.id)
     )
+    conflict_count = sum(1 for doc in active_docs if doc.type == "conflict")
     try:
         embedder = getattr(store, "_embedder", None)
         embed_enabled = bool(embedder and getattr(embedder, "enabled", False))
@@ -204,6 +205,7 @@ def overview_payload(store: SqliteStore) -> dict[str, Any]:
             "links": count_links(store),
             "orphan_documents": orphan_count,
             "vectors": vec_count,
+            "conflicts": conflict_count,
         },
         "type_counts": sorted(type_counts.items()),
         "tag_counts": tag_counts.most_common(12),

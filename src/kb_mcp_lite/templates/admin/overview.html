@@ -12,6 +12,18 @@
   </div>
 </header>
 
+{% if stats.conflicts and stats.conflicts > 0 %}
+<section class="alert error" style="margin-bottom: var(--space-5);">
+  <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+    <div>
+      <strong>⚠️ Git Sync Conflict:</strong>
+      There are {{ stats.conflicts }} document(s) containing unresolved merge conflict markers.
+    </div>
+    <a href="/documents?type=conflict" class="button primary small-button" style="background: var(--destructive); color: var(--destructive-foreground); box-shadow: none;">View Conflicts</a>
+  </div>
+</section>
+{% endif %}
+
 <section class="stats-grid">
   <article class="stat-panel"><span>Active docs</span><strong>{{ stats.documents }}</strong></article>
   <article class="stat-panel"><span>Deleted docs</span><strong>{{ stats.deleted_documents }}</strong></article>
