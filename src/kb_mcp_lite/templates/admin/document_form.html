@@ -126,9 +126,21 @@
       var simplemde = new SimpleMDE({
         element: document.getElementById("markdown-editor"),
         spellChecker: false,
-        status: false,
-        autosave: {
-          enabled: false
+        lineWrapping: true,
+        indentWithTabs: false,
+        tabSize: 4,
+        toolbar: [
+          "bold", "italic", "strikethrough", "|",
+          "heading-1", "heading-2", "heading-3", "|",
+          "code", "quote", "unordered-list", "ordered-list", "table", "horizontal-rule", "|",
+          "link", "image", "|",
+          "preview", "side-by-side", "fullscreen", "|",
+          "undo", "redo", "guide"
+        ],
+        status: ["lines", "words", "cursor"], // Show lines, word count and current cursor position
+        renderingConfig: {
+          singleLineBreaks: false,
+          codeSyntaxHighlighting: true
         }
       });
     });
