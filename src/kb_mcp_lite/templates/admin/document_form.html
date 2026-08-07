@@ -58,7 +58,7 @@
 
       <label>
         <span>Body</span>
-        <textarea name="body" rows="20">{{ doc_form.body }}</textarea>
+        <textarea id="markdown-editor" name="body" rows="20">{{ doc_form.body }}</textarea>
       </label>
 
       <div class="button-row">
@@ -69,6 +69,64 @@
       </div>
     </form>
   </section>
+
+  <!-- Load SimpleMDE Markdown Editor -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.css">
+  <script src="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.js"></script>
+  <style>
+    /* Customise SimpleMDE to match our theme */
+    .editor-toolbar {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+      background: var(--muted);
+      opacity: 1;
+    }
+    .editor-toolbar a {
+      color: var(--foreground) !important;
+    }
+    .editor-toolbar a.active, .editor-toolbar a:hover {
+      background: var(--accent) !important;
+      border-color: var(--border) !important;
+    }
+    .CodeMirror {
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      background: var(--card);
+      color: var(--foreground);
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+    .editor-preview-side {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--foreground);
+    }
+    .editor-preview {
+      background: var(--card);
+      color: var(--foreground);
+    }
+    /* Dark mode CodeMirror overrides */
+    .dark .CodeMirror {
+      background: var(--card);
+      color: var(--foreground);
+    }
+    .dark .CodeMirror-cursor {
+      border-left: 1px solid var(--foreground);
+    }
+  </style>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      var simplemde = new SimpleMDE({
+        element: document.getElementById("markdown-editor"),
+        spellChecker: false,
+        status: false,
+        autosave: {
+          enabled: false
+        }
+      });
+    });
+  </script>
 
   <aside class="side-stack">
     {% if editing and doc %}
