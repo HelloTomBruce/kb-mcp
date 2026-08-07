@@ -605,6 +605,48 @@ class VaultManager:
         lines.append("Run `kb vault commit -m <message>` to export and commit these changes.")
         return "\n".join(lines)
 
+    def sync(
+        self,
+        message: str = "sync: auto-commit local changes",
+        remote: str = "origin",
+        branch: str = "main",
+        name: str | None = None,
+    ) -> str:
+        """Run a full bi-directional sync cycle.
+
+        1. Commit local database changes to the local Git repository.
+        2. Pull incoming changes from the remote Git repository.
+        3. Push local changes back to the remote.
+        4. Re-import Git-merged Markdown files into the SQLite database.
+        """
+        vault_name = name or self.get_current()
+        output_lines = [f"Starting bi-directional sync for vault '{vault_name}'..."]
+
+        # Step 1: Export & Commit local changes
+        try:
+            commit_res = self.commit(message=message, name=name)
+            output_lines.append(f"-> Commit local changes: {commit_res}")
+        except Exception as e:
+            output_lines.append(f"-> Commit local changes failed: {e}")
+            raise VaultError(f"Sync aborted. Commit failed: {e}") from e
+
+        # Step 2: Pull remote changes
+        try:
+            pull_res = self.pull(remote=remote, branch=branch, name=name)
+            output_lines.append(f"-> Pull remote changes:\n{pull_res}")
+        except Exception as e:
+            output_lines.append(f"-> Pull failed: {e}")
+            raise VaultError(f"Sync aborted. Pull failed: {e}") from e
+
+        # Step 3: Push changes back
+        try:
+            push_res = self.push(remote=remote, branch=branch, name=name)
+            output_lines.append(f"-> Push local changes: {push_res or 'OK'}")
+        except Exception as e:
+            output_lines.append(f"-> Push failed (continuing to import): {e}")
+
+        return "\n".join(output_lines)
+
 
 __all__ = [
     "VaultManager",

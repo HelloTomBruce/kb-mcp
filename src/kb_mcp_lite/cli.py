@@ -898,6 +898,21 @@ def vault_status(ctx: click.Context) -> None:
     click.echo(output)
 
 
+@vault_group.command(name="sync")
+@click.option("--message", "-m", default="sync: auto-commit local changes", help="Commit message.")
+@click.option("--remote", default="origin", help="Git remote name.")
+@click.option("--branch", default="main", help="Git branch name.")
+@click.pass_context
+@_handle_errors
+def vault_sync(ctx: click.Context, message: str, remote: str, branch: str) -> None:
+    """Export, commit, pull (merge/import), and push changes to remote."""
+    vm = ctx.obj["vault_manager"]
+    name = vm.get_current()
+    click.echo(f"Starting bi-directional sync for vault '{name}'...")
+    output = vm.sync(message=message, remote=remote, branch=branch, name=name)
+    click.echo(output)
+
+
 # ---- admin commands ----------------------------------------------------------
 
 

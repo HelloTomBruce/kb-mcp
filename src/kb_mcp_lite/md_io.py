@@ -97,12 +97,23 @@ def parse_frontmatter(text: str) -> tuple[Frontmatter, str]:
             propagates from :mod:`python-frontmatter`; callers in the
             import path catch and report it per-file.
     """
-    post = frontmatter.loads(text)
-    # Materialise as a plain dict so callers don't see attribute-style
-    # surprises (frontmatter.Post supports both, but a plain dict is
-    # the documented shape of the TypedDict).
-    fm: Frontmatter = dict(post.metadata)  # type: ignore[assignment]
-    return fm, post.content
+    # Defense: check for Git merge conflict markers first
+    if any(marker in text for marker in ("<<<<<<<", "=======", ">>>>>>>")):
+        # Build a mock frontmatter so the importer doesn't drop the document
+        fm_fallback: Frontmatter = {
+            "type": "conflict",
+            "title": "Git Sync Conflict",
+            "tags": ["conflict", "git-sync"],
+        }
+        # Keep the entire raw text containing conflict markers as the body
+        return fm_fallback, text
+
+    try:
+        post = frontmatter.loads(text)
+        fm: Frontmatter = dict(post.metadata)  # type: ignore[assignment]
+        return fm, post.content
+    except Exception as e:
+        raise e
 
 
 # ---------------------------------------------------------------------------
