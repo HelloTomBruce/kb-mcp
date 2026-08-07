@@ -114,6 +114,12 @@
     .dark .CodeMirror-cursor {
       border-left: 1px solid var(--foreground);
     }
+    /* Fullscreen layering fixes */
+    .CodeMirror-fullscreen, 
+    .editor-preview-side,
+    .editor-toolbar.fullscreen {
+      z-index: 9999 !important;
+    }
   </style>
   <script>
     document.addEventListener("DOMContentLoaded", function() {
