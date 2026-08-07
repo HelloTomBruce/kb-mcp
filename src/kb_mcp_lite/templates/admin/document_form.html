@@ -114,7 +114,10 @@
           {% endif %}
         </div>
         {% else %}
-        <div class="empty-state">No outgoing links yet.</div>
+        <div class="empty-state">
+          <div class="empty-state-title">No outgoing links</div>
+          <p>Add links to connect this document to others.</p>
+        </div>
         {% endfor %}
       </div>
     </section>
@@ -130,7 +133,10 @@
           </div>
         </div>
         {% else %}
-        <div class="empty-state">No backlinks yet.</div>
+        <div class="empty-state">
+          <div class="empty-state-title">No backlinks yet</div>
+          <p>Other documents will link here over time.</p>
+        </div>
         {% endfor %}
       </div>
     </section>
@@ -148,7 +154,10 @@
           <div class="history-note">{{ entry.snapshot.title if entry.snapshot.title else entry.doc_id }}</div>
         </div>
         {% else %}
-        <div class="empty-state">No history yet.</div>
+        <div class="empty-state">
+          <div class="empty-state-title">No history yet</div>
+          <p>Changes are tracked once you save edits.</p>
+        </div>
         {% endfor %}
       </div>
     </section>

@@ -6,73 +6,124 @@
     <h1>Documents</h1>
     <p>Browse, filter, and jump into document editing.</p>
   </div>
-  <a class="button primary" href="/documents/new">New document</a>
+  <a class="button primary" href="/documents/new">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New document
+  </a>
 </header>
 
-<section class="panel">
-  <form class="filter-grid" method="get" action="/documents">
-    <label>
-      <span>Search</span>
-      <input type="text" name="q" value="{{ filters.q }}" placeholder="Title, body, tags" />
-    </label>
-    <label>
-      <span>Type</span>
-      <select name="type">
-        <option value="">All types</option>
-        {% for type_name in doc_types %}
-        <option value="{{ type_name }}" {% if filters.type == type_name %}selected{% endif %}>{{ type_name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      <span>Tag</span>
-      <input type="text" name="tag" value="{{ filters.tag }}" placeholder="single tag" />
-    </label>
-    <label class="checkbox-field">
-      <input type="checkbox" name="include_deleted" value="true" {% if filters.include_deleted %}checked{% endif %} />
-      <span>Include deleted</span>
-    </label>
-    <button class="button secondary" type="submit">Apply</button>
-  </form>
-</section>
+<div class="panel-list">
+  <section class="panel">
+    <form class="filter-grid" method="get" action="/documents">
+      <label>
+        <span>Search</span>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="Title, body, tags" />
+      </label>
+      <label>
+        <span>Type</span>
+        <select name="type">
+          <option value="">All types</option>
+          {% for type_name in doc_types %}
+          <option value="{{ type_name }}" {% if filters.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Tag</span>
+        <input type="text" name="tag" value="{{ filters.tag }}" placeholder="single tag" />
+      </label>
+      <label class="checkbox-field">
+        <input type="checkbox" name="include_deleted" value="true" {% if filters.include_deleted %}checked{% endif %} />
+        <span>Include deleted</span>
+      </label>
+      <button class="button secondary" type="submit">Apply</button>
+    </form>
+  </section>
 
-<section class="panel">
-  <div class="table-shell">
-    <table>
-      <thead>
-        <tr>
-          <th>Title</th>
-          <th>Type</th>
-          <th>Tags</th>
-          <th>Links</th>
-          <th>Updated</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-        <tr>
-          <td>
-            <div class="table-title">{{ row.doc.title }}</div>
-            <div class="table-subtitle">{{ row.doc.id }}</div>
-          </td>
-          <td><span class="status-pill">{{ row.doc.type }}</span></td>
-          <td>
-            <div class="tag-line">
-              {% for tag in row.doc.tags %}
-              <span class="tag-pill small">{{ tag }}</span>
-              {% endfor %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Results</h2>
+      <span class="meta-chip">{{ pagination.total }} document(s)</span>
+    </div>
+    <div class="table-shell">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Type</th>
+            <th>Tags</th>
+            <th>Links</th>
+            <th>Updated</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              <div class="table-title">{{ row.doc.title }}</div>
+              <div class="table-subtitle">{{ row.doc.id }}</div>
+            </td>
+            <td><span class="status-pill">{{ row.doc.type }}</span></td>
+            <td>
+              <div class="tag-line">
+                {% for tag in row.doc.tags %}
+                <span class="tag-pill small">{{ tag }}</span>
+                {% endfor %}
+              </div>
+            </td>
+            <td>{{ row.outlinks }} out · {{ row.backlinks }} in</td>
+            <td>{{ row.doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td><a class="button ghost" href="/documents/{{ row.doc.id }}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              Open
+            </a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">
+            <div class="empty-state">
+              <div class="empty-state-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              </div>
+              <div class="empty-state-title">No matches</div>
+              <p>Try a different query or filter.</p>
             </div>
-          </td>
-          <td>{{ row.outlinks }} out · {{ row.backlinks }} in</td>
-          <td>{{ row.doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
-          <td><a class="button ghost" href="/documents/{{ row.doc.id }}">Open</a></td>
-        </tr>
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if pagination.total_pages > 1 %}
+    <nav class="pagination" aria-label="Document pagination">
+      {% set base_qs = [] %}
+      {% if filters.q %}{% set base_qs = base_qs + [('q', filters.q)] %}{% endif %}
+      {% if filters.type %}{% set base_qs = base_qs + [('type', filters.type)] %}{% endif %}
+      {% if filters.tag %}{% set base_qs = base_qs + [('tag', filters.tag)] %}{% endif %}
+      {% if filters.include_deleted %}{% set base_qs = base_qs + [('include_deleted', 'true')] %}{% endif %}
+      {% set base_qs = base_qs + [('per_page', pagination.per_page | string)] %}
+
+      <a class="button ghost small-button pagination-prev" {% if pagination.has_prev %}href="/documents?{{ (base_qs + [('page', pagination.prev_page | string)]) | urlencode }}"{% else %}disabled{% endif %}>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        Previous
+      </a>
+
+      <div class="pagination-pages">
+        {% for p in range(1, pagination.total_pages + 1) %}
+        {% if p == pagination.page %}
+        <span class="pagination-page current">{{ p }}</span>
         {% else %}
-        <tr><td colspan="6"><div class="empty-state">No documents matched this filter.</div></td></tr>
+        <a class="pagination-page" href="/documents?{{ (base_qs + [('page', p | string)]) | urlencode }}">{{ p }}</a>
+        {% endif %}
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
+      </div>
+
+      <a class="button ghost small-button pagination-next" {% if pagination.has_next %}href="/documents?{{ (base_qs + [('page', pagination.next_page | string)]) | urlencode }}"{% else %}disabled{% endif %}>
+        Next
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </a>
+    </nav>
+    {% endif %}
+  </section>
+</div>
 {% endblock %}

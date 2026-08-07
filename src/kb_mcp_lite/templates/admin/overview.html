@@ -37,7 +37,13 @@
           <time>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</time>
         </a>
         {% else %}
-        <div class="empty-state">No documents yet.</div>
+        <div class="empty-state">
+          <div class="empty-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+          </div>
+          <div class="empty-state-title">No documents yet</div>
+          <a href="/documents/new" class="button primary">Create document</a>
+        </div>
         {% endfor %}
       </div>
     </section>
@@ -76,7 +82,10 @@
           <div class="bar-value">{{ count }}</div>
         </div>
         {% else %}
-        <div class="empty-state">No document types yet.</div>
+        <div class="empty-state">
+          <div class="empty-state-title">No types yet</div>
+          <p>Types will appear once documents are created.</p>
+        </div>
         {% endfor %}
       </div>
     </section>
@@ -89,7 +98,10 @@
         {% for tag, count in tag_counts %}
         <span class="tag-pill">{{ tag }} <small>{{ count }}</small></span>
         {% else %}
-        <div class="empty-state">Tags will show up once documents start carrying them.</div>
+        <div class="empty-state">
+          <div class="empty-state-title">No tags yet</div>
+          <p>Tags appear when documents carry them.</p>
+        </div>
         {% endfor %}
       </div>
     </section>

@@ -195,7 +195,11 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         request: Request,
         doc_id: str = "",
         rel: str = "",
+        page: int = 1,
+        per_page: int = 20,
     ) -> HTMLResponse:
+        per_page = max(5, min(per_page, 100))
+        page = max(1, page)
         with open_store(app) as store:
             docs = store.list(limit=500)
             links = list_links(store)
@@ -204,14 +208,36 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             if rel:
                 links = [link for link in links if link.rel == rel]
             rel_options = sorted({link.rel for link in list_links(store)})
+            
+            total = len(links)
+            total_pages = max(1, (total + per_page - 1) // per_page)
+            page = min(page, total_pages)
+            start = (page - 1) * per_page
+            end = start + per_page
+            paginated_links = links[start:end]
+            
+            # Map doc_id to title for more friendly display
+            id_to_title = {doc.id: doc.title for doc in docs}
+            
             return render(
                 request,
                 "links.html",
                 {
-                    "links": links,
+                    "links": paginated_links,
                     "docs": docs,
+                    "id_to_title": id_to_title,
                     "rel_options": rel_options,
                     "filters": {"doc_id": doc_id, "rel": rel},
+                    "pagination": {
+                        "page": page,
+                        "per_page": per_page,
+                        "total": total,
+                        "total_pages": total_pages,
+                        "has_prev": page > 1,
+                        "has_next": page < total_pages,
+                        "prev_page": page - 1,
+                        "next_page": page + 1,
+                    },
                 },
             )
 

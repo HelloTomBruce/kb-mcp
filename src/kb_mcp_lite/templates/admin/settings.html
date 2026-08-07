@@ -15,92 +15,102 @@
   <article class="stat-panel"><span>Dimension</span><strong>{{ embedder_dim }}</strong></article>
 </section>
 
-<div class="layout-grid single">
-  <section class="panel">
-    <div class="panel-head"><h2>Storage</h2></div>
-    <div class="meta-list">
-      <div><span>Database path</span><strong>{{ db_path }}</strong></div>
-    </div>
-  </section>
+<div class="split-grid">
+  <!-- Left Side: Configuration & Actions -->
+  <div class="panel-list">
+    <section class="panel">
+      <div class="panel-head"><h2>Configuration</h2></div>
+      <div class="meta-list">
+        <div><span>Config file</span><strong>{{ config_path }}</strong></div>
+      </div>
+      <div>
+        <textarea id="config-editor" class="config-editor">{{ config_content }}</textarea>
+        <div class="config-actions">
+          <button id="config-save-btn" class="button primary" onclick="saveConfig(this)">
+            <span class="button-text">Save Config</span>
+            <span class="button-spinner"></span>
+          </button>
+          <span id="config-save-result"></span>
+        </div>
+      </div>
+    </section>
 
-  <section class="panel">
-    <div class="panel-head"><h2>Configuration</h2></div>
-    <div class="meta-list">
-      <div><span>Config file</span><strong>{{ config_path }}</strong></div>
-    </div>
-    <div style="margin-top:12px;">
-      <textarea id="config-editor" style="width:100%;min-height:200px;font-family:var(--font-mono);font-size:13px;padding:12px;border:1px solid var(--input);border-radius:var(--radius);background:var(--background);color:var(--foreground);resize:vertical;">{{ config_content }}</textarea>
-      <div style="margin-top:8px;display:flex;gap:8px;">
-        <button class="button primary" onclick="saveConfig()">Save Config</button>
-        <span id="config-save-result" style="font-size:13px;color:var(--muted-foreground);align-self:center;"></span>
+    <section class="panel">
+      <div class="panel-head"><h2>Actions</h2></div>
+      <div class="list compact actions-list">
+        <div class="list-row">
+          <div>
+            <div class="row-title">Import from sync directory</div>
+            <div class="row-meta">Import markdown files from the vault's <code>sync_dir/md/</code></div>
+          </div>
+          <button class="button primary" onclick="runVaultAction(this, '/api/vaults/import', 'Import')">
+            <span class="button-text">Import</span>
+            <span class="button-spinner"></span>
+          </button>
+        </div>
+        <div class="list-row">
+          <div>
+            <div class="row-title">Git commit</div>
+            <div class="row-meta">Export documents to markdown and git commit</div>
+          </div>
+          <button class="button primary" onclick="runVaultCommit(this)">
+            <span class="button-text">Commit</span>
+            <span class="button-spinner"></span>
+          </button>
+        </div>
+        <div class="list-row">
+          <div>
+            <div class="row-title">Rebuild embeddings</div>
+            <div class="row-meta">Recompute semantic-search vectors for all documents</div>
+          </div>
+          <button class="button primary" onclick="runVaultAction(this, '/api/vaults/embed', 'Embed')">
+            <span class="button-text">Embed</span>
+            <span class="button-spinner"></span>
+          </button>
+        </div>
       </div>
-    </div>
-  </section>
+      <div id="action-result" style="display:none;"></div>
+    </section>
+  </div>
 
-  <section class="panel">
-    <div class="panel-head"><h2>Actions</h2></div>
-    <div class="list compact actions-list">
-      <div class="list-row">
-        <div>
-          <div class="row-title">Import from sync directory</div>
-          <div class="row-meta">Import markdown files from the vault's <code>sync_dir/md/</code></div>
-        </div>
-        <button class="button primary" onclick="runVaultAction('/api/vaults/import', 'Import')">Import</button>
+  <!-- Right Side: Info, Checks & Audits -->
+  <div class="panel-list">
+    <section class="panel">
+      <div class="panel-head"><h2>Storage</h2></div>
+      <div class="meta-list">
+        <div><span>Database path</span><strong>{{ db_path }}</strong></div>
       </div>
-      <div class="list-row">
-        <div>
-          <div class="row-title">Git commit</div>
-          <div class="row-meta">Export documents to markdown and git commit</div>
-        </div>
-        <button class="button primary" onclick="runVaultCommit()">Commit</button>
-      </div>
-      <div class="list-row">
-        <div>
-          <div class="row-title">Rebuild embeddings</div>
-          <div class="row-meta">Recompute semantic-search vectors for all documents</div>
-        </div>
-        <button class="button primary" onclick="runVaultAction('/api/vaults/embed', 'Embed')">Embed</button>
-      </div>
-    </div>
-    <div id="action-result" style="margin-top:12px;display:none;"></div>
-  </section>
+    </section>
 
-  <section class="panel">
-    <div class="panel-head"><h2>Doctor checks</h2></div>
-    <div class="list compact">
-      {% for check in doctor_report.checks %}
-      <div class="list-row">
-        <div>
-          <div class="row-title">{{ check.name }}</div>
-          <div class="row-meta">{{ check.detail }}</div>
+    <section class="panel">
+      <div class="panel-head"><h2>Doctor checks</h2></div>
+      <div class="list compact">
+        {% for check in doctor_report.checks %}
+        <div class="list-row">
+          <div>
+            <div class="row-title">{{ check.name }}</div>
+            <div class="row-meta">{{ check.detail }}</div>
+          </div>
+          <span class="status-pill {{ 'status-ok' if check.ok else 'status-bad' }}">{{ "OK" if check.ok else "Fail" }}</span>
         </div>
-        <span class="status-pill {{ 'status-ok' if check.ok else 'status-bad' }}">{{ "OK" if check.ok else "Fail" }}</span>
+        {% endfor %}
       </div>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head"><h2>Recent audit log</h2></div>
-    <div class="list compact">
-      {% for entry in audit_log %}
-      <div class="list-row">
-        <div>
-          <div class="row-title">{{ entry.entity_type }} · {{ entry.action }}</div>
-          <div class="row-meta">{{ entry.entity_id }} · {{ entry.created_at }}</div>
-        </div>
-      </div>
-      {% else %}
-      <div class="empty-state">No audit entries yet.</div>
-      {% endfor %}
-    </div>
-  </section>
+    </section>
+  </div>
 </div>
 
 <script>
-function saveConfig() {
+function setButtonLoading(btn, loading) {
+  if (!btn) return;
+  if (loading) btn.classList.add('loading');
+  else btn.classList.remove('loading');
+  btn.disabled = loading;
+}
+
+function saveConfig(btn) {
   const content = document.getElementById('config-editor').value;
   const resultSpan = document.getElementById('config-save-result');
+  setButtonLoading(btn, true);
   resultSpan.textContent = 'Saving…';
   fetch('/api/config', {
     method: 'PUT',
@@ -109,20 +119,27 @@ function saveConfig() {
   })
     .then(r => r.json())
     .then(data => {
-      resultSpan.textContent = data.ok ? '✓ Saved' : '✗ ' + (data.error || 'Error');
-      resultSpan.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+      if (data.ok) {
+        resultSpan.textContent = '✓ Saved';
+        resultSpan.style.color = 'var(--success)';
+        showToast('success', 'Config saved');
+      } else {
+        resultSpan.textContent = '✗ ' + (data.error || 'Error');
+        resultSpan.style.color = 'var(--destructive)';
+        showToast('error', 'Save failed', data.error || 'Error');
+      }
     })
     .catch(e => {
       resultSpan.textContent = '✗ ' + e.message;
-      resultSpan.style.color = 'var(--danger)';
-    });
+      resultSpan.style.color = 'var(--destructive)';
+      showToast('error', 'Save failed', e.message);
+    })
+    .finally(() => setButtonLoading(btn, false));
 }
 
-function runVaultAction(url, label) {
-  const btn = event.target;
+function runVaultAction(btn, url, label) {
   const resultDiv = document.getElementById('action-result');
-  btn.disabled = true;
-  btn.textContent = label + '…';
+  setButtonLoading(btn, true);
   resultDiv.style.display = 'block';
   resultDiv.innerHTML = '<div class="empty-state">Running…</div>';
 
@@ -136,26 +153,24 @@ function runVaultAction(url, label) {
         }
         html += '</ul></div>';
         resultDiv.innerHTML = html;
+        showToast('success', label + ' complete');
       } else {
         resultDiv.innerHTML = '<div class="alert error">' + (data.error || 'Unknown error') + '</div>';
+        showToast('error', label + ' failed', data.error || 'Unknown error');
       }
     })
     .catch(e => {
       resultDiv.innerHTML = '<div class="alert error">' + e.message + '</div>';
+      showToast('error', label + ' failed', e.message);
     })
-    .finally(() => {
-      btn.disabled = false;
-      btn.textContent = label;
-    });
+    .finally(() => setButtonLoading(btn, false));
 }
 
-function runVaultCommit() {
+function runVaultCommit(btn) {
   const msg = prompt('Commit message:', 'admin commit');
   if (!msg) return;
-  const btn = event.target;
   const resultDiv = document.getElementById('action-result');
-  btn.disabled = true;
-  btn.textContent = 'Commit…';
+  setButtonLoading(btn, true);
   resultDiv.style.display = 'block';
   resultDiv.innerHTML = '<div class="empty-state">Running…</div>';
 
@@ -168,17 +183,17 @@ function runVaultCommit() {
     .then(data => {
       if (data.ok) {
         resultDiv.innerHTML = '<div class="alert success"><strong>Commit OK:</strong> ' + (data.output || '') + '</div>';
+        showToast('success', 'Commit complete');
       } else {
         resultDiv.innerHTML = '<div class="alert error">' + (data.error || 'Unknown error') + '</div>';
+        showToast('error', 'Commit failed', data.error || 'Unknown error');
       }
     })
     .catch(e => {
       resultDiv.innerHTML = '<div class="alert error">' + e.message + '</div>';
+      showToast('error', 'Commit failed', e.message);
     })
-    .finally(() => {
-      btn.disabled = false;
-      btn.textContent = 'Commit';
-    });
+    .finally(() => setButtonLoading(btn, false));
 }
 </script>
 {% endblock %}

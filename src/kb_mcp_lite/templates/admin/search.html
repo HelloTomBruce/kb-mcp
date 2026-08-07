@@ -8,6 +8,7 @@
   </div>
 </header>
 
+<div class="panel-list">
 <section class="panel">
   <form method="get" action="/search" class="filter-grid search-grid">
     <label class="span-2">
@@ -74,8 +75,15 @@
       </div>
     </article>
     {% else %}
-    <div class="empty-state">Run a query to inspect search behavior.</div>
+        <div class="empty-state">
+          <div class="empty-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          </div>
+          <div class="empty-state-title">Run a query</div>
+          <p>Inspect lexical, fuzzy, semantic and hybrid retrieval.</p>
+        </div>
     {% endfor %}
   </div>
 </section>
+</div>
 {% endblock %}

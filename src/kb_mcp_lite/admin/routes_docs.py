@@ -143,7 +143,11 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
         type: str = "",
         tag: str = "",
         include_deleted: bool = False,
+        page: int = 1,
+        per_page: int = 20,
     ) -> HTMLResponse:
+        per_page = max(5, min(per_page, 100))
+        page = max(1, page)
         with open_store(app) as store:
             docs = filtered_documents(
                 store,
@@ -153,16 +157,32 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                 include_deleted=include_deleted,
             )
             rows = [doc_row(store, doc) for doc in docs]
+            total = len(rows)
+            total_pages = max(1, (total + per_page - 1) // per_page)
+            page = min(page, total_pages)
+            start = (page - 1) * per_page
+            end = start + per_page
+            paginated_rows = rows[start:end]
             return render(
                 request,
                 "documents.html",
                 {
-                    "rows": rows,
+                    "rows": paginated_rows,
                     "filters": {
                         "q": q,
                         "type": type,
                         "tag": tag,
                         "include_deleted": include_deleted,
+                    },
+                    "pagination": {
+                        "page": page,
+                        "per_page": per_page,
+                        "total": total,
+                        "total_pages": total_pages,
+                        "has_prev": page > 1,
+                        "has_next": page < total_pages,
+                        "prev_page": page - 1,
+                        "next_page": page + 1,
                     },
                 },
             )
