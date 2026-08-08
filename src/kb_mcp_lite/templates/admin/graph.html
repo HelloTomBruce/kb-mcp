@@ -109,31 +109,43 @@ function buildNetwork(graphData) {
     legend.appendChild(chip);
   });
 
-  // Process nodes - add color based on type
-  const processedNodes = nodes.map(n => ({
-    ...n,
-    color: {
-      background: getNodeColor(n.type),
-      border: nodeBorderColor,
-      hover: { background: getNodeColor(n.type), border: hoverBorderColor },
-      highlight: { background: getNodeColor(n.type), border: selectedBorderColor }
-    },
-    font: {
-      enabled: true,
-      color: nodeFontColor,
-      face: "Inter, Segoe UI, sans-serif",
-      size: n.size || 14,
-      strokeWidth: 3,
-      strokeColor: isDark ? "#0f172a" : "#ffffff"
-    },
-    shadow: {
-      enabled: true,
-      color: isDark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.15)",
-      size: 8,
-      x: 0,
-      y: 2
-    }
-  }));
+  // Calculate node degrees (connections)
+  const degrees = {};
+  edges.forEach(e => {
+    degrees[e.from] = (degrees[e.from] || 0) + 1;
+    degrees[e.to] = (degrees[e.to] || 0) + 1;
+  });
+
+  // Process nodes - add color based on type & scale by connection degree
+  const processedNodes = nodes.map(n => {
+    const deg = degrees[n.id] || 0;
+    const baseSize = 14 + Math.min(deg * 3, 20); // Scale from 14 to 34
+    return {
+      ...n,
+      size: baseSize,
+      color: {
+        background: getNodeColor(n.type),
+        border: nodeBorderColor,
+        hover: { background: getNodeColor(n.type), border: hoverBorderColor },
+        highlight: { background: getNodeColor(n.type), border: selectedBorderColor }
+      },
+      font: {
+        enabled: true,
+        color: nodeFontColor,
+        face: "Inter, Segoe UI, sans-serif",
+        size: 13 + Math.min(deg * 0.5, 5),
+        strokeWidth: 3,
+        strokeColor: isDark ? "#0f172a" : "#ffffff"
+      },
+      shadow: {
+        enabled: true,
+        color: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.12)",
+        size: 10,
+        x: 0,
+        y: 3
+      }
+    };
+  });
 
   // Process edges
   const processedEdges = edges.map(e => ({
@@ -233,13 +245,17 @@ function buildNetwork(graphData) {
     container.style.cursor = "default";
   });
 
-  // Click → navigate
+  // Click → navigate (SPA aware)
   network.on("click", (params) => {
     if (params.nodes.length === 1) {
       const nodeId = params.nodes[0];
       const node = nodes.find(n => n.id === nodeId);
       if (node && node.url) {
-        window.location = node.url;
+        if (window.SPA && typeof window.SPA.navigate === 'function') {
+          window.SPA.navigate(node.url);
+        } else if (window.location) {
+          window.location.href = node.url;
+        }
       }
     }
   });
@@ -363,38 +379,15 @@ window.addEventListener("themechange", () => {
 }
 
 .graph-search-input {
-  width: 200px;
-  min-height: 32px;
-  padding: 5px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--input);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.graph-search-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px var(--ring), var(--shadow-md);
+  width: 200px !important;
+  min-height: 36px !important;
+  padding: 6px 10px !important;
 }
 
 .graph-depth-select {
-  min-height: 32px;
-  padding: 5px 8px;
-  border-radius: var(--radius);
-  border: 1px solid var(--input);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.graph-depth-select:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px var(--ring), var(--shadow-md);
+  width: auto !important;
+  min-height: 36px !important;
+  padding: 6px 10px !important;
 }
 
 .graph-subgraph-badge {
