@@ -1,3 +1,26 @@
+# kb-mcp v0.6.5 Release Notes
+
+## What's changed
+
+- **Database robustness**: connections are now created through a single
+  factory so pysqlite3 and stdlib sqlite3 are never mixed against one
+  WAL-mode database (mixing them could corrupt it — observed as
+  "database disk image is malformed"). Row factories follow the
+  originating library, migrations tolerate pysqlite3 exceptions, and
+  the pre-created `docs_vec` table is recreated when its dimension no
+  longer matches the configured embedder.
+- **Admin SPA**: the router now waits for external scripts (e.g.
+  vis-network, SimpleMDE) to load in order before running a page's
+  inline scripts, and skips scripts already loaded — removing
+  initialization-order failures on SPA navigation.
+- **Graph page**: repeated SPA visits no longer leave the graph blank.
+  The page script was made idempotent (IIFE scope) so re-entry rebuilds
+  cleanly instead of throwing `Identifier has already been declared`;
+  the theme listener is registered exactly once; a loading placeholder
+  and fetch error fallback were added.
+
+---
+
 # kb-mcp v0.6.3 Release Notes
 
 ## What's changed
