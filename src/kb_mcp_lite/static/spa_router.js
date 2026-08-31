@@ -107,6 +107,12 @@ const SPA = {
   init() {
     this.mainEl = document.querySelector('main.main');
     if (!this.mainEl) return;
+
+    this.loadedScripts = new Set(
+      Array.from(document.scripts)
+        .map(script => script.src)
+        .filter(Boolean)
+    );
     
     // Bind link clicks
     document.addEventListener('click', e => this.handleLinkClick(e));
@@ -177,15 +183,7 @@ const SPA = {
 
       // Extract and execute scripts
       const scripts = Array.from(newMain.querySelectorAll('script'));
-      for (const oldScript of scripts) {
-        const newScript = document.createElement('script');
-        Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-        newScript.textContent = oldScript.textContent;
-        // Inject to run script
-        document.body.appendChild(newScript);
-        // Cleanup immediately so we don't pollute DOM
-        newScript.remove();
-      }
+      await this.executeScripts(scripts);
       
       // Re-trigger global triggers in the new DOM if needed
       this.pageSpecificSetup();
@@ -201,6 +199,32 @@ const SPA = {
       window.location.href = url;
     } finally {
       window.spaProgress.done();
+    }
+  },
+
+  async executeScripts(scripts) {
+    for (const oldScript of scripts) {
+      const source = oldScript.src;
+      if (source && this.loadedScripts.has(source)) continue;
+
+      const newScript = document.createElement('script');
+      Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+      newScript.textContent = oldScript.textContent;
+
+      if (!source) {
+        document.body.appendChild(newScript);
+        newScript.remove();
+        continue;
+      }
+
+      newScript.async = false;
+      await new Promise((resolve, reject) => {
+        newScript.onload = resolve;
+        newScript.onerror = () => reject(new Error(`Failed to load script: ${source}`));
+        document.body.appendChild(newScript);
+      });
+      this.loadedScripts.add(source);
+      newScript.remove();
     }
   },
 

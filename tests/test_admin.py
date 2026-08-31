@@ -149,6 +149,17 @@ def test_admin_json_api(tmp_path: Path) -> None:
     assert links_payload["items"][0]["to_id"] == "proj/sample"
 
 
+def test_spa_router_waits_for_external_scripts(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    client = TestClient(create_app(store=store))
+
+    response = client.get("/static/spa_router.js")
+
+    assert response.status_code == 200
+    assert "async executeScripts(scripts)" in response.text
+    assert "newScript.async = false" in response.text
+
+
 def test_links_page_and_link_mutation(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
