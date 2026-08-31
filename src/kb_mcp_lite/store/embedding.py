@@ -219,6 +219,15 @@ class EmbeddingMixin:
                 pass
         dim = dim or 1536
         try:
+            # Migration 0003 pre-creates docs_vec with a fixed 1536 dim.
+            # If the current embedder uses a different dimension, the
+            # pre-created table must be recreated to match, otherwise
+            # every insert/query fails with a dimension mismatch.
+            existing = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'docs_vec'"
+            ).fetchone()
+            if existing and f"float[{dim}]" not in (existing[0] or ""):
+                conn.execute("DROP TABLE docs_vec")
             conn.execute(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS docs_vec USING vec0("
                 f"embedding float[{dim}] distance_metric=cosine)"

@@ -9,7 +9,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple, TypeVar, Iterator
+from typing import Any, Dict, Iterable, List, TypeVar, Iterator
 
 from kb_mcp_lite.schema import (
     Document,
@@ -28,30 +28,59 @@ from kb_mcp_lite.store.embedding import EmbeddingMixin
 T = TypeVar("T")
 
 
-def _sqlite_row_factory(cursor: sqlite3.Cursor, row: Tuple[Any, ...]) -> sqlite3.Row:
-    return sqlite3.Row(cursor, row)
+def _sqlite_row_factory(conn: sqlite3.Connection) -> Any:
+    """Return the correct Row class for ``conn`` (stdlib sqlite3 vs pysqlite3).
 
-
-def _make_sqlite_connection(db_path: str) -> sqlite3.Connection:
-    """Open a sqlite3 connection that supports vec0 if possible."""
+    pysqlite3's cursor objects are not accepted by the stdlib sqlite3.Row
+    constructor, so each connection must use the Row class from the same
+    library that created it.
+    """
     try:
         import pysqlite3 as _psql
 
-        conn = _psql.connect(db_path, isolation_level=None)
+        if isinstance(conn, _psql.dbapi2.Connection):
+            return _psql.dbapi2.Row
+    except ImportError:
+        pass
+    return sqlite3.Row
+
+
+def _make_sqlite_connection(
+    db_path: str, *, isolation_level: str | None = None
+) -> sqlite3.Connection:
+    """Open a sqlite3 connection that supports vec0 if possible.
+
+    All connections to the same database MUST be created through this
+    factory so they use the same SQLite library. Mixing pysqlite3 and
+    stdlib sqlite3 against one WAL-mode database corrupts it: the two
+    bundle different SQLite versions, and closing one library's connection
+    while the other's is still live can destroy the shared WAL index
+    (observed as "database disk image is malformed").
+    """
+    try:
+        import pysqlite3 as _psql
+
+        conn: sqlite3.Connection = _psql.connect(
+            db_path,
+            detect_types=sqlite3.PARSE_DECLTYPES,
+            isolation_level=isolation_level,
+        )
         conn.enable_load_extension(True)
         _try_load_vec0(conn)
         return conn
     except ImportError:
         pass
+    conn = sqlite3.connect(
+        db_path,
+        detect_types=sqlite3.PARSE_DECLTYPES,
+        isolation_level=isolation_level,  # type: ignore[arg-type]  # "" (legacy) is valid but missing from typeshed
+    )
     try:
-        import sqlite_vec
-
-        conn = sqlite3.connect(db_path)
-        sqlite_vec.load(conn)
-        return conn
-    except ImportError:
+        conn.enable_load_extension(True)
+        _try_load_vec0(conn)
+    except Exception:
         pass
-    return sqlite3.connect(db_path)
+    return conn
 
 
 def _try_load_vec0(conn: sqlite3.Connection) -> None:
@@ -88,13 +117,18 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         self._embedder = embedder
 
     def _open_connection(self) -> sqlite3.Connection:
-        """Open a connection to the SQLite database."""
+        """Open a connection to the SQLite database.
+
+        Uses the same connection factory as the vec0 side connection so
+        every connection to this database shares one SQLite library
+        (mixing pysqlite3 and stdlib sqlite3 corrupts a WAL-mode db).
+        """
         dir_path = os.path.dirname(self.db_path)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-        conn.row_factory = _sqlite_row_factory
+        conn = _make_sqlite_connection(self.db_path, isolation_level="")
+        conn.row_factory = _sqlite_row_factory(conn)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
@@ -119,11 +153,17 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         pass
 
     def close(self) -> None:
-        """Close the database connection."""
+        """Close the database connection (including the vec0 side connection)."""
         try:
             self._conn.close()
         except (sqlite3.ProgrammingError, Exception):
             pass
+        if self._vec_conn is not None and self._vec_conn is not False:
+            try:
+                self._vec_conn.close()
+            except Exception:
+                pass
+            self._vec_conn = None
 
     def __enter__(self) -> "SqliteStore":
         return self

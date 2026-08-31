@@ -166,6 +166,12 @@ def mcp_proc(tmp_db: Path) -> Iterator[subprocess.Popen]:
         **os.environ,
         "KB_MCP_HOME": str(tmp_db.parent),
         "KB_MCP_LOG_LEVEL": "ERROR",
+        # Isolate from the developer's embedder configuration so the
+        # subprocess behaves deterministically (e.g. ``test_semantic_...``
+        # expects no embedder to be configured).
+        "KB_MCP_EMBEDDING_CONFIG": "",
+        "KB_MCP_CONFIG": "",
+        "HOME": str(tmp_db.parent),
     }
     proc = subprocess.Popen(
         [sys.executable, "-m", "kb_mcp_lite.mcp_server"],
