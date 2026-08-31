@@ -45,6 +45,10 @@
 
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <script>
+// All state lives inside this function scope so the script can be safely
+// re-executed by the SPA router on repeated visits (top-level `let`/`const`
+// would otherwise throw "Identifier has already been declared" and break the page).
+(function initGraphPage() {
 let network = null;
 let currentMode = "full";
 let currentGraphData = null;
@@ -69,7 +73,26 @@ async function loadGraph(rootId, depth) {
     url += `?root_id=${encodeURIComponent(rootId)}&depth=${depth}`;
   }
   const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Graph API error: ${resp.status}`);
+  }
   return resp.json();
+}
+
+function showGraphLoading() {
+  const container = document.getElementById("graph-container");
+  container.innerHTML =
+    '<div class="graph-loading"><span class="graph-spinner"></span><span>Loading graph…</span></div>';
+}
+
+function showGraphError(message) {
+  const container = document.getElementById("graph-container");
+  const msg = String(message || "unknown error").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+  );
+  container.innerHTML =
+    `<div class="graph-loading">⚠️ Failed to load graph: ${msg}</div>`;
 }
 
 function getNodeColor(type) {
@@ -79,6 +102,7 @@ function getNodeColor(type) {
 function buildNetwork(graphData) {
   const { nodes, edges } = graphData;
   const container = document.getElementById("graph-container");
+  container.replaceChildren(); // clear loading placeholder / stale canvas
   
   // Detect dark mode
   const isDark = document.documentElement.classList.contains("dark");
@@ -277,21 +301,31 @@ function buildNetwork(graphData) {
 
 async function focusSubgraph(rootId, depth) {
   document.getElementById("graph-subgraph-badge").style.display = "none";
-  const data = await loadGraph(rootId, depth);
-  currentGraphData = data;
-  buildNetwork(data);
-  currentMode = "subgraph";
-  document.getElementById("graph-subgraph-badge").innerHTML =
-    `Subgraph: <strong>${rootId}</strong> (depth ${depth}) &mdash; ${data.nodes.length} docs, ${data.edges.length} links`;
-  document.getElementById("graph-subgraph-badge").style.display = "block";
+  showGraphLoading();
+  try {
+    const data = await loadGraph(rootId, depth);
+    currentGraphData = data;
+    buildNetwork(data);
+    currentMode = "subgraph";
+    document.getElementById("graph-subgraph-badge").innerHTML =
+      `Subgraph: <strong>${rootId}</strong> (depth ${depth}) &mdash; ${data.nodes.length} docs, ${data.edges.length} links`;
+    document.getElementById("graph-subgraph-badge").style.display = "block";
+  } catch (err) {
+    showGraphError(err && err.message || err);
+  }
 }
 
 async function resetGraph() {
   document.getElementById("graph-subgraph-badge").style.display = "none";
-  const data = await loadGraph();
-  currentGraphData = data;
-  buildNetwork(data);
-  currentMode = "full";
+  showGraphLoading();
+  try {
+    const data = await loadGraph();
+    currentGraphData = data;
+    buildNetwork(data);
+    currentMode = "full";
+  } catch (err) {
+    showGraphError(err && err.message || err);
+  }
 }
 
 // ── Initial load ──────────────────────────────────────────────────────
@@ -328,12 +362,26 @@ document.getElementById("toggle-physics").addEventListener("change", (e) => {
   }
 });
 
-// ── Theme change listener ────────────────────────────────────────────
-window.addEventListener("themechange", () => {
+// ── Theme change listener ─────────────────────────────────────────────
+// The window listener is registered exactly once per page load; each
+// (re)execution of this script merely repoints the handler, so a theme
+// switch rebuilds the current graph once — no listener stacking.
+window.__graphThemeHandler = function () {
   if (currentGraphData) {
     buildNetwork(currentGraphData);
   }
-});
+};
+if (!window.__graphThemeBound) {
+  window.__graphThemeBound = true;
+  window.addEventListener("themechange", function () {
+    if (typeof window.__graphThemeHandler === "function") {
+      window.__graphThemeHandler();
+    }
+  });
+}
+
+// ── Close the initialisation scope ────────────────────────────────────
+})();
 </script>
 
 <style>
@@ -347,6 +395,29 @@ window.addEventListener("themechange", () => {
   box-shadow: var(--shadow);
   overflow: hidden;
   transition: background 0.2s;
+}
+
+.graph-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.graph-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: graph-spin 0.8s linear infinite;
+}
+
+@keyframes graph-spin {
+  to { transform: rotate(360deg); }
 }
 
 .graph-toolbar {
