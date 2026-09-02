@@ -23,6 +23,9 @@ from kb_mcp_lite.cli import cli
 # ---------------------------------------------------------------------------
 
 EXIT_OK = 0
+EXIT_NOT_FOUND = 3
+EXIT_CONFLICT = 4
+EXIT_INTERNAL = 5
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +114,7 @@ class TestVaultCreate:
     def test_create_duplicate(self, runner: CliRunner, env: dict[str, str]) -> None:
         runner.invoke(cli, ["vault", "create", "dup"], env=env)
         result = runner.invoke(cli, ["vault", "create", "dup"], env=env)
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_CONFLICT
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +143,7 @@ class TestVaultSwitch:
 
     def test_switch_to_nonexistent(self, runner: CliRunner, env: dict[str, str]) -> None:
         result = runner.invoke(cli, ["vault", "switch", "ghost"], env=env)
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------

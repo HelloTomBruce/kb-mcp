@@ -1,3 +1,24 @@
+# kb-mcp v0.6.6 Release Notes
+
+## What's changed
+
+- **Quality improvements**:
+  - Fixed the mypy type error in `store/search.py` where an `int` limit was
+    appended to a `list[str]` parameter list.
+  - Aligned CLI exit codes with `architecture.md`: validation errors exit `2`,
+    not-found errors exit `3`, duplicate/conflict errors exit `4`, and internal
+    errors exit `5`. Vault-specific exceptions now map to the same codes.
+  - Removed stray `.bak` files (`md_io.py.bak`, `vault.py.bak`) from the
+    repository.
+  - Tightened exception handling across `mcp_server.py` and admin routes
+    (`routes_docs.py`, `routes_meta.py`): input validation now catches
+    `PydanticValidationError`, and business-logic blocks catch the explicit
+    `kb_mcp_lite.schema` exception types instead of bare `Exception`.
+  - Hardened `tests/test_cli_stub.py::TestServe` against environments where the
+    default `KB_MCP_HOME` directory is not writable.
+
+---
+
 # kb-mcp v0.6.5 Release Notes
 
 ## What's changed

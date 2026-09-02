@@ -15,10 +15,15 @@ from kb_mcp_lite.config import load_config as get_config
 from kb_mcp_lite.md_io import import_dir, export_dir
 from kb_mcp_lite.schema import (
     Document,
+    KbMcpError,
     NotFoundError,
     DuplicateError,
 )
-from kb_mcp_lite.vault import VaultManager
+from kb_mcp_lite.vault import (
+    VaultAlreadyExistsError,
+    VaultManager,
+    VaultNotFoundError,
+)
 
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -40,20 +45,29 @@ def _handle_errors(func: F) -> F:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
-        except NotFoundError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
-        except DuplicateError as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
         except ValidationError as e:
             click.echo(f"Validation error: {e}", err=True)
-            sys.exit(1)
+            sys.exit(EXIT_VALIDATION)
+        except NotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_NOT_FOUND)
+        except DuplicateError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_CONFLICT)
+        except VaultAlreadyExistsError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_CONFLICT)
+        except VaultNotFoundError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_NOT_FOUND)
+        except KbMcpError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_INTERNAL)
         except Exception as e:
             click.echo(f"Unexpected error: {type(e).__name__}: {e}", err=True)
             if os.environ.get("KB_DEBUG"):
                 raise
-            sys.exit(1)
+            sys.exit(EXIT_INTERNAL)
 
     return wrapper  # type: ignore
 

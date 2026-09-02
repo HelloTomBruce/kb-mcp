@@ -23,6 +23,9 @@ from kb_mcp_lite.store.sqlite import SqliteStore
 # ---------------------------------------------------------------------------
 
 EXIT_OK = 0
+EXIT_NOT_FOUND = 3
+EXIT_CONFLICT = 4
+EXIT_INTERNAL = 5
 
 
 def _invoke(
@@ -114,7 +117,7 @@ class TestAdd:
     def test_add_duplicate_raises(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Dup"])
         result = _invoke(runner, store, ["add", "--type", "project", "--title", "Dup"])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_CONFLICT
         assert "already exists" in result.output.lower()
 
 
@@ -155,7 +158,7 @@ class TestGet:
 
     def test_get_not_found(self, runner: CliRunner, store: SqliteStore) -> None:
         result = _invoke(runner, store, ["get", "nonexistent"])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------

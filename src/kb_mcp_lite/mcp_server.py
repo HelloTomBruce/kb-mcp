@@ -40,7 +40,7 @@ import os
 import sys
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
 from kb_mcp_lite.md_io import render_document
 from kb_mcp_lite.schema import (
@@ -358,7 +358,7 @@ def _make_server(vault: str | None = None) -> Any:
                 mode=mode,
                 rrf_k=rrf_k,
             )
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -393,7 +393,7 @@ def _make_server(vault: str | None = None) -> Any:
                 ],
                 "count": len(hits),
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_search failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -412,7 +412,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbGetInput(id=id)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -420,7 +420,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             doc = store.get(inp.id)
             return doc.model_dump(mode="json")
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_get failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -461,7 +461,7 @@ def _make_server(vault: str | None = None) -> Any:
             inp = KbAddInput(
                 type=type, title=title, body=body, tags=tags, aliases=aliases, source=source, id=id
             )
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -491,7 +491,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "status": "created",
                 "agent_instruction": f"Please immediately call 'kb_link' to associate this new document '{stored_id}' with the project it belongs to (e.g. 'proj/xxx') or other related documents.",
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_add failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -516,7 +516,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbLinkInput(from_id=from_id, to_id=to_id, rel=rel)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -529,7 +529,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "to_id": link.to_id,
                 "rel": link.rel,
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_link failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -560,7 +560,7 @@ def _make_server(vault: str | None = None) -> Any:
             inp = KbListInput(
                 type=type, tags=tags, limit=limit, offset=offset, include_deleted=include_deleted
             )
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -593,7 +593,7 @@ def _make_server(vault: str | None = None) -> Any:
                 ],
                 "count": len(docs),
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_list failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -629,7 +629,7 @@ def _make_server(vault: str | None = None) -> Any:
             inp = KbUpdateInput(
                 id=id, title=title, body=body, tags=tags, aliases=aliases, source=source
             )
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -653,7 +653,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             doc = store.update(inp.id, **fields)
             return {"ok": True, "id": doc.id, "updated_at": doc.updated_at.isoformat()}
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_update failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -675,7 +675,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbDeleteInput(id=id)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -683,7 +683,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             store.delete(inp.id)
             return {"ok": True, "id": inp.id}
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_delete failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -711,7 +711,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbUnlinkInput(from_id=from_id, to_id=to_id, rel=rel)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -725,7 +725,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "to_id": inp.to_id,
                 "rel": inp.rel,
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_unlink failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -749,7 +749,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbHistoryInput(id=id, limit=limit)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -757,7 +757,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             history = store.document_history(inp.id, limit=inp.limit)
             return {"history": history, "count": len(history)}
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_history failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -781,7 +781,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbRestoreInput(id=id, version=version)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -794,7 +794,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "version": inp.version,
                 "restored_at": doc.updated_at.isoformat(),
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_restore failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -820,7 +820,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbDiffInput(id=id, version_a=version_a, version_b=version_b)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -828,7 +828,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             result = store.diff(inp.id, inp.version_a, inp.version_b)
             return result
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_diff failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -847,7 +847,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbRestoreInput(id=id)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -859,7 +859,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "id": doc.id,
                 "restored_at": doc.updated_at.isoformat(),
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_restore_deleted failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -877,7 +877,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             report = store.doctor()
             return report.model_dump(mode="json")
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_doctor failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -897,7 +897,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbSimilarInput(id=id, limit=limit)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -917,7 +917,7 @@ def _make_server(vault: str | None = None) -> Any:
                 ],
                 "count": len(similar),
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_similar failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -938,7 +938,7 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbDuplicatesInput(threshold=threshold, limit=limit)
-        except Exception as e:
+        except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
@@ -952,7 +952,7 @@ def _make_server(vault: str | None = None) -> Any:
                 ],
                 "count": len(pairs),
             }
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_duplicates failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
@@ -982,7 +982,7 @@ def _make_server(vault: str | None = None) -> Any:
             return json.dumps(doc.model_dump(mode="json"), ensure_ascii=False)
         except NotFoundError:
             return json.dumps({"error": "not_found", "id": doc_id})
-        except Exception as e:
+        except (ValidationError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
@@ -1014,7 +1014,7 @@ def _make_server(vault: str | None = None) -> Any:
                 },
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
@@ -1058,7 +1058,7 @@ def _make_server(vault: str | None = None) -> Any:
                 {"types": types_info, "count": len(types_info)},
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
@@ -1077,7 +1077,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             stats = store.stats()
             return json.dumps(stats, ensure_ascii=False)
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
@@ -1101,7 +1101,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             sub = store.subgraph(doc_id, depth=2)
             return json.dumps(sub, ensure_ascii=False)
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
@@ -1131,7 +1131,7 @@ def _make_server(vault: str | None = None) -> Any:
             return json.dumps(sub, ensure_ascii=False)
         except ValueError:
             return json.dumps({"error": f"invalid depth {depth!r}"})
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     # ---- Resource: kb://list ------------------------------------------------
@@ -1163,7 +1163,7 @@ def _make_server(vault: str | None = None) -> Any:
                 },
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
@@ -1194,7 +1194,7 @@ def _make_server(vault: str | None = None) -> Any:
                 },
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     # ---- Resource: kb://changes --------------------------------------------
@@ -1214,7 +1214,7 @@ def _make_server(vault: str | None = None) -> Any:
                 {"changes": log, "count": len(log)},
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     # ---- Resource: kb://history --------------------------------------------
@@ -1235,7 +1235,7 @@ def _make_server(vault: str | None = None) -> Any:
                 {"id": doc_id, "history": history, "count": len(history)},
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     # ---- Resource: kb://search ---------------------------------------------
@@ -1268,7 +1268,7 @@ def _make_server(vault: str | None = None) -> Any:
                 },
                 ensure_ascii=False,
             )
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     # ---- Resource: kb://export ---------------------------------------------
@@ -1286,7 +1286,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             doc = store.get(doc_id)
             return render_document(doc, outlinks=store.outlinks(doc_id))
-        except Exception as e:
+        except (ValidationError, NotFoundError, IntegrityError) as e:
             return f"# Error\n\nCould not export document {doc_id!r}: {e}"
 
     # ---- Resource: kb://help -----------------------------------------------
@@ -1312,7 +1312,7 @@ def _make_server(vault: str | None = None) -> Any:
             help_dir = resources.files("kb_mcp_lite").joinpath("help")
             help_file = help_dir.joinpath(f"{doc}.md")
             return help_file.read_text(encoding="utf-8")
-        except Exception as e:
+        except OSError as e:
             return f"# Error\n\nCould not read help document: {e}"
 
     # ---- Prompts ---------------------------------------------------------

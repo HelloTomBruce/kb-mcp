@@ -22,7 +22,7 @@ from kb_mcp_lite.admin._helpers import (
 )
 from kb_mcp_lite.admin import ApiDocCreate, ApiDocUpdate
 from kb_mcp_lite.admin._helpers import serialize_link
-from kb_mcp_lite.schema import SearchHit
+from kb_mcp_lite.schema import SearchHit, ValidationError, NotFoundError, DuplicateError, IntegrityError
 
 
 def register_doc_routes(app: FastAPI, render: Any) -> None:
@@ -103,8 +103,10 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                     source=payload.source,
                     body=payload.body,
                 )
-            except Exception as exc:
+            except (ValidationError, DuplicateError) as exc:
                 return json_error(str(exc), status_code=400)
+            except (NotFoundError, IntegrityError) as exc:
+                return json_error(str(exc), status_code=500)
             return JSONResponse({"ok": True, "doc": serialize_doc(created)}, status_code=201)
 
     @app.patch("/api/docs/{doc_id:path}")
@@ -120,8 +122,12 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                     payload.body,
                     payload.deleted,
                 )
-            except Exception as exc:
+            except NotFoundError as exc:
+                return json_error(str(exc), status_code=404)
+            except ValidationError as exc:
                 return json_error(str(exc), status_code=400)
+            except IntegrityError as exc:
+                return json_error(str(exc), status_code=500)
             return JSONResponse({"ok": True, "doc": serialize_doc(doc)})
 
     @app.delete("/api/docs/{doc_id:path}")
@@ -130,8 +136,10 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
             try:
                 store.delete(doc_id)
                 doc = store.get(doc_id, include_deleted=True)
-            except Exception as exc:
-                return json_error(str(exc), status_code=400)
+            except NotFoundError as exc:
+                return json_error(str(exc), status_code=404)
+            except IntegrityError as exc:
+                return json_error(str(exc), status_code=500)
             return JSONResponse({"ok": True, "doc": serialize_doc(doc)})
 
     # ── HTML pages ─────────────────────────────────────────────────────
@@ -214,8 +222,10 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
         with open_store(app) as store:
             try:
                 doc = store.get(doc_id, include_deleted=True)
-            except Exception as exc:
+            except NotFoundError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except IntegrityError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
             return render(
                 request,
                 "document_form.html",
@@ -240,7 +250,23 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
         with open_store(app) as store:
             try:
                 store.link(doc_id, to_id.strip(), rel=rel.strip() or "relates-to")
-            except Exception as exc:
+            except NotFoundError as exc:
+                doc = store.get(doc_id, include_deleted=True)
+                return render(
+                    request,
+                    "document_form.html",
+                    {
+                        "doc_form": doc_form_data(doc),
+                        "editing": True,
+                        "errors": [str(exc)],
+                        "links_out": store.outlinks(doc.id),
+                        "links_back": store.backlinks(doc.id),
+                        "doc": doc,
+                        "history": store.document_history(doc.id),
+                    },
+                    status_code=404,
+                )
+            except (ValidationError, DuplicateError) as exc:
                 doc = store.get(doc_id, include_deleted=True)
                 return render(
                     request,
@@ -255,6 +281,22 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                         "history": store.document_history(doc.id),
                     },
                     status_code=400,
+                )
+            except IntegrityError as exc:
+                doc = store.get(doc_id, include_deleted=True)
+                return render(
+                    request,
+                    "document_form.html",
+                    {
+                        "doc_form": doc_form_data(doc),
+                        "editing": True,
+                        "errors": [str(exc)],
+                        "links_out": store.outlinks(doc.id),
+                        "links_back": store.backlinks(doc.id),
+                        "doc": doc,
+                        "history": store.document_history(doc.id),
+                    },
+                    status_code=500,
                 )
         return RedirectResponse(
             url=flash_url(f"/documents/{doc_id}", "success", "Link created"),
@@ -296,7 +338,7 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                     body=body,
                 )
                 created_id = created.id
-            except Exception as exc:
+            except (ValidationError, DuplicateError) as exc:
                 return render(
                     request,
                     "document_form.html",
@@ -316,6 +358,27 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                         "history": [],
                     },
                     status_code=400,
+                )
+            except IntegrityError as exc:
+                return render(
+                    request,
+                    "document_form.html",
+                    {
+                        "doc_form": {
+                            "id": id,
+                            "type": type,
+                            "title": title,
+                            "tags": tags,
+                            "source": source,
+                            "body": body,
+                        },
+                        "editing": False,
+                        "errors": [str(exc)],
+                        "links_out": [],
+                        "links_back": [],
+                        "history": [],
+                    },
+                    status_code=500,
                 )
         return RedirectResponse(
             url=flash_url(f"/documents/{created_id}", "success", "Document created"),
@@ -349,7 +412,9 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                     body,
                     deleted=None,
                 )
-            except Exception as exc:
+            except NotFoundError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except (ValidationError, DuplicateError) as exc:
                 doc = store.get(doc_id, include_deleted=True)
                 return render(
                     request,
@@ -371,6 +436,29 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                         "history": store.document_history(doc.id),
                     },
                     status_code=400,
+                )
+            except IntegrityError as exc:
+                doc = store.get(doc_id, include_deleted=True)
+                return render(
+                    request,
+                    "document_form.html",
+                    {
+                        "doc_form": {
+                            "id": doc.id,
+                            "type": doc.type,
+                            "title": title,
+                            "tags": tags,
+                            "source": source,
+                            "body": body,
+                        },
+                        "editing": True,
+                        "errors": [str(exc)],
+                        "links_out": store.outlinks(doc.id),
+                        "links_back": store.backlinks(doc.id),
+                        "doc": doc,
+                        "history": store.document_history(doc.id),
+                    },
+                    status_code=500,
                 )
         return RedirectResponse(
             url=flash_url(f"/documents/{doc_id}", "success", "Document updated"),
@@ -398,7 +486,7 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
                         limit=limit,
                         mode=mode,
                     )
-                except Exception as exc:
+                except ValidationError as exc:
                     errors.append(str(exc))
         return render(
             request,

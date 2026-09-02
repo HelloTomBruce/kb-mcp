@@ -20,8 +20,13 @@ from kb_mcp_lite.admin._helpers import (
 )
 from kb_mcp_lite.admin import ApiLinkWrite
 from kb_mcp_lite.admin._helpers import serialize_doc as _serialize_doc
+from kb_mcp_lite.schema import ValidationError, NotFoundError, DuplicateError, IntegrityError
 from kb_mcp_lite.store.sqlite import SqliteStore
-from kb_mcp_lite.vault import VaultManager
+from kb_mcp_lite.vault import (
+    VaultAlreadyExistsError,
+    VaultManager,
+    VaultNotFoundError,
+)
 
 
 def register_meta_routes(app: FastAPI, render: Any) -> None:
@@ -95,8 +100,12 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     payload.to_id.strip(),
                     rel=payload.rel.strip() or "relates-to",
                 )
-            except Exception as exc:
+            except NotFoundError as exc:
+                return json_error(str(exc), status_code=404)
+            except (ValidationError, DuplicateError) as exc:
                 return json_error(str(exc), status_code=400)
+            except IntegrityError as exc:
+                return json_error(str(exc), status_code=500)
             return JSONResponse({"ok": True, "link": serialize_link(link)}, status_code=201)
 
     @app.delete("/api/links")
@@ -298,7 +307,9 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     with zipfile.ZipFile(zip_path) as zf:
                         zf.extractall(tmp_path / "vault")
                     import_report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
-        except Exception as exc:
+        except (ValidationError, DuplicateError) as exc:
+            errors.append(str(exc))
+        except (NotFoundError, IntegrityError) as exc:
             errors.append(str(exc))
         return render(
             request,
@@ -328,7 +339,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     "written": written,
                     "files": files[:20],
                 }
-        except Exception as exc:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as exc:
             errors.append(str(exc))
         return render(
             request,
@@ -400,8 +411,10 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             new_path = str(mgr.resolve_path(name))
             app.state.store_path = new_path
             return JSONResponse({"ok": True, "current": name, "store_path": new_path})
-        except Exception as e:
-            return json_error(str(e), status_code=400)
+        except VaultNotFoundError as e:
+            return json_error(str(e), status_code=404)
+        except VaultAlreadyExistsError as e:
+            return json_error(str(e), status_code=409)
 
     @app.post("/api/vaults/import")
     def api_vault_import() -> JSONResponse:
@@ -431,7 +444,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     "errors": report.errors[:10],
                 }
             )
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             return json_error(str(e), status_code=500)
 
     @app.post("/api/vaults/commit")
@@ -442,7 +455,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         try:
             output = mgr.commit(message=message, name=name)
             return JSONResponse({"ok": True, "output": output})
-        except Exception as e:
+        except (VaultNotFoundError, VaultAlreadyExistsError) as e:
             return json_error(str(e), status_code=500)
 
     @app.post("/api/vaults/embed")
@@ -462,7 +475,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     "total": report.get("total", 0),
                 }
             )
-        except Exception as e:
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             return json_error(str(e), status_code=500)
         finally:
             store.close()

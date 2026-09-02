@@ -9,6 +9,7 @@ no filesystem I/O beyond tempdirs for import/export.
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,9 @@ from kb_mcp_lite.stub_store import StubStore
 # ---------------------------------------------------------------------------
 
 EXIT_OK = 0
+EXIT_NOT_FOUND = 3
+EXIT_CONFLICT = 4
+EXIT_INTERNAL = 5
 
 
 def _invoke(
@@ -172,7 +176,7 @@ class TestAdd:
                 "Dup",
             ],
         )
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_CONFLICT
         assert "already exists" in result.output
 
     def test_add_duplicate_json(self, runner: CliRunner, store: StubStore) -> None:
@@ -200,8 +204,8 @@ class TestAdd:
                 "--json",
             ],
         )
-        # Duplicate error — CLI exits with code 1 and prints error message
-        assert result.exit_code == 1
+        # Duplicate error — CLI exits with code EXIT_CONFLICT and prints error message
+        assert result.exit_code == EXIT_CONFLICT
 
     def test_add_body_from_stdin(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(
@@ -252,12 +256,12 @@ class TestGet:
 
     def test_get_not_found(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(runner, store, ["get", "nonexistent-id"])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
         assert "not found" in result.output.lower()
 
     def test_get_not_found_json(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(runner, store, ["get", "nonexistent-id", "--json"])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +306,7 @@ class TestUpdate:
 
     def test_update_not_found(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(runner, store, ["update", "nope", "--title", "X"])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
         assert "not found" in result.output.lower()
 
 
@@ -324,7 +328,7 @@ class TestDelete:
 
     def test_delete_not_found(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(runner, store, ["delete", "nope"])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
 
 
 class TestRestore:
@@ -340,7 +344,7 @@ class TestRestore:
         self, runner: CliRunner, store: StubStore, sample_doc: Document
     ) -> None:
         result = _invoke(runner, store, ["restore", sample_doc.id])
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_INTERNAL
 
     def test_restore_json(self, runner: CliRunner, store: StubStore, sample_doc: Document) -> None:
         store.delete(sample_doc.id)
@@ -525,7 +529,7 @@ class TestLink:
                 "ghost",
             ],
         )
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_NOT_FOUND
 
 
 class TestUnlink:
@@ -575,14 +579,14 @@ class TestLinks:
         store.link("a", "b")
         result = _invoke(runner, store, ["links", "a"])
         # StubStore may return exit 1 for this; check it doesn't crash
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
     def test_links_json(self, runner: CliRunner, store: StubStore) -> None:
         store.add(Document(id="a", type="project", title="A"))
         store.add(Document(id="b", type="project", title="B"))
         store.link("a", "b")
         result = _invoke(runner, store, ["links", "a", "--json"])
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
 
 # ---------------------------------------------------------------------------
@@ -597,12 +601,12 @@ class TestHistory:
         store.update("proj/h", body="y")
         result = _invoke(runner, store, ["history", "proj/h"])
         # StubStore may not record versions; just check no crash
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
     def test_history_json(self, runner: CliRunner, store: StubStore) -> None:
         store.add(Document(id="proj/h", type="project", title="H", body="x"))
         result = _invoke(runner, store, ["history", "proj/h", "--json"])
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
 
 class TestDiff:
@@ -610,12 +614,12 @@ class TestDiff:
         store.add(Document(id="proj/d", type="project", title="Diff", body="old"))
         result = _invoke(runner, store, ["diff", "proj/d", "--v1", "1", "--v2", "2"])
         # StubStore may not record versions; just check no crash
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
     def test_diff_json(self, runner: CliRunner, store: StubStore) -> None:
         store.add(Document(id="proj/d", type="project", title="D", body="old"))
         result = _invoke(runner, store, ["diff", "proj/d", "--v1", "1", "--v2", "2", "--json"])
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
 
 # ---------------------------------------------------------------------------
@@ -631,13 +635,13 @@ class TestImport:
         # Import requires a real filesystem with .md files; StubStore
         # doesn't fully implement the import pipeline. Accept either
         # success or a handled error.
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_INTERNAL)
 
     def test_import_dry_run(self, runner: CliRunner, store: StubStore, tmp_path: Path) -> None:
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
         result = _invoke(runner, store, ["import", str(empty_dir), "--dry-run"])
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_INTERNAL)
 
 
 class TestExport:
@@ -647,7 +651,7 @@ class TestExport:
         result = _invoke(runner, store, ["export", str(out)])
         # Export requires the store to have export_all() working with
         # the filesystem. StubStore may not fully support this.
-        assert result.exit_code in (0, 1)
+        assert result.exit_code in (0, EXIT_NOT_FOUND)
 
 
 # ---------------------------------------------------------------------------
@@ -702,11 +706,13 @@ class TestPrune:
 
 
 class TestServe:
-    def test_serve_exists(self, runner: CliRunner) -> None:
+    def test_serve_exists(self, runner: CliRunner, monkeypatch) -> None:
         """serve command exists and accepts --help."""
-        result = runner.invoke(cli, ["serve", "--help"])
-        assert result.exit_code == 0
-        assert "MCP" in result.output or "stdio" in result.output
+        with tempfile.TemporaryDirectory() as tmp:
+            monkeypatch.setenv("KB_MCP_HOME", tmp)
+            result = runner.invoke(cli, ["serve", "--help"])
+            assert result.exit_code == 0
+            assert "MCP" in result.output or "stdio" in result.output
 
 
 # ---------------------------------------------------------------------------

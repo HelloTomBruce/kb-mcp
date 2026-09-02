@@ -137,7 +137,7 @@ class SearchMixin:
                     WHERE docs_fts MATCH ?
                       AND d.deleted_at IS NULL
                 """
-                params = [or_query]
+                params: list[Any] = [or_query]
                 if type:
                     sql += " AND d.type = ?"
                     params.append(type)
