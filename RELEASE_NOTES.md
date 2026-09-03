@@ -1,3 +1,26 @@
+# kb-mcp v0.7.0 Release Notes
+
+## What's changed
+
+- **Structured Metadata & Section Extraction**:
+  - Added `metadata` JSON column to documents table (migration 0006) and `Document` model.
+  - Added heading-level section slicing (`extract_sections()`, `get_section()`, and `--section` option in CLI/MCP) to reduce AI agent token consumption.
+- **Chinese / CJK Search Enhancement**:
+  - Implemented Bi-gram + character-level CJK tokenization in FTS query builder, solving unspaced CJK term dropouts in SQLite unicode61 tokenizer.
+- **Git Diff Context Guard**:
+  - Added `kb_diff_check` tool and `kb diff-check` CLI to proactively detect repository code changes and recommend relevant architectural decisions (ADRs), lessons-learned, and API contracts.
+- **Knowledge Graph Traversal & Repair**:
+  - Added multi-hop BFS path finding (`find_path`) and directional relation traversal (`kb_query_relations`).
+  - Added `doctor_fix_hygiene()` for dangling link cleanup and FTS index maintenance.
+- **Real-time Markdown File Watcher**:
+  - Added `kb watch` CLI and `VaultWatcher` to incrementally synchronize markdown directory file edits, creations, and deletions with SQLite.
+- **Smart Markdown Git Conflict Resolver**:
+  - Added 3-way/2-way frontmatter and body merge engine for seamless team sync.
+- **MCP Server Expansion**:
+  - Expanded MCP tool surface to 17 tools with multi-vault routing support.
+
+---
+
 # kb-mcp v0.6.6 Release Notes
 
 ## What's changed
