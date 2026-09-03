@@ -87,7 +87,7 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     rows = conn.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
     # Migration 0003 (vec0) applies when the connection can load sqlite-vec
     # (dev/vec extras install pysqlite3, which carries extension support).
-    assert [r[0] for r in rows] == [1, 2, 3, 4, 5]
+    assert [r[0] for r in rows] == [1, 2, 3, 4, 5, 6]
     conn.close()
     s.close()
 

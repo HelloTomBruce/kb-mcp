@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from typing import TYPE_CHECKING, Any, List
 
@@ -12,7 +11,7 @@ from kb_mcp_lite.schema import Document, SearchHit, ValidationError
 class SearchMixin:
     """Mixin providing search methods.
 
-    Requires the host class to expose ``self._conn``, ``self._parse_dt()``,
+    Requires the host class to expose ``self._conn``,
     ``self._vec_conn_lazy()``, and ``self.get()``.
     """
 
@@ -22,7 +21,6 @@ class SearchMixin:
         _conn: sqlite3.Connection
         _vec_row_is_tuple: bool
 
-        def _parse_dt(self, value: str | None) -> object: ...
         def _vec_conn_lazy(self) -> Any: ...
         def get(self, doc_id: str, include_deleted: bool = False) -> Document: ...
 
@@ -175,7 +173,7 @@ class SearchMixin:
         def merge_hit(hit: SearchHit, rank: int, weight: float) -> None:
             contrib = weight * (1.0 / (k + rank))
             cur_score, cur_snip, doc = rrf_scores.get(hit.doc.id, (0.0, "", hit.doc))
-            
+
             # Smart Snippet Merge: Prefer snippets containing HTML tags like <b>
             new_snip = hit.snippet or ""
             if cur_snip:
@@ -248,18 +246,14 @@ class SearchMixin:
             raise ValidationError(f"vec0 query failed: {e}") from e
 
         row_is_tuple = getattr(self, "_vec_row_is_tuple", False)
-        if row_is_tuple:
-            doc_col_index: int | None = 0
-            distance_col_index: int | str | None = 9
-        else:
-            doc_col_index = None
-            distance_col_index = "vec_distance"
-
         hits: List[SearchHit] = []
         for r in rows:
             if row_is_tuple:
-                doc = self.get(r[doc_col_index])
-                vec_distance = float(r[distance_col_index] or 0.0)
+                # ``d.id`` is always the first column of ``SELECT d.*`` and
+                # the distance is always the last selected column, so both
+                # indexes stay correct when ``documents`` gains columns.
+                doc = self.get(r[0])
+                vec_distance = float(r[-1] or 0.0)
             else:
                 d = dict(r)
                 vec_distance = float(d.pop("vec_distance", 0.0) or 0.0)
@@ -274,35 +268,73 @@ class SearchMixin:
         return hits[:limit]
 
     def _row_to_doc_dict(self, d: dict) -> Document:
-        """Convert a plain dict to a Document (after we already materialised a Row)."""
+        """Convert a plain dict to a Document (after we already materialised a Row).
+
+        Delegates to :meth:`Document.from_row` so JSON-encoded columns
+        (``tags``, ``metadata``) are decoded exactly as in :meth:`get`.
+        """
         d = dict(d)
-        if "tags" in d and isinstance(d["tags"], str):
-            d["tags"] = json.loads(d["tags"] or "[]")
-        for k in ("created_at", "updated_at", "deleted_at"):
-            if isinstance(d.get(k), str):
-                d[k] = self._parse_dt(d[k])
         d.pop("snip", None)
         d.pop("score", None)
-        return Document.model_construct(**d)
+        return Document.from_row(d)
 
     @staticmethod
-    def _escape_fts(query: str) -> str:
-        """Build an FTS5 expression tolerant to typos and word boundaries."""
+    def _tokenize_cjk_query(query: str) -> list[str]:
+        """Split a query into ASCII terms and CJK bi-grams / characters.
+        
+        Since SQLite's default unicode61 tokenizer splits on whitespace/punctuation,
+        continuous Chinese characters without spaces need character/bi-gram tokenization
+        to match trigram or prefix tokens properly.
+        """
+        import re
+        tokens: list[str] = []
+        # Match alphanumeric sequences or single CJK characters
+        pattern = re.compile(r"([a-zA-Z0-9_\-]+|[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])")
+        matches = pattern.findall(query)
+        
+        cjk_buffer: list[str] = []
+        for m in matches:
+            if re.match(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", m):
+                cjk_buffer.append(m)
+            else:
+                if cjk_buffer:
+                    # Output CJK bi-grams and full string
+                    if len(cjk_buffer) > 1:
+                        for i in range(len(cjk_buffer) - 1):
+                            tokens.append(f"{cjk_buffer[i]}{cjk_buffer[i+1]}")
+                    tokens.append("".join(cjk_buffer))
+                    cjk_buffer = []
+                tokens.append(m)
+
+        if cjk_buffer:
+            if len(cjk_buffer) > 1:
+                for i in range(len(cjk_buffer) - 1):
+                    tokens.append(f"{cjk_buffer[i]}{cjk_buffer[i+1]}")
+            tokens.append("".join(cjk_buffer))
+
+        return [t for t in tokens if t.strip()]
+
+    @classmethod
+    def _escape_fts(cls, query: str) -> str:
+        """Build an FTS5 expression tolerant to typos, CJK characters and word boundaries."""
         tokens: List[str] = []
-        for tok in query.split():
+        raw_tokens = cls._tokenize_cjk_query(query)
+        for tok in raw_tokens:
             tok_clean = tok.strip().replace('"', '""')
             if not tok_clean:
                 continue
-            if len(tok_clean) >= 3:
+            if len(tok_clean) >= 3 and tok_clean.isascii():
                 tokens.append(f'"{tok_clean}"*')
             else:
                 tokens.append(f'"{tok_clean}"')
         return " OR ".join(tokens) if tokens else '""'
 
-    @staticmethod
-    def _escape_fts_lexical(query: str) -> str:
-        """Strict AND-of-tokens FTS5 expression for lexical mode."""
-        return " AND ".join(f'"{t.strip()}"' for t in query.split() if t.strip()) or '""'
+    @classmethod
+    def _escape_fts_lexical(cls, query: str) -> str:
+        """Strict AND-of-tokens FTS5 expression with CJK-aware tokenization."""
+        raw_tokens = cls._tokenize_cjk_query(query)
+        clean = [t.strip().replace('"', '""') for t in raw_tokens if t.strip()]
+        return " AND ".join(f'"{t}"' for t in clean) if clean else '""'
 
 
 __all__ = ["SearchMixin"]

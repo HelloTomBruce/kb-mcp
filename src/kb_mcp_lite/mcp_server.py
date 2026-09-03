@@ -2,9 +2,9 @@
 
 Exposes tools, Resources, and Prompts over stdio transport:
 
-**Tools (15):** kb_search, kb_get, kb_add, kb_link, kb_list, kb_update,
+**Tools (17):** kb_search, kb_get, kb_add, kb_link, kb_list, kb_update,
 kb_delete, kb_unlink, kb_history, kb_restore, kb_diff, kb_restore_deleted,
-kb_doctor, kb_similar, kb_duplicates
+kb_doctor, kb_similar, kb_duplicates, kb_diff_check, kb_query_relations
 
 **Resources (13):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
 kb://types, kb://stats, kb://graph/{type}/{slug}/{depth},
@@ -67,10 +67,15 @@ class KbSearchInput(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
     mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|semantic|hybrid|rrf)$")
     rrf_k: int = Field(default=60, ge=1, le=200)
+    vault: str | None = Field(default=None, description="Target vault name or '*' for all vaults")
 
 
 class KbGetInput(BaseModel):
     id: str = Field(min_length=1)
+    section: str | None = Field(
+        default=None, description="Optional heading / section to extract from body"
+    )
+    vault: str | None = Field(default=None, description="Optional target vault name")
 
 
 class KbAddInput(BaseModel):
@@ -79,6 +84,7 @@ class KbAddInput(BaseModel):
     body: str = Field(default="", max_length=1_000_000)
     tags: List[str] | None = None
     aliases: List[str] | None = None
+    metadata: dict[str, Any] | None = None
     source: str | None = None
     id: str | None = Field(default=None, min_length=1, max_length=512)
 
@@ -95,6 +101,7 @@ class KbListInput(BaseModel):
     limit: int = Field(default=100, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)
     include_deleted: bool = False
+    vault: str | None = Field(default=None, description="Optional target vault name")
 
 
 class KbUpdateInput(BaseModel):
@@ -103,6 +110,7 @@ class KbUpdateInput(BaseModel):
     body: str | None = Field(default=None, max_length=1_000_000)
     tags: List[str] | None = None
     aliases: List[str] | None = None
+    metadata: dict[str, Any] | None = None
     source: str | None = None
 
 
@@ -124,6 +132,21 @@ class KbSimilarInput(BaseModel):
 class KbDuplicatesInput(BaseModel):
     threshold: float = Field(default=0.15, ge=0.0, le=2.0)
     limit: int = Field(default=50, ge=1, le=500)
+
+
+class KbDiffCheckInput(BaseModel):
+    cwd: str | None = Field(default=None, description="Optional repository working directory")
+    vault: str | None = Field(default=None, description="Optional target vault name")
+
+
+class KbGraphQueryInput(BaseModel):
+    start_id: str = Field(min_length=1)
+    target_id: str | None = Field(default=None, description="Optional target id to find shortest path to")
+    rel: str | None = Field(default=None, description="Filter by relation type")
+    direction: str = Field(default="outbound", pattern="^(outbound|inbound|both)$")
+    doc_type: str | None = Field(default=None, description="Filter reached documents by type")
+    max_depth: int = Field(default=2, ge=1, le=5)
+    vault: str | None = Field(default=None, description="Optional target vault name")
 
 
 # ---------------------------------------------------------------------------
@@ -331,8 +354,9 @@ def _make_server(vault: str | None = None) -> Any:
         limit: int = 10,
         mode: str = "hybrid",
         rrf_k: int = 60,
+        vault: Optional[str] = None,
     ) -> Any:
-        """Full-text search the knowledge base.
+        """Full-text search the knowledge base across current or specified vault(s).
 
         Args:
             query: Search query (non-empty).
@@ -345,9 +369,10 @@ def _make_server(vault: str | None = None) -> Any:
                 'rrf' (same as hybrid), or 'semantic' (vectors).
             rrf_k: RRF constant (default 60). Lower = more weight on
                 top ranks. Only used in hybrid/rrf mode.
+            vault: Target vault name, or '*' to search across all registered vaults.
 
         Returns:
-            List of hit dicts: {id, title, type, snippet, score}.
+            List of hit dicts: {id, title, type, snippet, score, vault}.
         """
         try:
             inp = KbSearchInput(
@@ -357,42 +382,84 @@ def _make_server(vault: str | None = None) -> Any:
                 limit=limit,
                 mode=mode,
                 rrf_k=rrf_k,
+                vault=vault,
             )
         except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_search query=%r type=%r tags=%r limit=%d mode=%r rrf_k=%d",
+            "kb_search query=%r type=%r tags=%r limit=%d mode=%r rrf_k=%d vault=%r",
             inp.query,
             inp.type,
             inp.tags,
             inp.limit,
             inp.mode,
             inp.rrf_k,
+            inp.vault,
         )
         try:
-            hits: List[SearchHit] = store.search(
-                query=inp.query,
-                type=inp.type,
-                tags=inp.tags,
-                limit=inp.limit,
-                mode=inp.mode,
-                rrf_k=inp.rrf_k,
-            )
-            return {
-                "hits": [
-                    {
-                        "id": h.doc.id,
-                        "title": h.doc.title,
-                        "type": h.doc.type,
-                        "snippet": h.snippet,
-                        "score": h.score,
-                    }
-                    for h in hits
-                ],
-                "count": len(hits),
-            }
+            mgr = VaultManager()
+            if inp.vault == "*":
+                # Search across all registered vaults
+                all_hits = []
+                for vinfo in mgr.list_vaults():
+                    v_store = SqliteStore(mgr.resolve_path(vinfo.name))
+                    try:
+                        v_hits = v_store.search(
+                            query=inp.query,
+                            type=inp.type,
+                            tags=inp.tags,
+                            limit=inp.limit,
+                            mode=inp.mode,
+                            rrf_k=inp.rrf_k,
+                        )
+                        for h in v_hits:
+                            all_hits.append({
+                                "id": h.doc.id,
+                                "title": h.doc.title,
+                                "type": h.doc.type,
+                                "snippet": h.snippet,
+                                "score": h.score,
+                                "vault": vinfo.name,
+                            })
+                    finally:
+                        v_store.close()
+                is_lexical_or_fuzzy = inp.mode in ("lexical", "fuzzy")
+                all_hits.sort(key=lambda x: x["score"], reverse=(not is_lexical_or_fuzzy))
+                return {
+                    "hits": all_hits[:inp.limit],
+                    "count": min(len(all_hits), inp.limit),
+                }
+
+            target_store = _create_store(inp.vault) if inp.vault else store
+            try:
+                hits: List[SearchHit] = target_store.search(
+                    query=inp.query,
+                    type=inp.type,
+                    tags=inp.tags,
+                    limit=inp.limit,
+                    mode=inp.mode,
+                    rrf_k=inp.rrf_k,
+                )
+                v_name = inp.vault or mgr.get_current()
+                return {
+                    "hits": [
+                        {
+                            "id": h.doc.id,
+                            "title": h.doc.title,
+                            "type": h.doc.type,
+                            "snippet": h.snippet,
+                            "score": h.score,
+                            "vault": v_name,
+                        }
+                        for h in hits
+                    ],
+                    "count": len(hits),
+                }
+            finally:
+                if inp.vault:
+                    target_store.close()
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_search failed: %s", msg)
@@ -401,25 +468,49 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- kb_get -----------------------------------------------------------
 
     @mcp.tool()
-    def kb_get(id: str) -> Any:
-        """Fetch a document by id.
+    def kb_get(
+        id: str,
+        section: Optional[str] = None,
+        vault: Optional[str] = None,
+    ) -> Any:
+        """Fetch a document by id, with optional section-level extraction and vault selection.
 
         Args:
             id: Document id (slug, e.g. "proj/kb-mcp").
+            section: Optional heading name to extract just that specific section
+                (reduces token consumption for large docs).
+            vault: Optional vault name to fetch from.
 
         Returns:
-            Full document dict (all fields).
+            Full document dict (all fields) or sliced section result.
         """
         try:
-            inp = KbGetInput(id=id)
+            inp = KbGetInput(id=id, section=section, vault=vault)
         except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
-        logger.info("kb_get id=%r", inp.id)
+        logger.info("kb_get id=%r section=%r vault=%r", inp.id, inp.section, inp.vault)
         try:
-            doc = store.get(inp.id)
-            return doc.model_dump(mode="json")
+            target_store = _create_store(inp.vault) if inp.vault else store
+            try:
+                doc = target_store.get(inp.id)
+                dumped = doc.model_dump(mode="json")
+                if inp.section:
+                    section_content = doc.get_section(inp.section)
+                    if section_content is None:
+                        available = list(doc.extract_sections().keys())
+                        dumped["section_found"] = False
+                        dumped["available_sections"] = [s for s in available if s]
+                        dumped["section_error"] = f"Section {inp.section!r} not found."
+                    else:
+                        dumped["section_found"] = True
+                        dumped["section_name"] = inp.section
+                        dumped["body"] = section_content
+                return dumped
+            finally:
+                if inp.vault:
+                    target_store.close()
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_get failed: %s", msg)
@@ -434,6 +525,7 @@ def _make_server(vault: str | None = None) -> Any:
         body: str = "",
         tags: Optional[List[str]] = None,
         aliases: Optional[List[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         source: Optional[str] = None,
         id: Optional[str] = None,
     ) -> Any:
@@ -448,6 +540,7 @@ def _make_server(vault: str | None = None) -> Any:
             body: Markdown body (default "").
             tags: List of tag strings (optional).
             aliases: Alternative IDs for this document (optional).
+            metadata: Structured type-specific attributes dict (optional).
             source: Origin file path (optional, enables idempotent re-import).
             id: Explicit document id (e.g. "reference/foo/bar"). When omitted,
                 the server auto-generates one from ``type`` and ``title``. Pass
@@ -459,18 +552,26 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbAddInput(
-                type=type, title=title, body=body, tags=tags, aliases=aliases, source=source, id=id
+                type=type,
+                title=title,
+                body=body,
+                tags=tags,
+                aliases=aliases,
+                metadata=metadata,
+                source=source,
+                id=id,
             )
         except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_add type=%r title=%r tags=%r aliases=%r source=%r id=%r",
+            "kb_add type=%r title=%r tags=%r aliases=%r metadata=%r source=%r id=%r",
             inp.type,
             inp.title,
             inp.tags,
             inp.aliases,
+            inp.metadata,
             inp.source,
             inp.id,
         )
@@ -483,6 +584,7 @@ def _make_server(vault: str | None = None) -> Any:
                 body=inp.body,
                 tags=inp.tags or [],
                 aliases=inp.aliases or [],
+                metadata=inp.metadata or {},
                 source=inp.source,
             )
             stored_id = store.add(doc)
@@ -543,6 +645,7 @@ def _make_server(vault: str | None = None) -> Any:
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
+        vault: Optional[str] = None,
     ) -> Any:
         """List documents, sorted by ``updated_at`` DESC.
 
@@ -552,47 +655,59 @@ def _make_server(vault: str | None = None) -> Any:
             limit: Max results 1..1000 (default 100).
             offset: Skip this many results before returning (pagination).
             include_deleted: Include soft-deleted documents (default false).
+            vault: Optional vault name to list from.
 
         Returns:
             List of document summaries: {id, title, type, tags, updated_at}.
         """
         try:
             inp = KbListInput(
-                type=type, tags=tags, limit=limit, offset=offset, include_deleted=include_deleted
+                type=type,
+                tags=tags,
+                limit=limit,
+                offset=offset,
+                include_deleted=include_deleted,
+                vault=vault,
             )
         except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_list type=%r tags=%r limit=%d offset=%d include_deleted=%s",
+            "kb_list type=%r tags=%r limit=%d offset=%d include_deleted=%s vault=%r",
             inp.type,
             inp.tags,
             inp.limit,
             inp.offset,
             inp.include_deleted,
+            inp.vault,
         )
         try:
-            docs = store.list(
-                type=inp.type,
-                tags=inp.tags,
-                limit=inp.limit,
-                offset=inp.offset,
-                include_deleted=inp.include_deleted,
-            )
-            return {
-                "documents": [
-                    {
-                        "id": d.id,
-                        "type": d.type,
-                        "title": d.title,
-                        "tags": d.tags,
-                        "updated_at": d.updated_at.isoformat(),
-                    }
-                    for d in docs
-                ],
-                "count": len(docs),
-            }
+            target_store = _create_store(inp.vault) if inp.vault else store
+            try:
+                docs = target_store.list(
+                    type=inp.type,
+                    tags=inp.tags,
+                    limit=inp.limit,
+                    offset=inp.offset,
+                    include_deleted=inp.include_deleted,
+                )
+                return {
+                    "documents": [
+                        {
+                            "id": d.id,
+                            "type": d.type,
+                            "title": d.title,
+                            "tags": d.tags,
+                            "updated_at": d.updated_at.isoformat(),
+                        }
+                        for d in docs
+                    ],
+                    "count": len(docs),
+                }
+            finally:
+                if inp.vault:
+                    target_store.close()
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_list failed: %s", msg)
@@ -607,11 +722,12 @@ def _make_server(vault: str | None = None) -> Any:
         body: Optional[str] = None,
         tags: Optional[List[str]] = None,
         aliases: Optional[List[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         source: Optional[str] = None,
     ) -> Any:
         """Patch fields on an existing document.
 
-        Only ``title``, ``body``, ``tags``, ``aliases``, ``source`` may be
+        Only ``title``, ``body``, ``tags``, ``aliases``, ``metadata``, ``source`` may be
         changed. ``id``, ``type``, ``created_at`` are immutable.
 
         Args:
@@ -620,6 +736,8 @@ def _make_server(vault: str | None = None) -> Any:
             body: New Markdown body (optional).
             tags: New tag list (optional; empty list clears tags).
             aliases: New alias list (optional; empty list clears aliases).
+            metadata: Structured type-specific attributes dict (optional; replaces
+                the whole metadata dict — pass {} to clear).
             source: New source path (optional).
 
         Returns:
@@ -627,7 +745,13 @@ def _make_server(vault: str | None = None) -> Any:
         """
         try:
             inp = KbUpdateInput(
-                id=id, title=title, body=body, tags=tags, aliases=aliases, source=source
+                id=id,
+                title=title,
+                body=body,
+                tags=tags,
+                aliases=aliases,
+                metadata=metadata,
+                source=source,
             )
         except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
@@ -642,6 +766,8 @@ def _make_server(vault: str | None = None) -> Any:
             fields["tags"] = inp.tags
         if inp.aliases is not None:
             fields["aliases"] = inp.aliases
+        if inp.metadata is not None:
+            fields["metadata"] = inp.metadata
         if inp.source is not None:
             fields["source"] = inp.source
 
@@ -955,6 +1081,125 @@ def _make_server(vault: str | None = None) -> Any:
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
             code, msg = _mcp_error(e)
             logger.exception("kb_duplicates failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_diff_check ----------------------------------------------------
+
+    @mcp.tool()
+    def kb_diff_check(cwd: Optional[str] = None, vault: Optional[str] = None) -> Any:
+        """Analyze git repository diff and proactively recommend mandatory ADRs, lessons, and constraints.
+
+        Args:
+            cwd: Working directory of the git repo (default: current directory).
+            vault: Optional vault name to query constraints from.
+
+        Returns:
+            {has_recommendations, decisions, lessons, apis, prompt_context}.
+        """
+        from kb_mcp_lite.context_guard import ContextGuard
+
+        try:
+            inp = KbDiffCheckInput(cwd=cwd, vault=vault)
+        except PydanticValidationError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info("kb_diff_check cwd=%r vault=%r", inp.cwd, inp.vault)
+        try:
+            target_store = _create_store(inp.vault) if inp.vault else store
+            try:
+                guard = ContextGuard(store=target_store)
+                return guard.evaluate_diff(cwd=inp.cwd)
+            finally:
+                if inp.vault:
+                    target_store.close()
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_diff_check failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_query_relations -----------------------------------------------
+
+    @mcp.tool()
+    def kb_query_relations(
+        start_id: str,
+        target_id: Optional[str] = None,
+        rel: Optional[str] = None,
+        direction: str = "outbound",
+        doc_type: Optional[str] = None,
+        max_depth: int = 2,
+        vault: Optional[str] = None,
+    ) -> Any:
+        """Query multi-hop relations or find paths between documents in the knowledge graph.
+
+        Args:
+            start_id: Starting document id.
+            target_id: If provided, finds shortest directed path from start_id to target_id.
+            rel: Filter edges by relationship name (e.g. 'depends-on', 'governs').
+            direction: Traversal direction — 'outbound' (default), 'inbound', or 'both'.
+            doc_type: Restrict reached nodes to a specific document type.
+            max_depth: Maximum hops to traverse (1..5, default 2).
+            vault: Optional vault name.
+
+        Returns:
+            {path: [...]} when target_id is set, or {results: [{id, type, title, rel, hop, via}], count: N}.
+        """
+        from kb_mcp_lite.graph_query import GraphQueryEngine
+
+        try:
+            inp = KbGraphQueryInput(
+                start_id=start_id,
+                target_id=target_id,
+                rel=rel,
+                direction=direction,
+                doc_type=doc_type,
+                max_depth=max_depth,
+                vault=vault,
+            )
+        except PydanticValidationError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        logger.info(
+            "kb_query_relations start=%r target=%r rel=%r dir=%r type=%r depth=%d",
+            inp.start_id,
+            inp.target_id,
+            inp.rel,
+            inp.direction,
+            inp.doc_type,
+            inp.max_depth,
+        )
+        try:
+            target_store = _create_store(inp.vault) if inp.vault else store
+            try:
+                engine = GraphQueryEngine(target_store)
+                if inp.target_id:
+                    path = engine.find_path(inp.start_id, inp.target_id, max_depth=inp.max_depth)
+                    return {
+                        "start_id": inp.start_id,
+                        "target_id": inp.target_id,
+                        "found": path is not None,
+                        "path": path or [],
+                    }
+
+                results = engine.query_relations(
+                    start_id=inp.start_id,
+                    rel=inp.rel,
+                    direction=inp.direction,
+                    doc_type=inp.doc_type,
+                    max_depth=inp.max_depth,
+                )
+                return {
+                    "start_id": inp.start_id,
+                    "results": results,
+                    "count": len(results),
+                }
+            finally:
+                if inp.vault:
+                    target_store.close()
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_query_relations failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
     # ---- Resources -------------------------------------------------------

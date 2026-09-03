@@ -56,9 +56,13 @@ def register_doc_routes(app: FastAPI, render: Any) -> None:
     def api_doc_detail(doc_id: str) -> JSONResponse:
         with open_store(app) as store:
             doc = store.get(doc_id, include_deleted=True)
+            doc_data = serialize_doc(doc)
+            sections = doc.extract_sections()
             return JSONResponse(
                 {
-                    "doc": serialize_doc(doc),
+                    "doc": doc_data,
+                    "sections": sections,
+                    "section_headings": [s for s in sections.keys() if s],
                     "outlinks": [serialize_link(link) for link in store.outlinks(doc.id)],
                     "backlinks": [serialize_link(link) for link in store.backlinks(doc.id)],
                     "history": store.document_history(doc.id),

@@ -342,8 +342,8 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             cur.execute(
                 """
                 INSERT INTO documents (
-                    id, type, title, body, tags, source, created_at, updated_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, type, title, body, tags, metadata, source, created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     doc.id,
@@ -351,6 +351,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                     doc.title,
                     doc.body,
                     json.dumps(doc.tags, ensure_ascii=False),
+                    json.dumps(doc.metadata, ensure_ascii=False) if doc.metadata else "{}",
                     doc.source,
                     doc.created_at.isoformat(),
                     doc.updated_at.isoformat(),
@@ -393,12 +394,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     def update(self, doc_id: str, **kwargs: Any) -> Document:
         """Update fields on an existing document.
 
-        Supported fields: title, body, tags, source, aliases.
+        Supported fields: title, body, tags, source, aliases, metadata.
+        ``metadata`` replaces the whole dict (pass ``{}`` to clear); it does
+        not merge — read-modify-write if a partial update is needed.
         Raises NotFoundError if the document doesn't exist.
         Raises ValidationError if disallowed fields are passed or no fields given.
         """
         doc = self.get(doc_id)
-        allowed_fields = {"title", "body", "tags", "source", "aliases"}
+        allowed_fields = {"title", "body", "tags", "source", "aliases", "metadata"}
         bad = set(kwargs.keys()) - allowed_fields
         if bad:
             raise ValidationError(f"cannot update fields: {sorted(bad)}")
@@ -413,6 +416,10 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                     doc.tags = [t.strip() for t in v.split(",") if t.strip()]
                 else:
                     doc.tags = list(v)
+            elif k == "metadata":
+                if not isinstance(v, dict):
+                    raise ValidationError("metadata must be a dict")
+                doc.metadata = dict(v)
             else:
                 setattr(doc, k, v)
 
@@ -422,13 +429,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             cur.execute(
                 """
                 UPDATE documents
-                SET title = ?, body = ?, tags = ?, source = ?, updated_at = ?
+                SET title = ?, body = ?, tags = ?, metadata = ?, source = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     doc.title,
                     doc.body,
                     json.dumps(doc.tags, ensure_ascii=False),
+                    json.dumps(doc.metadata, ensure_ascii=False) if doc.metadata else "{}",
                     doc.source,
                     doc.updated_at.isoformat(),
                     doc.id,

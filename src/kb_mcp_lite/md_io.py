@@ -150,6 +150,8 @@ def render_document(doc: Document, outlinks: list[Link] | None = None) -> str:
         fm["created_at"] = doc.created_at.isoformat()
     if doc.updated_at is not None:
         fm["updated_at"] = doc.updated_at.isoformat()
+    if doc.metadata:
+        fm["metadata"] = dict(doc.metadata)
     if outlinks:
         fm["links"] = [
             {"to": link.to_id, "rel": link.rel}
@@ -282,6 +284,30 @@ def doc_from_frontmatter(
     else:
         doc_id = make_id(type_, title)
 
+    # Metadata extraction: extract explicit 'metadata' key or any extra typed keys
+    raw_meta = fm.get("metadata")
+    metadata: dict[str, Any] = {}
+    if isinstance(raw_meta, dict):
+        metadata.update(raw_meta)
+
+    # Catch any extra top-level fields not in core Document attributes
+    known_keys = {
+        "id",
+        "type",
+        "title",
+        "tags",
+        "aliases",
+        "source",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+        "links",
+        "metadata",
+    }
+    for k, v in fm.items():
+        if k not in known_keys and k not in metadata:
+            metadata[k] = v
+
     return Document(
         id=doc_id,
         type=type_,
@@ -290,6 +316,7 @@ def doc_from_frontmatter(
         tags=_coerce_tags(fm.get("tags", [])),
         aliases=aliases,
         source=source,
+        metadata=metadata,
         created_at=_parse_iso_dt(created_at_raw) if created_at_raw else now,
         updated_at=_parse_iso_dt(updated_at_raw) if updated_at_raw else now,
     )

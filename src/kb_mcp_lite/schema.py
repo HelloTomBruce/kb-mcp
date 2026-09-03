@@ -218,6 +218,9 @@ class Document(BaseModel):
         default_factory=list, description="Alternative IDs for this document"
     )
     source: str | None = Field(default=None, description="Origin file path if imported")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Structured type-specific attributes"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     deleted_at: datetime | None = None
@@ -250,8 +253,12 @@ class Document(BaseModel):
         import re
 
         for t in v:
-            if not re.match(r"^[a-z0-9][a-z0-9_-]*$", t):
-                raise ValueError(f"tag {t!r} must match ^[a-z0-9][a-z0-9_-]*$")
+            t_str = str(t).strip()
+            if not t_str:
+                raise ValueError("tag cannot be empty")
+            # Allow ASCII lowercase alphanumeric, dash, underscore, and Unicode / CJK word characters
+            if not re.match(r"^[\w\-]+$", t_str, re.UNICODE):
+                raise ValueError(f"tag {t!r} must contain valid alphanumeric or unicode characters")
         return v
 
     @field_validator("created_at", "updated_at", "deleted_at", mode="before")
@@ -272,10 +279,48 @@ class Document(BaseModel):
 
     # ---- helpers --------------------------------------------------------
 
+    def extract_sections(self) -> dict[str, str]:
+        """Parse markdown body into a dictionary of {section_heading: section_content}.
+
+        Headings (e.g., '# Heading', '## Subheading') are normalized by stripping '#'.
+        The root content before the first heading is keyed as '' (empty string).
+        """
+        import re
+
+        sections: dict[str, str] = {}
+        current_heading = ""
+        current_lines: list[str] = []
+
+        for line in (self.body or "").splitlines():
+            m = re.match(r"^(#{1,6})\s+(.+)$", line.strip())
+            if m:
+                if current_heading or current_lines:
+                    sections[current_heading] = "\n".join(current_lines).strip()
+                current_heading = m.group(2).strip()
+                current_lines = [line]
+            else:
+                current_lines.append(line)
+
+        if current_heading or current_lines:
+            sections[current_heading] = "\n".join(current_lines).strip()
+
+        return sections
+
+    def get_section(self, heading: str) -> str | None:
+        """Get content of a specific heading (case-insensitive fuzzy match)."""
+        sections = self.extract_sections()
+        if not heading:
+            return sections.get("", None)
+        target = heading.strip().lower()
+        for k, v in sections.items():
+            if k.lower() == target or target in k.lower():
+                return v
+        return None
+
     def to_row(self) -> dict[str, Any]:
         """Serialise to a flat dict suitable for SQLite INSERT.
 
-        ``tags`` becomes a JSON string. ``created_at`` / ``updated_at`` /
+        ``tags`` and ``metadata`` become JSON strings. ``created_at`` / ``updated_at`` /
         ``deleted_at`` become ISO-8601 strings.
         """
         import json
@@ -286,6 +331,7 @@ class Document(BaseModel):
             "title": self.title,
             "body": self.body,
             "tags": json.dumps(self.tags, ensure_ascii=False),
+            "metadata": json.dumps(self.metadata, ensure_ascii=False) if self.metadata else "{}",
             "source": self.source,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -301,7 +347,16 @@ class Document(BaseModel):
         data = dict(row)
         tags_raw = data.get("tags") or "[]"
         if isinstance(tags_raw, str):
-            data["tags"] = json.loads(tags_raw)
+            try:
+                data["tags"] = json.loads(tags_raw)
+            except Exception:
+                data["tags"] = []
+        meta_raw = data.get("metadata") or "{}"
+        if isinstance(meta_raw, str):
+            try:
+                data["metadata"] = json.loads(meta_raw)
+            except Exception:
+                data["metadata"] = {}
         # Parse datetime fields from ISO strings
         for k in ("created_at", "updated_at", "deleted_at"):
             v = data.get(k)

@@ -181,7 +181,7 @@ class VersioningMixin:
         snapshot["id"] = doc_id
         restored_doc = Document.model_validate(snapshot)
         fields: dict[str, object] = {}
-        for f in ("title", "body", "tags", "source"):
+        for f in ("title", "body", "tags", "source", "metadata"):
             fields[f] = getattr(restored_doc, f, None)
         return self.update(doc_id, **fields)
 

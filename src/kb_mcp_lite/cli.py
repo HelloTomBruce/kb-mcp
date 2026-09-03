@@ -163,24 +163,44 @@ def add(
 
 @cli.command()
 @click.argument("doc_id")
+@click.option("--section", help="Optional heading/section to extract.")
 @_json_option
 @click.pass_context
 @_handle_errors
-def get(ctx: click.Context, doc_id: str, as_json: bool) -> None:
+def get(ctx: click.Context, doc_id: str, section: str | None, as_json: bool) -> None:
     """Get a document by ID."""
     store = _get_store(ctx)
     doc = store.get(doc_id)
     if as_json:
-        _emit_json(doc.model_dump(mode="json"))
+        dumped = doc.model_dump(mode="json")
+        if section:
+            sec_content = doc.get_section(section)
+            if sec_content is None:
+                dumped["section_found"] = False
+                dumped["available_sections"] = [s for s in doc.extract_sections().keys() if s]
+            else:
+                dumped["section_found"] = True
+                dumped["section_name"] = section
+                dumped["body"] = sec_content
+        _emit_json(dumped)
     else:
         click.echo(f"ID: {doc.id}")
         click.echo(f"Type: {doc.type}")
         click.echo(f"Title: {doc.title}")
         click.echo(f"Tags: {', '.join(doc.tags) if doc.tags else '(none)'}")
+        if doc.metadata:
+            click.echo(f"Metadata: {json.dumps(doc.metadata, ensure_ascii=False)}")
         click.echo(f"Created: {doc.created_at.isoformat()}")
         click.echo(f"Updated: {doc.updated_at.isoformat()}")
         click.echo("")
-        click.echo(doc.body)
+        if section:
+            sec_content = doc.get_section(section)
+            if sec_content is None:
+                click.echo(f"Section {section!r} not found.")
+            else:
+                click.echo(sec_content)
+        else:
+            click.echo(doc.body)
 
 
 # ---- kb update ---------------------------------------------------------------
@@ -946,6 +966,53 @@ def admin_start(ctx: click.Context, port: int) -> None:
 
     store = _get_store(ctx)
     run_admin(store=store, port=port)
+
+
+# ---- watch command -----------------------------------------------------------
+
+
+@cli.command(name="watch")
+@click.option("--interval", default=1.0, type=float, help="Poll interval in seconds.")
+@click.pass_context
+@_handle_errors
+def watch_command(ctx: click.Context, interval: float) -> None:
+    """Watch the Markdown directory and auto-sync changes to SQLite."""
+    from kb_mcp_lite.watcher import VaultWatcher
+
+    vm = VaultManager()
+    vault_name = vm.get_current()
+    watcher = VaultWatcher(vault_name=vault_name, vault_manager=vm)
+    click.echo(f"Watching vault '{vault_name}' markdown directory at: {watcher.watch_dir}")
+    click.echo("Press Ctrl+C to stop.")
+    try:
+        watcher.run(interval_seconds=interval)
+    except KeyboardInterrupt:
+        click.echo("\nStopped watching.")
+
+
+# ---- diff-check command ------------------------------------------------------
+
+
+@cli.command(name="diff-check")
+@_json_option
+@click.pass_context
+@_handle_errors
+def diff_check_command(ctx: click.Context, as_json: bool) -> None:
+    """Analyze current git diff and recommend related ADRs, lessons, and constraints."""
+    from kb_mcp_lite.context_guard import ContextGuard
+
+    store = _get_store(ctx)
+    guard = ContextGuard(store=store)
+    result = guard.evaluate_diff()
+
+    if as_json:
+        _emit_json(result)
+    else:
+        if not result["has_recommendations"]:
+            click.echo("No related architectural decisions or lessons found for current changes.")
+            return
+
+        click.echo(result["prompt_context"])
 
 
 def main() -> None:

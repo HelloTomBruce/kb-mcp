@@ -222,10 +222,10 @@ def mcp_proc(tmp_db: Path) -> Iterator[subprocess.Popen]:
 
 
 class TestDiscovery:
-    """MCP server advertises the 15 kb tools."""
+    """MCP server advertises the 17 kb tools."""
 
     def test_tools_list(self, mcp_proc: subprocess.Popen) -> None:
-        """tools/list returns kb_search, kb_get, kb_add, kb_link."""
+        """tools/list returns all registered MCP tools."""
         rid = _next_id()
         _send(mcp_proc, {"jsonrpc": "2.0", "id": rid, "method": "tools/list"})
         resp = _recv_until_id(mcp_proc, rid)
@@ -248,6 +248,8 @@ class TestDiscovery:
             "kb_doctor",
             "kb_similar",
             "kb_duplicates",
+            "kb_diff_check",
+            "kb_query_relations",
         }
 
 
