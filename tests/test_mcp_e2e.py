@@ -248,6 +248,8 @@ class TestDiscovery:
             "kb_doctor",
             "kb_similar",
             "kb_duplicates",
+            "kb_embed_status",
+            "kb_embed_retry",
             "kb_diff_check",
             "kb_query_relations",
         }
@@ -799,3 +801,39 @@ class TestKbHistory:
         get_resp = _call_tool(mcp_proc, "kb_get", {"id": "proj/delrestore"})
         get_data = _extract_result(get_resp)
         assert get_data["id"] == "proj/delrestore"
+
+
+# ---------------------------------------------------------------------------
+# kb_embed_status / kb_embed_retry (admin surface, embedder disabled)
+# ---------------------------------------------------------------------------
+
+
+class TestKbEmbedAdmin:
+    def test_embed_status_reports_disabled_embedder(
+        self, mcp_proc: subprocess.Popen
+    ) -> None:
+        """kb_embed_status returns a structured report, no error."""
+        resp = _call_tool(mcp_proc, "kb_embed_status", {})
+        data = _extract_result(resp)
+        assert isinstance(data, dict)
+        assert data.get("embedder_enabled") is False
+        assert data.get("queue") == {
+            "pending": 0,
+            "in_progress": 0,
+            "done": 0,
+            "failed": 0,
+        }
+        assert data.get("total_enqueued") == 0
+        assert data.get("oldest_failed") is None
+
+    def test_embed_retry_empty_queue(self, mcp_proc: subprocess.Popen) -> None:
+        """kb_embed_retry with nothing failed is a successful no-op."""
+        resp = _call_tool(mcp_proc, "kb_embed_retry", {})
+        data = _extract_result(resp)
+        assert data == {"ok": True, "retried": 0, "doc_id": None}
+
+    def test_embed_retry_unknown_doc(self, mcp_proc: subprocess.Popen) -> None:
+        """Retrying a doc id that was never queued moves nothing."""
+        resp = _call_tool(mcp_proc, "kb_embed_retry", {"doc_id": "never/queued"})
+        data = _extract_result(resp)
+        assert data == {"ok": True, "retried": 0, "doc_id": "never/queued"}

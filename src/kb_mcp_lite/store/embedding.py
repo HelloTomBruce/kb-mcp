@@ -202,9 +202,9 @@ class EmbeddingMixin:
         if emb is None or not getattr(emb, "enabled", False):
             return None
         try:
-            from kb_mcp_lite.store.sqlite import _make_sqlite_connection
+            from kb_mcp_lite.store.connection import make_sqlite_connection
 
-            conn = _make_sqlite_connection(str(self.path))
+            conn = make_sqlite_connection(str(self.path))
         except Exception as e:  # noqa: BLE001
             logging.getLogger("kb_mcp_lite").debug("vec0 connection not available: %s", e)
             self._vec_conn = False
@@ -217,23 +217,9 @@ class EmbeddingMixin:
                 dim = getattr(emb, "dim", 0)
             except Exception:
                 pass
-        dim = dim or 1536
-        try:
-            # Migration 0003 pre-creates docs_vec with a fixed 1536 dim.
-            # If the current embedder uses a different dimension, the
-            # pre-created table must be recreated to match, otherwise
-            # every insert/query fails with a dimension mismatch.
-            existing = conn.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'docs_vec'"
-            ).fetchone()
-            if existing and f"float[{dim}]" not in (existing[0] or ""):
-                conn.execute("DROP TABLE docs_vec")
-            conn.execute(
-                f"CREATE VIRTUAL TABLE IF NOT EXISTS docs_vec USING vec0("
-                f"embedding float[{dim}] distance_metric=cosine)"
-            )
-        except Exception as e:  # noqa: BLE001
-            logging.getLogger("kb_mcp_lite").debug("docs_vec table unavailable: %s", e)
+        if not ensure_vec_table(conn, dim):
+            # sqlite-vec unavailable or the DDL failed — degrade to
+            # lexical-only search, as before.
             try:
                 conn.close()
             except Exception:  # noqa: BLE001
@@ -301,6 +287,53 @@ class EmbeddingMixin:
             return 1 if r is not None else 0
         except Exception:  # noqa: BLE001
             return 0
+
+
+# ---------------------------------------------------------------------------
+# Shared vec0 table helper
+# ---------------------------------------------------------------------------
+
+
+def ensure_vec_table(conn: Any, dim: int) -> bool:
+    """Create (or re-create) the ``docs_vec`` virtual table on ``conn``.
+
+    Migration 0003 pre-creates ``docs_vec`` with a fixed ``float[1536]``
+    dimension. A non-default embedder (e.g. a unit-test mock at dim 64,
+    or a model whose output is not 1536 floats) needs the table dropped
+    and recreated at its own dimension, otherwise every insert / query
+    fails with a dimension mismatch. This is the logic formerly inlined
+    in ``_vec_conn_lazy``; the background worker calls it too, because
+    since v0.8 the worker (not the synchronous add path) is what writes
+    ``docs_vec`` first.
+
+    Best-effort: returns ``False`` (and leaves the table untouched) if
+    ``sqlite-vec`` is unavailable or the DDL fails, so callers degrade
+    to lexical-only search exactly as before.
+
+    Args:
+        conn: Any connection to the main database file.
+        dim: Embedding dimension the table must accept. A vector of a
+            different length is what triggers the drop.
+    """
+    dim = int(dim) or 1536
+    try:
+        existing = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'docs_vec'"
+        ).fetchone()
+        if existing and f"float[{dim}]" not in (existing[0] or ""):
+            # Current embedder dim differs from the pre-created 1536.
+            # Recreate to match — same policy as ``_vec_conn_lazy``.
+            conn.execute("DROP TABLE docs_vec")
+        conn.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS docs_vec USING vec0("
+            f"embedding float[{dim}] distance_metric=cosine)"
+        )
+        return True
+    except Exception:  # noqa: BLE001
+        logging.getLogger("kb_mcp_lite.store.embedding").debug(
+            "docs_vec table unavailable on %r: ", conn, exc_info=True
+        )
+        return False
 
 
 __all__ = ["EmbeddingMixin"]

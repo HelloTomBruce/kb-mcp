@@ -1083,6 +1083,59 @@ def _make_server(vault: str | None = None) -> Any:
             logger.exception("kb_duplicates failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
 
+    # ---- kb_embed_status / kb_embed_retry ---------------------------------
+
+    @mcp.tool()
+    def kb_embed_status() -> Any:
+        """Show the embedding queue status (counts + oldest pending/failed).
+
+        Since v0.8 embeddings are produced asynchronously by a background
+        worker draining an ``embedding_queue``; this tool reports how the
+        queue looks right now.
+
+        Returns:
+            {embedder_enabled, dim, indexed_documents,
+             queue: {pending, in_progress, done, failed},
+             total_enqueued, oldest_pending, oldest_failed}.
+        """
+        logger.info("kb_embed_status")
+        try:
+            return store.embedding_status()
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_embed_status failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    @mcp.tool()
+    def kb_embed_retry(doc_id: Optional[str] = None) -> Any:
+        """Re-queue embedding jobs that are not currently pending.
+
+        Args:
+            doc_id: Re-run this single document (also works from
+                ``done`` / ``in_progress``). When omitted, every
+                ``failed`` job is reset to pending.
+
+        Returns:
+            {ok: True, retried: int, doc_id: str | None}.
+
+        NOTE: this only re-queues the row back to ``pending`` — it does
+        not embed anything itself. The row is drained asynchronously by
+        the store's background worker (``auto_start_worker=True``, the
+        default here), so ``kb_embed_status`` may briefly show it as
+        ``pending`` before the worker picks it up. If no worker is ever
+        running (a store opened with ``auto_start_worker=False``, e.g. in
+        tests), the row stays ``pending``; drain it synchronously from
+        code via ``SqliteStore.process_embedding_queue``.
+        """
+        logger.info("kb_embed_retry doc_id=%r", doc_id)
+        try:
+            moved = store.retry_embedding(doc_id=doc_id)
+            return {"ok": True, "retried": moved, "doc_id": doc_id}
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_embed_retry failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
     # ---- kb_diff_check ----------------------------------------------------
 
     @mcp.tool()

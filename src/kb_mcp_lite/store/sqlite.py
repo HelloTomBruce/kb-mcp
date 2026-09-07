@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, TypeVar, Iterator
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, TypeVar, Iterator
 
 from kb_mcp_lite.schema import (
     Document,
@@ -19,80 +20,20 @@ from kb_mcp_lite.schema import (
     DuplicateError,
     ValidationError,
 )
+from kb_mcp_lite.store.connection import make_sqlite_connection, sqlite_row_factory
 from kb_mcp_lite.store.maintenance import MaintenanceMixin
 from kb_mcp_lite.store.search import SearchMixin
 from kb_mcp_lite.store.versioning import VersioningMixin
 from kb_mcp_lite.store.embedding import EmbeddingMixin
 
+if TYPE_CHECKING:
+    from kb_mcp_lite.store.embedding_queue import EmbeddingQueue
+    from kb_mcp_lite.worker import EmbeddingWorker
+
+logger = logging.getLogger("kb_mcp_lite.store.sqlite")
+
 
 T = TypeVar("T")
-
-
-def _sqlite_row_factory(conn: sqlite3.Connection) -> Any:
-    """Return the correct Row class for ``conn`` (stdlib sqlite3 vs pysqlite3).
-
-    pysqlite3's cursor objects are not accepted by the stdlib sqlite3.Row
-    constructor, so each connection must use the Row class from the same
-    library that created it.
-    """
-    try:
-        import pysqlite3 as _psql
-
-        if isinstance(conn, _psql.dbapi2.Connection):
-            return _psql.dbapi2.Row
-    except ImportError:
-        pass
-    return sqlite3.Row
-
-
-def _make_sqlite_connection(
-    db_path: str, *, isolation_level: str | None = None
-) -> sqlite3.Connection:
-    """Open a sqlite3 connection that supports vec0 if possible.
-
-    All connections to the same database MUST be created through this
-    factory so they use the same SQLite library. Mixing pysqlite3 and
-    stdlib sqlite3 against one WAL-mode database corrupts it: the two
-    bundle different SQLite versions, and closing one library's connection
-    while the other's is still live can destroy the shared WAL index
-    (observed as "database disk image is malformed").
-    """
-    try:
-        import pysqlite3 as _psql
-
-        conn: sqlite3.Connection = _psql.connect(
-            db_path,
-            detect_types=sqlite3.PARSE_DECLTYPES,
-            isolation_level=isolation_level,
-        )
-        conn.enable_load_extension(True)
-        _try_load_vec0(conn)
-        return conn
-    except ImportError:
-        pass
-    conn = sqlite3.connect(
-        db_path,
-        detect_types=sqlite3.PARSE_DECLTYPES,
-        isolation_level=isolation_level,  # type: ignore[arg-type]  # "" (legacy) is valid but missing from typeshed
-    )
-    try:
-        conn.enable_load_extension(True)
-        _try_load_vec0(conn)
-    except Exception:
-        pass
-    return conn
-
-
-def _try_load_vec0(conn: sqlite3.Connection) -> None:
-    """Best-effort load of vec0 extension."""
-    import logging
-
-    try:
-        import sqlite_vec
-
-        sqlite_vec.load(conn)
-    except Exception as e:
-        logging.getLogger("kb_mcp_lite").debug("vec0 not loaded: %s", e)
 
 
 class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin):
@@ -105,8 +46,19 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     - EmbeddingMixin: Vector storage and semantic search support
     """
 
-    def __init__(self, db_path: str | Path, embedder: Any | None = None) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        embedder: Any | None = None,
+        *,
+        strict_lock: bool = False,
+        lock_timeout: float = 10.0,
+        auto_start_worker: bool = True,
+    ) -> None:
         self.db_path = str(db_path)
+        self._strict_lock = strict_lock
+        self._lock_timeout = float(lock_timeout)
+        self._auto_start_worker = bool(auto_start_worker)
         self._conn = self._open_connection()
         self._vec_conn = None
         self._init_db()
@@ -115,6 +67,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
             embedder = make_embedder()
         self._embedder = embedder
+        # The queue is bound to the store's main connection because all
+        # enqueue / status / retry calls happen on the calling thread.
+        # The worker, when started, opens its own cross-thread-safe
+        # connection (see :mod:`kb_mcp_lite.worker`).
+        from kb_mcp_lite.store.embedding_queue import EmbeddingQueue
+
+        self._embedding_queue = EmbeddingQueue(self._conn)
+        self._embedding_worker = None  # type: ignore[var-annotated]
 
     def _open_connection(self) -> sqlite3.Connection:
         """Open a connection to the SQLite database.
@@ -127,8 +87,8 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
 
-        conn = _make_sqlite_connection(self.db_path, isolation_level="")
-        conn.row_factory = _sqlite_row_factory(conn)
+        conn = make_sqlite_connection(self.db_path, isolation_level="")
+        conn.row_factory = sqlite_row_factory(conn)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
@@ -147,13 +107,215 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         """Return the path to the database file (compatibility alias for db_path)."""
         return self.db_path
 
+    @property
+    def write_lock(self) -> "WriteLock":
+        """Return a :class:`~kb_mcp_lite.concurrency.WriteLock` bound to this store.
+
+        The lock is constructed lazily on first access so stores that do
+        not need cross-process serialisation pay nothing. Use as a context
+        manager around write operations::
+
+            with store.write_lock:
+                store.add(doc)
+                store.update(...)
+        """
+        # Local import to avoid a top-level cycle (concurrency imports
+        # KbMcpError from schema, but schema does not need concurrency).
+        from kb_mcp_lite.concurrency import WriteLock
+
+        wl = WriteLock(self.db_path, timeout=self._lock_timeout)
+        return wl
+
     def init(self) -> None:
         """Initialize a new empty knowledge base."""
         # Already handled by migrations
         pass
 
+    # ---- embedding queue / worker ---------------------------------------
+
+    @property
+    def embedding_queue(self) -> "EmbeddingQueue":
+        """The :class:`EmbeddingQueue` bound to this store's connection."""
+        return self._embedding_queue
+
+    @property
+    def embedding_worker(self) -> "EmbeddingWorker | None":
+        """Lazily construct, start, and return the background worker.
+
+        Returns ``None`` when the embedder is disabled or the store
+        was constructed with ``auto_start_worker=False``. The worker
+        keeps running until :meth:`close` is called or the process
+        exits (``atexit`` cleanup also stops it).
+        """
+        if not self._auto_start_worker:
+            return None
+        if not getattr(self._embedder, "enabled", False):
+            return None
+        if self._embedding_worker is None:
+            from kb_mcp_lite.worker import EmbeddingWorker
+
+            self._embedding_worker = EmbeddingWorker(
+                self, embedder=self._embedder
+            )
+            self._embedding_worker.start()
+        return self._embedding_worker
+
+    def enqueue_embedding(self, doc_id: str) -> bool:
+        """Enqueue ``doc_id`` for asynchronous embedding.
+
+        No-op (returns ``False``) when the embedder is disabled.
+        Otherwise the doc is added to the queue in ``pending`` state
+        and a running worker (if any) picks it up. Returns ``True``
+        if the row was enqueued, ``False`` otherwise.
+        """
+        if not getattr(self._embedder, "enabled", False):
+            return False
+        self._embedding_queue.enqueue(doc_id)
+        return True
+
+    def process_embedding_queue(
+        self,
+        *,
+        max_jobs: int | None = None,
+        timeout: float = 30.0,
+    ) -> "dict[str, Any]":
+        """Drain the queue synchronously on the calling thread.
+
+        Used by the ``kb embed`` admin commands and by tests. The
+        background worker (if any) keeps running in parallel; both
+        callers go through the same per-row claim / mark-done
+        protocol, so whichever thread claims a row first wins.
+        """
+        import time as _time
+
+        from kb_mcp_lite.worker import EmbeddingWorker
+
+        # Reuse a single scratch worker across the whole drain so we
+        # only pay one extra connection open/close. The scratch worker
+        # writes vec0 rows through its own connection; the queue reads /
+        # claims run on the store's main connection, so no cross-thread
+        # sqlite usage is involved.
+        if not getattr(self._embedder, "enabled", False):
+            # No embedder => nothing to drain; still report queue state.
+            status = self._embedding_queue.status()
+            status["processed"] = 0
+            return status
+        # If the store already has a background worker running (the
+        # usual case for an MCP server / long-lived admin process),
+        # reuse it instead of spinning up a second worker thread that
+        # would race on the same ``embedding_queue`` rows. Two workers
+        # on the same store are safe (claim_next uses
+        # ``WHERE state='pending'``) but wasteful — each holds its own
+        # sqlite3 connection and would call the embedder from a
+        # different thread. The background worker drains in parallel
+        # with the synchronous loop; both compete fairly.
+        background = self.embedding_worker
+        if background is not None:
+            scratch = background
+            owns_scratch = False
+        else:
+            scratch = EmbeddingWorker(self, embedder=self._embedder)
+            owns_scratch = True
+        processed = 0
+        deadline = None if timeout <= 0 else _time.monotonic() + timeout
+        try:
+            while True:
+                if max_jobs is not None and processed >= max_jobs:
+                    break
+                if deadline is not None and _time.monotonic() >= deadline:
+                    break
+                entry = self._embedding_queue.claim_next()
+                if entry is None:
+                    if deadline is not None and _time.monotonic() < deadline:
+                        remaining = deadline - _time.monotonic()
+                        _time.sleep(min(0.1, remaining))
+                        counts = self._embedding_queue.count_by_state()
+                        if counts.get("pending", 0) == 0:
+                            break
+                        continue
+                    break
+                scratch._process_one(entry)  # noqa: SLF001
+                processed += 1
+        finally:
+            # Only stop the worker if we constructed it ourselves. The
+            # background worker owned by ``self.embedding_worker`` is
+            # stopped by ``SqliteStore.close()`` (or ``atexit``);
+            # stopping it here would tear down a thread the rest of
+            # the process still relies on.
+            if owns_scratch:
+                scratch.stop()
+        status = self._embedding_queue.status()
+        status["processed"] = processed
+        return status
+
+    def embedding_queue_status(self) -> "dict[str, Any]":
+        """Return the embedding queue status report (counts + oldest rows).
+
+        Shape is produced by :meth:`EmbeddingQueue.status`.
+        """
+        return self._embedding_queue.status()
+
+    def embedding_status(self) -> "dict[str, Any]":
+        """Return a full embedder + queue report for CLI / MCP admin tools.
+
+        Combines the embedder capability (``enabled`` / ``dim``), the
+        number of documents that actually carry a ``docs_vec`` row, and
+        the queue breakdown. Queue state stays meaningful even when the
+        embedder is currently disabled (jobs that piled up while it was
+        off are still visible, so a human can retry them after fixing
+        the config).
+        """
+        emb = getattr(self, "_embedder", None)
+        enabled = bool(emb and getattr(emb, "enabled", False))
+        dim = getattr(emb, "dim", 0) or 0
+        n_vec = 0
+        if enabled:
+            try:
+                row = self._conn.execute("SELECT COUNT(*) FROM docs_vec").fetchone()
+                n_vec = int(row[0]) if row else 0
+            except Exception:  # noqa: BLE001
+                n_vec = 0
+        queue = self._embedding_queue.status()
+        return {
+            "embedder_enabled": enabled,
+            "dim": dim,
+            "indexed_documents": n_vec,
+            "queue": queue["counts"],
+            "total_enqueued": sum(queue["counts"].values()),
+            "oldest_pending": queue["oldest_pending"],
+            "oldest_failed": queue["oldest_failed"],
+        }
+
+    def retry_embedding(self, doc_id: str | None = None) -> int:
+        """Re-queue embedding jobs that are not currently pending.
+
+        Args:
+            doc_id: When given, reset that single document (works from
+                ``done`` / ``in_progress`` too, so a specific doc can be
+                force re-embedded). When omitted, reset every ``failed``
+                row so a later drain retries them all.
+
+        Returns:
+            The number of rows flipped back to ``pending``.
+        """
+        queue = self._embedding_queue
+        if doc_id is not None:
+            return queue.retry([doc_id])
+        failed = queue.list_entries(state="failed")
+        return queue.retry([e.doc_id for e in failed])
+
     def close(self) -> None:
-        """Close the database connection (including the vec0 side connection)."""
+        """Close the database connection (including the vec0 side connection).
+
+        Also stops the background embedding worker (if any). Idempotent.
+        """
+        worker = self._embedding_worker
+        if worker is not None:
+            try:
+                worker.stop()
+            except Exception:  # noqa: BLE001
+                logger.debug("error stopping embedding worker", exc_info=True)
+            self._embedding_worker = None
         try:
             self._conn.close()
         except (sqlite3.ProgrammingError, Exception):
@@ -388,7 +550,11 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                         (alias, doc.id, now_str),
                     )
 
-        self._index_embedding(doc)
+        # Fire-and-forget: enqueue for async embedding. The background
+        # worker (started lazily on first embedder-touching call) picks
+        # it up. When the embedder is disabled, this is a no-op and
+        # we keep the pre-async contract (no vec0 row written).
+        self.enqueue_embedding(doc.id)
         return doc.id
 
     def update(self, doc_id: str, **kwargs: Any) -> Document:
@@ -475,7 +641,9 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                             (alias, doc.id, now_str),
                         )
 
-        self._index_embedding(doc)
+        # Fire-and-forget: re-enqueue for async re-embedding (the same
+        # idempotent upsert the add path uses; enqueue resets attempts).
+        self.enqueue_embedding(doc.id)
         return doc
 
     def update_source(self, doc_id: str, source: str | None) -> None:
@@ -531,7 +699,13 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 detail={"title": doc.title, "type": doc.type},
             )
 
+        # Drop the vec0 row synchronously (a soft-deleted doc must stop
+        # matching semantic search immediately) and clear any pending
+        # queue row so a worker does not waste a claim on it. If the doc
+        # is restored, ``restore_deleted`` re-enqueues and the worker
+        # re-embeds.
         self._remove_embedding(doc_id)
+        self._embedding_queue.clear([doc_id])
 
     def restore_deleted(self, doc_id: str) -> Document:
         """Restore a soft-deleted document.
@@ -554,7 +728,10 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             # Create version entry
             self._record_doc_version(cur, doc, action="restore")
 
-        self._index_embedding(doc)
+        # Re-enqueue for async embedding. On a soft-delete the vec0 row
+        # and queue row were both cleared, so a restored doc always needs
+        # a fresh embedding before it matches semantic search again.
+        self.enqueue_embedding(doc.id)
         return doc
 
     # ---- link operations ------------------------------------------------------

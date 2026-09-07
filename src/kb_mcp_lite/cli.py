@@ -19,6 +19,7 @@ from kb_mcp_lite.schema import (
     NotFoundError,
     DuplicateError,
 )
+from kb_mcp_lite.concurrency import ResourceBusyError
 from kb_mcp_lite.vault import (
     VaultAlreadyExistsError,
     VaultManager,
@@ -60,6 +61,9 @@ def _handle_errors(func: F) -> F:
         except VaultNotFoundError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(EXIT_NOT_FOUND)
+        except ResourceBusyError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_CONFLICT)
         except KbMcpError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(EXIT_INTERNAL)
@@ -76,6 +80,32 @@ def _get_store(ctx: click.Context) -> Any:
     return ctx.obj["store"]
 
 
+class _NullLock:
+    """No-op stand-in for WriteLock when --strict-lock is not enabled.
+
+    Implements the context-manager protocol so call sites do not need to
+    branch on whether strict locking is active.
+    """
+
+    def __enter__(self) -> "_NullLock":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def _write_lock(ctx: click.Context):
+    """Return a context manager that takes the store write lock iff enabled.
+
+    When ``--strict-lock`` (or ``KB_MCP_STRICT_LOCK``) is set the returned
+    object is a real :class:`WriteLock` that blocks until the sidecar file
+    is free. Otherwise it is a no-op stand-in that always succeeds.
+    """
+    if ctx.obj.get("strict_lock"):
+        return _get_store(ctx).write_lock
+    return _NullLock()
+
+
 def _json_option(func: F) -> F:
     return click.option("--json", "as_json", is_flag=True, help="Output results as JSON.")(func)
 
@@ -86,23 +116,63 @@ def _json_option(func: F) -> F:
 @click.group(name="kb", help=f"kb: Agent-native knowledge base. v{__version__}")
 @click.version_option(__version__)
 @click.option("--vault", help="Use a specific vault by name or path.")
+@click.option(
+    "--strict-lock/--no-strict-lock",
+    default=None,
+    help=(
+        "Enable cross-process write locking (fcntl/flock). "
+        "Defaults to $KB_MCP_STRICT_LOCK or False."
+    ),
+)
+@click.option(
+    "--lock-timeout",
+    type=float,
+    default=None,
+    help="Write-lock acquisition timeout in seconds (default: 10.0, or $KB_MCP_LOCK_TIMEOUT).",
+)
 @click.pass_context
-def cli(ctx: click.Context, vault: str | None) -> None:
+def cli(
+    ctx: click.Context,
+    vault: str | None,
+    strict_lock: bool | None,
+    lock_timeout: float | None,
+) -> None:
     config = get_config()
     vault_manager = VaultManager()
     selected_vault = vault or vault_manager.get_current()
     ctx.ensure_object(dict)
+
+    # Resolve strict_lock from CLI flag -> env var -> default False
+    if strict_lock is None:
+        strict_lock = os.environ.get("KB_MCP_STRICT_LOCK", "").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+    if lock_timeout is None:
+        try:
+            lock_timeout = float(os.environ.get("KB_MCP_LOCK_TIMEOUT", "10.0"))
+        except ValueError:
+            lock_timeout = 10.0
+
     # Use injected store from test if present; otherwise create a new one
     if "store" not in ctx.obj:
         from kb_mcp_lite.store import SqliteStore
 
         db_path = vault_manager.resolve_path(selected_vault)
-        ctx.obj["store"] = SqliteStore(db_path)
+        ctx.obj["store"] = SqliteStore(
+            db_path,
+            strict_lock=strict_lock,
+            lock_timeout=lock_timeout,
+        )
     # Use injected config/vault_manager if present; otherwise set them up
     if "config" not in ctx.obj:
         ctx.obj["config"] = config
     if "vault_manager" not in ctx.obj:
         ctx.obj["vault_manager"] = vault_manager
+    ctx.obj["strict_lock"] = strict_lock
+    ctx.obj["lock_timeout"] = lock_timeout
 
 
 def _emit_json(obj: Any) -> None:
@@ -151,7 +221,8 @@ def add(
         tags=tag_list,
         body=body or "",
     )
-    doc_id = store.add(doc)
+    with _write_lock(ctx):
+        doc_id = store.add(doc)
     if as_json:
         _emit_json({"id": doc_id})
     else:
@@ -234,7 +305,8 @@ def update(
     if not updates:
         click.echo("No updates specified.", err=True)
         sys.exit(1)
-    updated = store.update(doc_id, **updates)
+    with _write_lock(ctx):
+        updated = store.update(doc_id, **updates)
     if as_json:
         _emit_json(updated.model_dump(mode="json"))
     else:
@@ -252,7 +324,8 @@ def update(
 def delete(ctx: click.Context, doc_id: str, as_json: bool) -> None:
     """Soft-delete a document."""
     store = _get_store(ctx)
-    store.delete(doc_id)
+    with _write_lock(ctx):
+        store.delete(doc_id)
     if as_json:
         _emit_json({"deleted": doc_id})
     else:
@@ -271,10 +344,11 @@ def delete(ctx: click.Context, doc_id: str, as_json: bool) -> None:
 def restore(ctx: click.Context, doc_id: str, version: int | None, as_json: bool) -> None:
     """Restore a soft-deleted document or restore to a previous version."""
     store = _get_store(ctx)
-    if version is not None:
-        restored = store.restore_version(doc_id, version)
-    else:
-        restored = store.restore_deleted(doc_id)
+    with _write_lock(ctx):
+        if version is not None:
+            restored = store.restore_version(doc_id, version)
+        else:
+            restored = store.restore_deleted(doc_id)
     if as_json:
         _emit_json(restored.model_dump(mode="json"))
     else:
@@ -442,7 +516,8 @@ def link(
 ) -> None:
     """Create a typed link between two documents."""
     store = _get_store(ctx)
-    store.link(from_id, to_id, rel)
+    with _write_lock(ctx):
+        store.link(from_id, to_id, rel)
     if as_json:
         _emit_json({"from": from_id, "to": to_id, "rel": rel})
     else:
@@ -468,7 +543,8 @@ def unlink(
 ) -> None:
     """Remove a link between two documents."""
     store = _get_store(ctx)
-    store.unlink(from_id, to_id, rel)
+    with _write_lock(ctx):
+        store.unlink(from_id, to_id, rel)
     if as_json:
         _emit_json({"removed": f"{from_id} -> {to_id}"})
     else:
@@ -627,7 +703,7 @@ def export(ctx: click.Context, directory: str, force: bool, as_json: bool) -> No
 # ---- kb embed ---------------------------------------------------------------
 
 
-@cli.command()
+@cli.group(invoke_without_command=True)
 @click.option(
     "--rebuild",
     is_flag=True,
@@ -639,9 +715,13 @@ def export(ctx: click.Context, directory: str, force: bool, as_json: bool) -> No
 def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
     """Manage semantic-search embeddings.
 
-    With ``--rebuild``, recomputes the embedding for every active
-    document. Without ``--rebuild``, prints the embedder status.
+    Without a subcommand, prints the embedder status. With ``--rebuild``,
+    recomputes the embedding for every active document. ``status`` shows
+    the embedding-queue breakdown; ``retry`` re-runs failed jobs.
     """
+    if ctx.invoked_subcommand is not None:
+        return
+
     store = _get_store(ctx)
     emb = getattr(store, "_embedder", None)
     enabled = bool(emb and getattr(emb, "enabled", False))
@@ -674,24 +754,80 @@ def embed(ctx: click.Context, rebuild: bool, as_json: bool) -> None:
             click.echo(msg)
         return
 
-    # Status mode
-    try:
-        if enabled and hasattr(store, "_conn"):
-            row = store._conn.execute("SELECT COUNT(*) FROM docs_vec").fetchone()
-            n_vec = row[0] if row else 0
-        else:
-            n_vec = 0
-    except Exception:
-        n_vec = 0
-    status = {
-        "embedder_enabled": enabled,
-        "dim": dim,
-        "indexed_documents": n_vec,
-    }
+    # Bare `kb embed` — status summary (legacy behaviour).
+    status = store.embedding_status()
     if as_json:
         _emit_json(status)
     else:
-        click.echo(f"embedder={'enabled' if enabled else 'disabled'} dim={dim} indexed={n_vec}")
+        click.echo(
+            f"embedder={'enabled' if enabled else 'disabled'} dim={dim} "
+            f"indexed={status['indexed_documents']}"
+        )
+
+
+@embed.command("status")
+@_json_option
+@click.pass_context
+@_handle_errors
+def embed_status(ctx: click.Context, as_json: bool) -> None:
+    """Show the embedding queue state (pending / in_progress / done / failed)."""
+    store = _get_store(ctx)
+    payload = store.embedding_status()
+    if as_json:
+        _emit_json(payload)
+        return
+    click.echo(
+        f"embedder={'enabled' if payload['embedder_enabled'] else 'disabled'} "
+        f"dim={payload['dim']} indexed={payload['indexed_documents']}"
+    )
+    q = payload["queue"]
+    click.echo(
+        f"queue: pending={q['pending']} in_progress={q['in_progress']} "
+        f"done={q['done']} failed={q['failed']}"
+    )
+    oldest = payload["oldest_failed"]
+    if oldest:
+        extra = ""
+        if oldest.get("last_error"):
+            extra = f" error={oldest['last_error']}"
+        click.echo(f"oldest_failed: {oldest['doc_id']} attempts={oldest['attempts']}{extra}")
+
+
+@embed.command("retry")
+@click.argument("doc_id", required=False)
+@click.option("--all", "reset_all", is_flag=True, help="Reset every failed job to pending.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def embed_retry(
+    ctx: click.Context, doc_id: str | None, reset_all: bool, as_json: bool
+) -> None:
+    """Re-queue embedding jobs that failed.
+
+    ``DOC_ID`` resets a single document; ``--all`` resets every failed
+    job. A ``done`` or ``in_progress`` job can also be re-run by naming
+    its doc id.
+    """
+    store = _get_store(ctx)
+    if doc_id is None and not reset_all:
+        click.echo("usage: kb embed retry <doc-id> | kb embed retry --all", err=True)
+        sys.exit(EXIT_USAGE)
+    moved = store.retry_embedding(doc_id=doc_id if doc_id is not None else None)
+    if as_json:
+        _emit_json({"ok": True, "retried": moved, "doc_id": doc_id})
+    else:
+        scope = f" for {doc_id}" if doc_id else " (all failed)"
+        click.echo(f"retried {moved} job(s){scope}")
+        # Retry only flips the row back to ``pending``; the store's
+        # background worker drains it asynchronously. This CLI is a
+        # one-shot process, so the worker may not get a chance to drain
+        # before exit — run ``kb embed status`` to confirm, or keep the
+        # MCP server / `kb admin start` process running to drain it.
+        click.echo(
+            "(queue state: run `kb embed status` to confirm; retry only "
+            "re-queues the row — the background worker drains it while "
+            "the store is running.)"
+        )
 
 
 @cli.command()
@@ -972,20 +1108,36 @@ def admin_start(ctx: click.Context, port: int) -> None:
 
 
 @cli.command(name="watch")
-@click.option("--interval", default=1.0, type=float, help="Poll interval in seconds.")
+@click.option("--interval", default=1.0, type=float, help="Poll interval in seconds (poll mode only).")
+@click.option(
+    "--mode",
+    type=click.Choice(["auto", "event", "poll"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Watcher mode: 'auto' picks event when available, 'event' uses watchfiles, 'poll' uses os.walk loop.",
+)
+@click.option(
+    "--debounce-ms",
+    default=200,
+    type=int,
+    show_default=True,
+    help="Debounce window in milliseconds (event mode only).",
+)
 @click.pass_context
 @_handle_errors
-def watch_command(ctx: click.Context, interval: float) -> None:
+def watch_command(ctx: click.Context, interval: float, mode: str, debounce_ms: int) -> None:
     """Watch the Markdown directory and auto-sync changes to SQLite."""
-    from kb_mcp_lite.watcher import VaultWatcher
+    from kb_mcp_lite.watcher import VaultWatcher, resolve_mode
 
     vm = VaultManager()
     vault_name = vm.get_current()
     watcher = VaultWatcher(vault_name=vault_name, vault_manager=vm)
+    resolved = resolve_mode(mode)
     click.echo(f"Watching vault '{vault_name}' markdown directory at: {watcher.watch_dir}")
+    click.echo(f"Mode: {mode} -> {resolved}")
     click.echo("Press Ctrl+C to stop.")
     try:
-        watcher.run(interval_seconds=interval)
+        watcher.run(interval_seconds=interval, mode=mode, debounce_ms=debounce_ms)
     except KeyboardInterrupt:
         click.echo("\nStopped watching.")
 

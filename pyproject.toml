@@ -52,6 +52,13 @@ vec = [
   "sqlite-vec>=0.1.0",
   "pysqlite3>=0.5",
 ]
+# v0.8: event-based file watcher (inotify on Linux, FSEvents on
+# macOS, ReadDirectoryChangesW on Windows). Without this extra the
+# watcher falls back to a 1s polling loop. ``watchfiles`` is a pure
+# Rust extension with prebuilt wheels for the major platforms.
+v0_8 = [
+  "watchfiles>=0.21",
+]
 dev = [
   "pytest>=8",
   "pytest-cov",
@@ -60,6 +67,7 @@ dev = [
   "types-PyYAML",
   "sqlite-vec>=0.1.0",
   "pysqlite3>=0.5",
+  "watchfiles>=0.21",
 ]
 
 [project.scripts]

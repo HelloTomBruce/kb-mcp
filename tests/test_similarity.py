@@ -48,7 +48,11 @@ def store(tmp_path: Path) -> SqliteStore:
     """SqliteStore with a hashing embedder and test documents."""
     db = tmp_path / "similarity.db"
     emb = _HashingEmbedder(dim=64)
-    s = SqliteStore(db, embedder=emb)
+    # Write-through store: ranking tests assert immediately after seeding,
+    # so each add drains the (mock) embedder synchronously.
+    from conftest import SyncEmbedStore
+
+    s = SyncEmbedStore(db, embedder=emb)
     # ---- python / cli group ----
     s.add(
         Document(
