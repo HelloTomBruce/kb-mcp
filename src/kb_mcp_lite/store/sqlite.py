@@ -75,6 +75,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
         self._embedding_queue = EmbeddingQueue(self._conn)
         self._embedding_worker = None  # type: ignore[var-annotated]
+        # Cache auto-link config (loaded once, avoids per-write YAML parse)
+        self._auto_link_cfg: dict = {}
+        try:
+            from kb_mcp_lite.config import load_config
+            _cfg = load_config()
+            self._auto_link_cfg = _cfg.get("kb", {}).get("auto_link", {})
+        except Exception:
+            pass
 
     def _open_connection(self) -> sqlite3.Connection:
         """Open a connection to the SQLite database.
@@ -555,6 +563,10 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         # it up. When the embedder is disabled, this is a no-op and
         # we keep the pre-async contract (no vec0 row written).
         self.enqueue_embedding(doc.id)
+
+        # Auto-link body references (v0.8 特性 #4)
+        self._sync_body_references(doc.id, doc.body)
+
         return doc.id
 
     def update(self, doc_id: str, **kwargs: Any) -> Document:
@@ -644,6 +656,11 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         # Fire-and-forget: re-enqueue for async re-embedding (the same
         # idempotent upsert the add path uses; enqueue resets attempts).
         self.enqueue_embedding(doc.id)
+
+        # Auto-link body references (v0.8 特性 #4) — only when body changed
+        if "body" in kwargs:
+            self._sync_body_references(doc.id, doc.body)
+
         return doc
 
     def update_source(self, doc_id: str, source: str | None) -> None:
@@ -834,6 +851,25 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     def outlinks(self, doc_id: str) -> List[Link]:
         """Alias for :meth:`outgoing_links`."""
         return self.outgoing_links(doc_id)
+
+    # ---- auto-link (v0.8 特性 #4) -------------------------------------------
+
+    def _sync_body_references(self, doc_id: str, body: str) -> None:
+        """Parse body for document references and sync as ``references`` links.
+
+        Called automatically from :meth:`add` and :meth:`update` (when body
+        changes).  Silently skipped if auto_link is disabled via config.
+        """
+        auto_link_cfg = self._auto_link_cfg
+        if not auto_link_cfg.get("enabled", True):
+            return
+        rel = auto_link_cfg.get("rel", "references")
+
+        from kb_mcp_lite.link_parser import sync_body_references
+        try:
+            sync_body_references(self, doc_id, body, rel=rel)
+        except Exception:
+            logger.debug("auto-link: failed to sync body references for %s", doc_id, exc_info=True)
 
     # ---- bulk / io ------------------------------------------------------------
 

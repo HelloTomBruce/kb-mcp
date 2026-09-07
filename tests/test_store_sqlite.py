@@ -88,7 +88,7 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     # Migration 0003 (vec0) applies when the connection can load sqlite-vec
     # (dev/vec extras install pysqlite3, which carries extension support).
     # Migration 0007 (embedding_queue) is part of v0.8.0 and always applies.
-    assert [r[0] for r in rows] == [1, 2, 3, 4, 5, 6, 7]
+    assert [r[0] for r in rows] == [1, 2, 3, 4, 5, 6, 7, 8]
     conn.close()
     s.close()
 

@@ -149,6 +149,26 @@ class KbGraphQueryInput(BaseModel):
     vault: str | None = Field(default=None, description="Optional target vault name")
 
 
+class KbImpactInput(BaseModel):
+    doc_id: str = Field(min_length=1)
+    max_depth: int = Field(default=3, ge=1, le=5)
+    max_results: int = Field(default=50, ge=1, le=200)
+
+
+class KbDecisionChainInput(BaseModel):
+    decision_id: str = Field(min_length=1)
+
+
+class KbRelSpecInput(BaseModel):
+    rel_name: str | None = Field(default=None, description="Relation name; omit to list all")
+
+
+class KbExpandInput(BaseModel):
+    doc_id: str = Field(min_length=1)
+    depth: int = Field(default=1, ge=1, le=3)
+    max_neighbors: int = Field(default=10, ge=1, le=50)
+
+
 # ---------------------------------------------------------------------------
 # Error mapping
 # ---------------------------------------------------------------------------
@@ -1254,6 +1274,328 @@ def _make_server(vault: str | None = None) -> Any:
             code, msg = _mcp_error(e)
             logger.exception("kb_query_relations failed: %s", msg)
             raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_impact (v0.8 特性 #6) ------------------------------------------
+
+    @mcp.tool()
+    def kb_impact(
+        doc_id: str,
+        max_depth: int = 3,
+        max_results: int = 50,
+    ) -> Any:
+        """Impact analysis: find all documents influenced by the given document.
+
+        Traverses influence edges (governs, depends-on, supersedes, blocks)
+        outward from doc_id up to max_depth hops.
+
+        Args:
+            doc_id: Root document id to analyze impact from.
+            max_depth: Maximum traversal hops (1-5, default 3).
+            max_results: Maximum results to return (1-200, default 50).
+
+        Returns:
+            List of impact nodes: {id, title, type, distance, via, rel, path}.
+        """
+        try:
+            inp = KbImpactInput(doc_id=doc_id, max_depth=max_depth, max_results=max_results)
+        except PydanticValidationError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+        logger.info("kb_impact doc_id=%r max_depth=%d", inp.doc_id, inp.max_depth)
+        try:
+            from kb_mcp_lite.relations import ImpactAnalyzer
+            analyzer = ImpactAnalyzer(store)
+            nodes = analyzer.analyze(
+                root_id=inp.doc_id,
+                max_depth=inp.max_depth,
+                max_results=inp.max_results,
+            )
+            return {
+                "root_id": inp.doc_id,
+                "results": [
+                    {
+                        "id": n.doc.id,
+                        "title": n.doc.title,
+                        "type": n.doc.type,
+                        "distance": n.distance,
+                        "via": n.via,
+                        "rel": n.rel,
+                        "path": n.path,
+                    }
+                    for n in nodes
+                ],
+                "count": len(nodes),
+            }
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_impact failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_decision_chain (v0.8 特性 #6) ----------------------------------
+
+    @mcp.tool()
+    def kb_decision_chain(
+        decision_id: str,
+    ) -> Any:
+        """Trace the supersession chain for a decision document.
+
+        Follows supersedes / superseded-by edges to build the decision
+        evolution chain (e.g. v0.1-dec → v0.2-dec → v0.3-dec).
+
+        Args:
+            decision_id: The decision document id to trace from.
+
+        Returns:
+            {decision_id, chain: [doc_id, ...], count}.
+        """
+        try:
+            inp = KbDecisionChainInput(decision_id=decision_id)
+        except PydanticValidationError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+        logger.info("kb_decision_chain decision_id=%r", inp.decision_id)
+        try:
+            from kb_mcp_lite.relations import supersession_chain
+            chain = supersession_chain(store, inp.decision_id)
+            return {
+                "decision_id": inp.decision_id,
+                "chain": chain,
+                "count": len(chain),
+            }
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_decision_chain failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_rel_spec (v0.8 特性 #6) ----------------------------------------
+
+    @mcp.tool()
+    def kb_rel_spec(
+        rel_name: Optional[str] = None,
+    ) -> Any:
+        """List standard relation types or show details for a specific relation.
+
+        Args:
+            rel_name: Optional relation name to inspect. Omit to list all.
+
+        Returns:
+            If rel_name given: the RelationSpec dict.
+            If omitted: list of all standard relations.
+        """
+        try:
+            inp = KbRelSpecInput(rel_name=rel_name)
+        except PydanticValidationError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+        logger.info("kb_rel_spec rel_name=%r", inp.rel_name)
+        try:
+            from kb_mcp_lite.relations import STANDARD_RELATIONS, get_relation_spec
+            if inp.rel_name:
+                spec = get_relation_spec(inp.rel_name)
+                if spec is None:
+                    return {"error": f"unknown relation: {inp.rel_name!r}"}
+                return {
+                    "name": spec.name,
+                    "forward_label": spec.forward_label,
+                    "backward_label": spec.backward_label,
+                    "default_direction": spec.default_direction,
+                    "traversal_cost": spec.traversal_cost,
+                    "is_influence": spec.is_influence,
+                    "is_supersession": spec.is_supersession,
+                    "description": spec.description,
+                }
+            else:
+                return {
+                    "relations": [
+                        {
+                            "name": s.name,
+                            "forward_label": s.forward_label,
+                            "is_influence": s.is_influence,
+                            "is_supersession": s.is_supersession,
+                            "description": s.description,
+                        }
+                        for s in STANDARD_RELATIONS.values()
+                    ],
+                    "count": len(STANDARD_RELATIONS),
+                }
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_rel_spec failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_expand (v0.8 特性 #5) ------------------------------------------
+
+    @mcp.tool()
+    def kb_expand(
+        doc_id: str,
+        depth: int = 1,
+        max_neighbors: int = 10,
+    ) -> Any:
+        """Graph expansion: return 1-hop neighbors of a document.
+
+        Args:
+            doc_id: Document id to expand from.
+            depth: Hop depth (v0.8 fixed to 1).
+            max_neighbors: Max neighbors to return (default 10).
+
+        Returns:
+            {doc_id, neighbors: [{id, title, type, rel, direction}], count}.
+        """
+        try:
+            inp = KbExpandInput(doc_id=doc_id, depth=depth, max_neighbors=max_neighbors)
+        except PydanticValidationError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+        logger.info("kb_expand doc_id=%r depth=%d", inp.doc_id, inp.depth)
+        try:
+            # Verify doc exists
+            store.get(inp.doc_id)
+
+            # Outbound
+            out_links = store.outgoing_links(inp.doc_id)
+            # Inbound
+            in_links = store.incoming_links(inp.doc_id)
+
+            neighbors = []
+            seen = set()
+            for lnk in out_links:
+                if lnk.to_id not in seen:
+                    seen.add(lnk.to_id)
+                    try:
+                        doc = store.get(lnk.to_id)
+                        neighbors.append({
+                            "id": doc.id, "title": doc.title, "type": doc.type,
+                            "rel": lnk.rel, "direction": "outbound",
+                        })
+                    except NotFoundError:
+                        pass
+            for lnk in in_links:
+                if lnk.from_id not in seen:
+                    seen.add(lnk.from_id)
+                    try:
+                        doc = store.get(lnk.from_id)
+                        neighbors.append({
+                            "id": doc.id, "title": doc.title, "type": doc.type,
+                            "rel": lnk.rel, "direction": "inbound",
+                        })
+                    except NotFoundError:
+                        pass
+
+            return {
+                "doc_id": inp.doc_id,
+                "neighbors": neighbors[:inp.max_neighbors],
+                "count": min(len(neighbors), inp.max_neighbors),
+            }
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
+            code, msg = _mcp_error(e)
+            logger.exception("kb_expand failed: %s", msg)
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+    # ---- kb_schedule_list (v0.8 特性 #7) -----------------------------------
+
+    @mcp.tool()
+    def kb_schedule_list() -> Any:
+        """List all registered scheduled tasks.
+
+        Returns:
+            List of task dicts: {name, description}.
+        """
+        logger.info("kb_schedule_list")
+        try:
+            from kb_mcp_lite.scheduler import TASK_REGISTRY
+            return {
+                "tasks": [
+                    {"name": name, "description": cls.description}
+                    for name, cls in TASK_REGISTRY.items()
+                ],
+                "count": len(TASK_REGISTRY),
+            }
+        except Exception as e:
+            raise RuntimeError(f"MCP error: {e}")
+
+    # ---- kb_schedule_status (v0.8 特性 #7) ---------------------------------
+
+    @mcp.tool()
+    def kb_schedule_status() -> Any:
+        """Show scheduler status and next run times.
+
+        Returns:
+            {running, jobs: [{id, next_run}], history_count}.
+        """
+        logger.info("kb_schedule_status")
+        try:
+            from kb_mcp_lite.scheduler import TaskScheduler
+            from kb_mcp_lite.config import load_config
+            config = load_config()
+            scheduler = TaskScheduler(store, config)
+            return scheduler.get_status()
+        except Exception as e:
+            raise RuntimeError(f"MCP error: {e}")
+
+    # ---- kb_schedule_run (v0.8 特性 #7) ------------------------------------
+
+    @mcp.tool()
+    def kb_schedule_run(
+        task_name: str,
+    ) -> Any:
+        """Manually trigger a scheduled task.
+
+        Args:
+            task_name: Name of the task to run (e.g. 'auto-commit').
+
+        Returns:
+            {task_name, status, duration_ms, error?}.
+        """
+        logger.info("kb_schedule_run task_name=%r", task_name)
+        try:
+            from kb_mcp_lite.scheduler import TaskScheduler
+            from kb_mcp_lite.config import load_config
+            config = load_config()
+            scheduler = TaskScheduler(store, config)
+            run = scheduler.run_task_now(task_name)
+            return {
+                "task_name": run.task_name,
+                "status": run.status,
+                "duration_ms": run.duration_ms,
+                "error": run.error,
+            }
+        except ValueError as e:
+            code, msg = _mcp_error(ValidationError(str(e)))
+            raise RuntimeError(f"MCP error {code}: {msg}")
+        except Exception as e:
+            raise RuntimeError(f"MCP error: {e}")
+
+    # ---- kb_schedule_history (v0.8 特性 #7) ---------------------------------
+
+    @mcp.tool()
+    def kb_schedule_history(
+        limit: int = 20,
+    ) -> Any:
+        """Show task execution history.
+
+        Args:
+            limit: Max records to return (default 20).
+
+        Returns:
+            List of history records: {task_name, started_at, finished_at, status, duration_ms, error, triggered_by}.
+        """
+        logger.info("kb_schedule_history limit=%d", limit)
+        try:
+            rows = store._conn.execute(
+                """
+                SELECT task_name, started_at, finished_at, status, duration_ms, error, triggered_by
+                FROM schedule_history
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return {
+                "history": [dict(r) for r in rows],
+                "count": len(rows),
+            }
+        except Exception as e:
+            raise RuntimeError(f"MCP error: {e}")
 
     # ---- Resources -------------------------------------------------------
 

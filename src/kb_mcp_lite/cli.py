@@ -595,6 +595,130 @@ def links(ctx: click.Context, doc_id: str, as_json: bool) -> None:
                 click.echo(f"  <- {link.from_id}  ({link.rel})")
 
 
+# ---- kb rel (v0.8 特性 #6) ------------------------------------------------
+
+
+@cli.group(name="rel", invoke_without_command=True)
+@click.pass_context
+def rel_group(ctx: click.Context) -> None:
+    """Manage the typed relation vocabulary."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@rel_group.command("list")
+@_json_option
+@click.pass_context
+@_handle_errors
+def rel_list(ctx: click.Context, as_json: bool) -> None:
+    """List all standard relation types."""
+    from kb_mcp_lite.relations import STANDARD_RELATIONS
+    if as_json:
+        _emit_json([
+            {"name": s.name, "forward_label": s.forward_label,
+             "is_influence": s.is_influence, "is_supersession": s.is_supersession,
+             "description": s.description}
+            for s in STANDARD_RELATIONS.values()
+        ])
+    else:
+        for spec in STANDARD_RELATIONS.values():
+            flags = []
+            if spec.is_influence:
+                flags.append("influence")
+            if spec.is_supersession:
+                flags.append("supersession")
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            click.echo(f"  {spec.name:20s} {spec.forward_label}{flag_str}")
+
+
+@rel_group.command("show")
+@click.argument("rel_name")
+@_json_option
+@click.pass_context
+@_handle_errors
+def rel_show(ctx: click.Context, rel_name: str, as_json: bool) -> None:
+    """Show details for a specific relation type."""
+    from kb_mcp_lite.relations import get_relation_spec
+    spec = get_relation_spec(rel_name)
+    if spec is None:
+        raise click.ClickException(f"unknown relation: {rel_name!r}")
+    if as_json:
+        _emit_json({
+            "name": spec.name, "forward_label": spec.forward_label,
+            "backward_label": spec.backward_label,
+            "default_direction": spec.default_direction,
+            "traversal_cost": spec.traversal_cost,
+            "is_influence": spec.is_influence,
+            "is_supersession": spec.is_supersession,
+            "description": spec.description,
+        })
+    else:
+        click.echo(f"Relation: {spec.name}")
+        click.echo(f"  Forward:  {spec.forward_label}")
+        click.echo(f"  Backward: {spec.backward_label}")
+        click.echo(f"  Direction: {spec.default_direction}")
+        click.echo(f"  Traversal cost: {spec.traversal_cost}")
+        click.echo(f"  Influence: {spec.is_influence}")
+        click.echo(f"  Supersession: {spec.is_supersession}")
+        click.echo(f"  Description: {spec.description}")
+
+
+# ---- kb impact / kb chain (v0.8 特性 #6) -----------------------------------
+
+
+@cli.command()
+@click.argument("doc_id")
+@click.option("--max-depth", default=3, type=int, help="Max traversal hops.")
+@click.option("--max-results", default=50, type=int, help="Max results to return.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def impact(
+    ctx: click.Context,
+    doc_id: str,
+    max_depth: int,
+    max_results: int,
+    as_json: bool,
+) -> None:
+    """Impact analysis: find documents influenced by the given document."""
+    store = _get_store(ctx)
+    from kb_mcp_lite.relations import ImpactAnalyzer
+    analyzer = ImpactAnalyzer(store)
+    nodes = analyzer.analyze(root_id=doc_id, max_depth=max_depth, max_results=max_results)
+    if as_json:
+        _emit_json([
+            {"id": n.doc.id, "title": n.doc.title, "type": n.doc.type,
+             "distance": n.distance, "via": n.via, "rel": n.rel, "path": n.path}
+            for n in nodes
+        ])
+    else:
+        if not nodes:
+            click.echo(f"No impact found for {doc_id}")
+            return
+        click.echo(f"Impact from {doc_id} ({len(nodes)} documents):")
+        for n in nodes:
+            click.echo(f"  {'  ' * (n.distance - 1)}[d{n.distance}] {n.doc.id} ({n.rel} via {n.via})")
+
+
+@cli.command()
+@click.argument("decision_id")
+@_json_option
+@click.pass_context
+@_handle_errors
+def chain(ctx: click.Context, decision_id: str, as_json: bool) -> None:
+    """Trace the supersession chain for a decision document."""
+    store = _get_store(ctx)
+    from kb_mcp_lite.relations import supersession_chain
+    chain_result = supersession_chain(store, decision_id)
+    if as_json:
+        _emit_json({"decision_id": decision_id, "chain": chain_result, "count": len(chain_result)})
+    else:
+        if len(chain_result) == 1:
+            click.echo(f"{decision_id} (no supersession links)")
+        else:
+            click.echo(" -> ".join(chain_result))
+
+
 # ---- kb history ---------------------------------------------------------------
 
 
@@ -1165,6 +1289,116 @@ def diff_check_command(ctx: click.Context, as_json: bool) -> None:
             return
 
         click.echo(result["prompt_context"])
+
+
+# ---- kb scheduler (v0.8 特性 #7) -------------------------------------------
+
+
+@cli.group(name="scheduler", invoke_without_command=True)
+@click.pass_context
+def scheduler_group(ctx: click.Context) -> None:
+    """Manage scheduled tasks (auto-commit, auto-embed, etc.)."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@scheduler_group.command("list")
+@_json_option
+@click.pass_context
+@_handle_errors
+def scheduler_list(ctx: click.Context, as_json: bool) -> None:
+    """List all registered scheduled tasks."""
+    from kb_mcp_lite.scheduler import TASK_REGISTRY
+    tasks = [{"name": name, "description": cls.description} for name, cls in TASK_REGISTRY.items()]
+    if as_json:
+        _emit_json(tasks)
+    else:
+        if not tasks:
+            click.echo("No scheduled tasks registered.")
+            return
+        for t in tasks:
+            click.echo(f"  {t['name']:20s} {t['description']}")
+
+
+@scheduler_group.command("status")
+@_json_option
+@click.pass_context
+@_handle_errors
+def scheduler_status(ctx: click.Context, as_json: bool) -> None:
+    """Show scheduler status and next run times."""
+    from kb_mcp_lite.scheduler import TaskScheduler
+    store = _get_store(ctx)
+    from kb_mcp_lite.config import load_config
+    config = load_config()
+    scheduler = TaskScheduler(store, config)
+    status = scheduler.get_status()
+    if as_json:
+        _emit_json(status)
+    else:
+        click.echo(f"Running: {status['running']}")
+        click.echo(f"Jobs: {len(status['jobs'])}")
+        for job in status["jobs"]:
+            next_run = job.get("next_run", "N/A")
+            click.echo(f"  {job['id']}: next={next_run}")
+
+
+@scheduler_group.command("run")
+@click.argument("task_name")
+@_json_option
+@click.pass_context
+@_handle_errors
+def scheduler_run(ctx: click.Context, task_name: str, as_json: bool) -> None:
+    """Manually trigger a scheduled task."""
+    from kb_mcp_lite.scheduler import TaskScheduler
+    store = _get_store(ctx)
+    from kb_mcp_lite.config import load_config
+    config = load_config()
+    scheduler = TaskScheduler(store, config)
+    run = scheduler.run_task_now(task_name)
+    if as_json:
+        _emit_json({
+            "task_name": run.task_name,
+            "status": run.status,
+            "duration_ms": run.duration_ms,
+            "error": run.error,
+        })
+    else:
+        if run.status == "ok":
+            click.echo(f"Task {run.task_name} completed in {run.duration_ms}ms")
+        else:
+            click.echo(f"Task {run.task_name} FAILED: {run.error}")
+
+
+@scheduler_group.command("history")
+@click.option("--limit", default=20, type=int, help="Number of records to show.")
+@_json_option
+@click.pass_context
+@_handle_errors
+def scheduler_history(ctx: click.Context, limit: int, as_json: bool) -> None:
+    """Show task execution history."""
+    store = _get_store(ctx)
+    rows = store._conn.execute(
+        """
+        SELECT task_name, started_at, finished_at, status, duration_ms, error, triggered_by
+        FROM schedule_history
+        ORDER BY started_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    if as_json:
+        _emit_json([dict(r) for r in rows])
+    else:
+        if not rows:
+            click.echo("No execution history.")
+            return
+        for r in rows:
+            status_mark = "✓" if r["status"] == "ok" else "✗"
+            err = f" [{r['error']}]" if r["error"] else ""
+            click.echo(
+                f"  {status_mark} {r['task_name']:20s} {r['started_at'][:19]} "
+                f"{r['duration_ms']}ms ({r['triggered_by']}){err}"
+            )
 
 
 def main() -> None:

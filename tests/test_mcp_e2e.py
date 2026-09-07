@@ -222,7 +222,7 @@ def mcp_proc(tmp_db: Path) -> Iterator[subprocess.Popen]:
 
 
 class TestDiscovery:
-    """MCP server advertises the 17 kb tools."""
+    """MCP server advertises the 21 kb tools."""
 
     def test_tools_list(self, mcp_proc: subprocess.Popen) -> None:
         """tools/list returns all registered MCP tools."""
@@ -252,6 +252,14 @@ class TestDiscovery:
             "kb_embed_retry",
             "kb_diff_check",
             "kb_query_relations",
+            "kb_impact",
+            "kb_decision_chain",
+            "kb_rel_spec",
+            "kb_expand",
+            "kb_schedule_list",
+            "kb_schedule_status",
+            "kb_schedule_run",
+            "kb_schedule_history",
         }
 
 

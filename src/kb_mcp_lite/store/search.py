@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING, Any, List
 
-from kb_mcp_lite.schema import Document, SearchHit, ValidationError
+from kb_mcp_lite.schema import Document, RelatedDoc, SearchHit, ValidationError
 
 
 class SearchMixin:
@@ -32,6 +32,9 @@ class SearchMixin:
         limit: int = 10,
         mode: str = "lexical",
         rrf_k: int = 60,
+        expand_graph: bool = True,
+        max_neighbors: int = 5,
+        decay: float = 0.6,
     ) -> List[SearchHit]:
         """Full-text search via the backend's FTS engine.
 
@@ -43,6 +46,9 @@ class SearchMixin:
         - ``"hybrid"`` / ``"rrf"``: reciprocal-rank fusion of all three.
 
         ``limit`` is capped at 100. ``rrf_k`` sets the RRF constant (default 60).
+
+        When ``expand_graph=True`` (default), each top hit is enriched with
+        its 1-hop graph neighbors as ``related`` documents.
         """
         query = (query or "").strip()
         if not query:
@@ -56,12 +62,18 @@ class SearchMixin:
             )
 
         if mode == "lexical":
-            return self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts")
-        if mode == "fuzzy":
-            return self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts_trgm")
-        if mode == "semantic":
-            return self._search_semantic(query, type=type, tags=tags, limit=limit)
-        return self._search_rrf(query, type=type, tags=tags, limit=limit, k=rrf_k)
+            hits = self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts")
+        elif mode == "fuzzy":
+            hits = self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts_trgm")
+        elif mode == "semantic":
+            hits = self._search_semantic(query, type=type, tags=tags, limit=limit)
+        else:
+            hits = self._search_rrf(query, type=type, tags=tags, limit=limit, k=rrf_k)
+
+        if expand_graph and hits:
+            hits = self._expand_with_graph(hits, max_neighbors=max_neighbors, decay=decay)
+
+        return hits
 
     def _search_fts(
         self,
@@ -266,6 +278,82 @@ class SearchMixin:
             wanted: set[str] = set(tags)
             hits = [h for h in hits if wanted.issubset(set(h.doc.tags))]
         return hits[:limit]
+
+    # ---- graph expansion (v0.8 特性 #5) --------------------------------------
+
+    def _expand_with_graph(
+        self,
+        hits: List[SearchHit],
+        max_neighbors: int = 5,
+        decay: float = 0.6,
+    ) -> List[SearchHit]:
+        """Enrich each hit with its 1-hop graph neighbors as ``related``.
+
+        For each top hit, performs a single hop outbound + inbound query on
+        the ``links`` table, collects up to *max_neighbors* unique neighbors,
+        and attaches them as :class:`RelatedDoc` instances with a decayed score.
+        """
+        if not hits:
+            return hits
+
+        doc_ids = [h.doc.id for h in hits]
+        # Batch-fetch all neighbor edges in one query per direction
+        placeholders = ",".join("?" for _ in doc_ids)
+
+        # Outbound edges
+        out_rows = self._conn.execute(
+            f"""
+            SELECT from_id, to_id, rel FROM links
+            WHERE from_id IN ({placeholders})
+            """,
+            doc_ids,
+        ).fetchall()
+
+        # Inbound edges
+        in_rows = self._conn.execute(
+            f"""
+            SELECT to_id AS from_id, from_id AS to_id, rel FROM links
+            WHERE to_id IN ({placeholders})
+            """,
+            doc_ids,
+        ).fetchall()
+
+        # Build neighbor map: doc_id → [(neighbor_id, rel, direction)]
+        neighbor_map: dict[str, list[tuple[str, str, str]]] = {did: [] for did in doc_ids}
+        seen_pairs: set[tuple[str, str]] = set()
+
+        for r in out_rows:
+            src, dst, rel = r["from_id"], r["to_id"], r["rel"]
+            if src in neighbor_map and (src, dst) not in seen_pairs:
+                neighbor_map[src].append((dst, rel, "outbound"))
+                seen_pairs.add((src, dst))
+
+        for r in in_rows:
+            src, dst, rel = r["from_id"], r["to_id"], r["rel"]
+            if src in neighbor_map and (src, dst) not in seen_pairs:
+                neighbor_map[src].append((dst, rel, "inbound"))
+                seen_pairs.add((src, dst))
+
+        # Attach related docs to each hit
+        for hit in hits:
+            neighbors = neighbor_map.get(hit.doc.id, [])
+            related: list[RelatedDoc] = []
+            for neighbor_id, rel, direction in neighbors[:max_neighbors]:
+                try:
+                    neighbor_doc = self.get(neighbor_id)
+                    related_score = hit.score * decay
+                    related.append(RelatedDoc(
+                        doc=neighbor_doc,
+                        rel=rel,
+                        direction=direction,
+                        hop=1,
+                        score=round(related_score, 6),
+                    ))
+                except Exception:
+                    pass  # skip missing/deleted docs
+            hit.related = related
+
+        return hits
 
     def _row_to_doc_dict(self, d: dict) -> Document:
         """Convert a plain dict to a Document (after we already materialised a Row).

@@ -16,3 +16,6 @@ build/
 .ruff_cache/
 .coverage
 .coverage
+.reasonix
+.claude
+.dsh-browser

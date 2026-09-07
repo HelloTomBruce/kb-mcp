@@ -405,6 +405,28 @@ class SearchHit(BaseModel):
     doc: Document
     snippet: str = Field(default="", description="Body excerpt with markers around matched terms")
     score: float = 0.0
+    related: list["RelatedDoc"] = Field(default_factory=list, description="1-hop graph neighbors")
+
+
+# ---------------------------------------------------------------------------
+# Related document (graph expansion)
+# ---------------------------------------------------------------------------
+
+
+class RelatedDoc(BaseModel):
+    """A document related to a search hit via a graph edge.
+
+    Attached to :class:`SearchHit` when ``expand_graph=True``.
+    """
+
+    doc: Document
+    rel: str = Field(default="relates-to", description="Relation type from the parent hit")
+    direction: Literal["outbound", "inbound"] = Field(
+        default="outbound",
+        description="Whether the parent hit points outward to this doc, or vice versa",
+    )
+    hop: int = Field(default=1, description="Hop distance from the parent hit (v0.8 fixed to 1)")
+    score: float = Field(default=0.0, description="Decayed score from the parent hit")
 
 
 # ---------------------------------------------------------------------------
