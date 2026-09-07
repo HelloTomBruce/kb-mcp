@@ -26,16 +26,39 @@ pull-request / commit workflow.
 
 ```
 kb-mcp/
-├── src/kb_mcp/           # All importable Python code
-│   ├── schema.py         # Document, Link, SearchHit, exceptions, make_id()
+├── src/kb_mcp_lite/      # All importable Python code
+│   ├── schema.py         # Document, Link, SearchHit, TypeRegistry, exceptions
+│   ├── store.py          # Store Protocol (interface contract)
 │   ├── store/            # Storage backends
-│   │   └── sqlite.py     # SqliteStore — SQLite + FTS5 (default backend)
-│   ├── migrations.py     # Idempotent DDL migration runner
-│   ├── md_io.py          # Markdown + frontmatter import/export
-│   ├── mcp_server.py     # FastMCP server: kb_search, kb_get, kb_add, kb_link
-│   └── cli.py            # Click CLI (`kb` entry point)
+│   │   ├── sqlite.py     # SqliteStore (composes 4 mixins)
+│   │   ├── search.py     # SearchMixin — FTS5 + vec0 hybrid search
+│   │   ├── embedding.py  # EmbeddingMixin — vec0 vectors, similarity, duplicates
+│   │   ├── versioning.py # VersioningMixin — history, snapshots, diff, restore
+│   │   ├── maintenance.py # MaintenanceMixin — doctor, prune, stats, subgraph
+│   │   ├── embedding_queue.py # EmbeddingQueue — async queue with state machine
+│   │   └── connection.py # Shared sqlite3 connection factory
+│   ├── migrations.py     # Forward-only SQL migration runner
+│   ├── md_io.py          # Markdown frontmatter parser + bulk import/export
+│   ├── mcp_server.py     # FastMCP server (25 tools, 13 resources, 7 prompts)
+│   ├── cli.py            # Click CLI (28 commands)
+│   ├── admin/            # FastAPI web UI
+│   │   ├── routes_docs.py # Document CRUD + search
+│   │   └── routes_meta.py # Overview, links, graph, settings
+│   ├── vault.py          # Multi-vault management
+│   ├── embedder.py       # OpenAI-compatible embedding client
+│   ├── worker.py         # Background embedding worker thread
+│   ├── watcher.py        # File watcher (event/poll modes)
+│   ├── scheduler.py      # APScheduler task scheduler (5 built-in tasks)
+│   ├── graph_query.py    # Multi-hop graph query engine (BFS)
+│   ├── relations.py      # Typed relation vocabulary + impact analysis
+│   ├── link_parser.py    # Body-level reference parser [text](id)
+│   ├── context_guard.py  # Git diff → relevant decisions/lessons
+│   ├── merge.py          # 3-way Markdown merge
+│   ├── config.py         # XDG config loader
+│   └── concurrency/
+│       └── write_lock.py # Cross-process flock-based write lock
 ├── tests/                # pytest suite (unit + E2E, real SQLite temp files)
-├── docs/                 # Architecture, requirements, CLI reference, plan
+├── docs/                 # Architecture, CLI reference, relation vocabulary, scheduler
 ├── examples/             # MCP client configs + sample client scripts
 ├── pyproject.toml        # Build config, deps, ruff/mypy settings
 └── README.md
@@ -48,14 +71,7 @@ kb-mcp/
 
 ### MCP tools
 
-The MCP server (started by `kb serve`) exposes four tools over stdio:
-
-| Tool | Purpose |
-|---|---|
-| `kb_search(query, type?, tags?, limit?)` | BM25 full-text search with snippets |
-| `kb_get(id)` | Fetch a full document by id/slug |
-| `kb_add(type, title, body, tags?, source?)` | Create a new document |
-| `kb_link(from_id, to_id, rel?)` | Create a typed edge between documents |
+The MCP server (started by `kb serve`) exposes 25 tools, 13 resources, and 7 prompts over stdio. See `docs/cli-reference.md` for the complete list.
 
 ---
 
@@ -104,13 +120,13 @@ uv run pytest                     # full suite
 uv run pytest -q                  # quiet
 uv run pytest tests/test_store_sqlite.py   # one file
 uv run pytest -k search           # by keyword
-uv run pytest --cov=kb_mcp        # with coverage
+uv run pytest --cov=kb_mcp_lite   # with coverage
 ```
 
 The test suite uses **real SQLite temp files** — no mocks of the database
-layer. E2E tests (`tests/test_mcp_e2e.py`) spawn the FastMCP server as a
-real subprocess and exercise all four tools. Tests never touch your real
-`~/.local/share/kb-mcp/kb.db`; each test creates an isolated temp DB.
+layer. E2E tests spawn the FastMCP server as a real subprocess and exercise
+all tools. Tests never touch your real `~/.local/share/kb-mcp/kb.db`; each
+test creates an isolated temp DB.
 
 ### Expected state
 
@@ -251,8 +267,8 @@ Releases are automated via GitHub Actions. The process:
 2. Update the `## Changelog` section in `README.md` (if present).
 3. Tag: `git tag v0.X.Y && git push --tags`.
 4. The `publish.yml` workflow builds the distribution and publishes
-   automatically. Prerelease tags (`v0.1.0a1`, `v0.1.0b1`, `v0.1.0rc1`)
-   go to **TestPyPI**; stable tags (`v0.1.0`) go to **PyPI**.
+   automatically. Prerelease tags (`v0.8.0a1`, `v0.8.0b1`, `v0.8.0rc1`)
+   go to **TestPyPI**; stable tags (`v0.8.0`) go to **PyPI**.
 
 > **Note:** Before the first release, create `pypi` and `testpypi`
 > environments in the GitHub repo settings and configure OIDC trusted

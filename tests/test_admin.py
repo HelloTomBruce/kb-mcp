@@ -42,7 +42,7 @@ def test_overview_renders(tmp_path: Path) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Active docs" in response.text
+    assert "有效文档" in response.text
     assert "Sample Project" in response.text
 
 
@@ -118,7 +118,7 @@ def test_search_lab_and_import_export(tmp_path: Path) -> None:
 
     export_response = client.post("/exports")
     assert export_response.status_code == 200
-    assert "Written" in export_response.text
+    assert "已写入" in export_response.text
 
 
 def test_admin_json_api(tmp_path: Path) -> None:
@@ -166,7 +166,7 @@ def test_links_page_and_link_mutation(tmp_path: Path) -> None:
 
     page_response = client.get("/links")
     assert page_response.status_code == 200
-    assert "Relationships" in page_response.text
+    assert "关系列表" in page_response.text
 
     create_response = client.post(
         "/links",
@@ -277,4 +277,4 @@ def test_flash_feedback_and_history_render(tmp_path: Path) -> None:
     )
     assert create_response.status_code == 200
     assert "Document created" in create_response.text
-    assert "Version history" in create_response.text
+    assert "版本历史" in create_response.text

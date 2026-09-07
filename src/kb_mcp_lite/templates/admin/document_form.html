@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ "Edit" if editing else "New" }} Document · kb-mcp admin{% endblock %}
+{% block title %}{{ "编辑" if editing else "新建" }}文档 · kb-mcp admin{% endblock %}
 {% block content %}
 <header class="page-header">
   <div>
-    <h1>{{ "Edit document" if editing else "Create document" }}</h1>
-    <p>{{ doc_form.id or "A typed entry that agents can retrieve and reuse." }}</p>
+    <h1>{{ "编辑文档" if editing else "新建文档" }}</h1>
+    <p>{{ doc_form.id or "一个可被智能体检索和复用的类型化条目。" }}</p>
   </div>
-  <a class="button secondary" href="/documents">Back to list</a>
+  <a class="button secondary" href="/documents">返回列表</a>
 </header>
 
 {% if errors %}
@@ -23,13 +23,13 @@
       {% if not editing %}
       <label>
         <span>ID</span>
-        <input type="text" name="id" value="{{ doc_form.id }}" placeholder="Optional auto-generated if blank" />
+        <input type="text" name="id" value="{{ doc_form.id }}" placeholder="留空则自动生成" />
       </label>
       {% endif %}
 
       <div class="inline-grid">
         <label>
-          <span>Type</span>
+          <span>类型</span>
           {% if editing %}
           <input type="text" value="{{ doc_form.type }}" disabled />
           {% else %}
@@ -41,40 +41,38 @@
           {% endif %}
         </label>
         <label>
-          <span>Source</span>
-          <input type="text" name="source" value="{{ doc_form.source }}" placeholder="Optional import/source path" />
+          <span>来源</span>
+          <input type="text" name="source" value="{{ doc_form.source }}" placeholder="可选的导入路径" />
         </label>
       </div>
 
       <label>
-        <span>Title</span>
+        <span>标题</span>
         <input type="text" name="title" value="{{ doc_form.title }}" required />
       </label>
 
       <label>
-        <span>Tags</span>
-        <input type="text" name="tags" value="{{ doc_form.tags }}" placeholder="comma, separated, tags" />
+        <span>标签</span>
+        <input type="text" name="tags" value="{{ doc_form.tags }}" placeholder="逗号分隔，例如: 关键,决策" />
       </label>
 
       <label>
-        <span>Body</span>
+        <span>正文</span>
         <textarea id="markdown-editor" name="body" rows="20">{{ doc_form.body }}</textarea>
       </label>
 
       <div class="button-row">
-        <button class="button primary" type="submit" name="action" value="save">Save</button>
+        <button class="button primary" type="submit" name="action" value="save">保存</button>
         {% if editing %}
-        <button class="button danger" type="submit" name="action" value="delete">Delete</button>
+        <button class="button danger" type="submit" name="action" value="delete">删除</button>
         {% endif %}
       </div>
     </form>
   </section>
 
-  <!-- Load SimpleMDE Markdown Editor -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.css">
   <script src="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.js"></script>
   <style>
-    /* Customise SimpleMDE to match our theme */
     .editor-toolbar {
       border: 1px solid var(--border);
       border-radius: var(--radius-md) var(--radius-md) 0 0;
@@ -106,7 +104,6 @@
       background: var(--card);
       color: var(--foreground);
     }
-    /* Dark mode CodeMirror overrides */
     .dark .CodeMirror {
       background: var(--card);
       color: var(--foreground);
@@ -114,7 +111,6 @@
     .dark .CodeMirror-cursor {
       border-left: 1px solid var(--foreground);
     }
-    /* Fullscreen layering fixes */
     .CodeMirror-fullscreen, 
     .editor-preview-side,
     .editor-toolbar.fullscreen {
@@ -138,7 +134,7 @@
             "preview", "side-by-side", "fullscreen", "|",
             "undo", "redo", "guide"
           ],
-          status: ["lines", "words", "cursor"], // Show lines, word count and current cursor position
+          status: ["lines", "words", "cursor"],
           renderingConfig: {
             singleLineBreaks: false,
             codeSyntaxHighlighting: true
@@ -156,29 +152,33 @@
   <aside class="side-stack">
     {% if editing and doc %}
     <section class="panel">
-      <div class="panel-head"><h2>Metadata</h2></div>
+      <div class="panel-head"><h2>元数据</h2></div>
       <div class="meta-list">
         <div><span>ID</span><strong>{{ doc.id }}</strong></div>
-        <div><span>Created</span><strong>{{ doc.created_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
-        <div><span>Updated</span><strong>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
-        <div><span>Deleted</span><strong>{{ doc.deleted_at.strftime("%Y-%m-%d %H:%M") if doc.deleted_at else "No" }}</strong></div>
+        <div><span>创建时间</span><strong>{{ doc.created_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
+        <div><span>更新时间</span><strong>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
+        <div><span>删除时间</span><strong>{{ doc.deleted_at.strftime("%Y-%m-%d %H:%M") if doc.deleted_at else "否" }}</strong></div>
       </div>
     </section>
     {% endif %}
 
     <section class="panel">
-      <div class="panel-head"><h2>Outgoing links</h2></div>
+      <div class="panel-head"><h2>出向链接</h2></div>
       {% if editing %}
       <form method="post" action="/documents/{{ doc.id }}/links" class="link-form">
         <label>
-          <span>Target document id</span>
+          <span>目标文档 ID</span>
           <input type="text" name="to_id" placeholder="proj/related-doc" />
         </label>
         <label>
-          <span>Relation</span>
-          <input type="text" name="rel" value="relates-to" />
+          <span>关系类型</span>
+          <select name="rel" class="relation-select">
+            {% for rel in standard_relations %}
+            <option value="{{ rel.name }}" {% if rel.name == "relates-to" %}selected{% endif %}>{{ rel.forward_label }} ({{ rel.name }})</option>
+            {% endfor %}
+          </select>
         </label>
-        <button class="button secondary" type="submit">Add link</button>
+        <button class="button secondary" type="submit">添加链接</button>
       </form>
       {% endif %}
       <div class="list compact">
@@ -192,21 +192,21 @@
           <form method="post" action="/documents/{{ doc.id }}/links/delete">
             <input type="hidden" name="to_id" value="{{ link.to_id }}" />
             <input type="hidden" name="rel" value="{{ link.rel }}" />
-            <button class="button ghost small-button" type="submit">Remove</button>
+            <button class="button ghost small-button" type="submit">移除</button>
           </form>
           {% endif %}
         </div>
         {% else %}
         <div class="empty-state">
-          <div class="empty-state-title">No outgoing links</div>
-          <p>Add links to connect this document to others.</p>
+          <div class="empty-state-title">暂无出向链接</div>
+          <p>添加链接以关联此文档与其他文档。</p>
         </div>
         {% endfor %}
       </div>
     </section>
 
     <section class="panel">
-      <div class="panel-head"><h2>Backlinks</h2></div>
+      <div class="panel-head"><h2>反向链接</h2></div>
       <div class="list compact">
         {% for link in links_back %}
         <div class="list-row">
@@ -217,8 +217,8 @@
         </div>
         {% else %}
         <div class="empty-state">
-          <div class="empty-state-title">No backlinks yet</div>
-          <p>Other documents will link here over time.</p>
+          <div class="empty-state-title">暂无反向链接</div>
+          <p>其他文档将随时间链接到此处。</p>
         </div>
         {% endfor %}
       </div>
@@ -226,7 +226,7 @@
 
     {% if editing %}
     <section class="panel">
-      <div class="panel-head"><h2>Version history</h2></div>
+      <div class="panel-head"><h2>版本历史</h2></div>
       <div class="list compact">
         {% for entry in history %}
         <div class="list-row history-row">
@@ -238,13 +238,105 @@
         </div>
         {% else %}
         <div class="empty-state">
-          <div class="empty-state-title">No history yet</div>
-          <p>Changes are tracked once you save edits.</p>
+          <div class="empty-state-title">暂无历史</div>
+          <p>保存编辑后将记录变更历史。</p>
         </div>
         {% endfor %}
       </div>
     </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>影响分析</h2></div>
+      <div style="margin-bottom: var(--space-4);">
+        <button class="button secondary" onclick="runImpactAnalysis('{{ doc_form.id }}')">
+          <span class="button-text">分析影响</span>
+          <span class="button-spinner"></span>
+        </button>
+      </div>
+      <div id="impact-results"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>决策链</h2></div>
+      <div style="margin-bottom: var(--space-4);">
+        <button class="button secondary" onclick="runDecisionChain('{{ doc_form.id }}')">
+          <span class="button-text">追踪决策链</span>
+          <span class="button-spinner"></span>
+        </button>
+      </div>
+      <div id="chain-results"></div>
+    </section>
     {% endif %}
   </aside>
 </div>
+
+{% if editing %}
+<script>
+async function runImpactAnalysis(docId) {
+  const resultsDiv = document.getElementById('impact-results');
+  resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-title">分析中…</div></div>';
+  
+  try {
+    const res = await fetch('/api/impact/' + encodeURIComponent(docId) + '?depth=3');
+    const data = await res.json();
+    
+    if (data.impact && data.impact.length > 0) {
+      resultsDiv.innerHTML = `
+        <div class="empty-state" style="margin-bottom: 12px;">
+          <div class="empty-state-title">${data.count} 个文档受影响</div>
+        </div>
+        <div class="list compact">
+          ${data.impact.map(item => `
+            <div class="list-row">
+              <div>
+                <div class="row-title"><a href="/documents/${item.id}">${item.title}</a></div>
+                <div class="row-meta">${item.type} · 第 ${item.hop} 跳 · 通过 ${item.via}</div>
+              </div>
+              <span class="status-pill">${item.rel}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-title">无下游依赖</div><p>此文档没有链接到其他文档。</p></div>';
+    }
+  } catch (error) {
+    resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-title">分析失败</div><p>' + error.message + '</p></div>';
+  }
+}
+
+async function runDecisionChain(docId) {
+  const resultsDiv = document.getElementById('chain-results');
+  resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-title">追踪中…</div></div>';
+  
+  try {
+    const res = await fetch('/api/chain/' + encodeURIComponent(docId));
+    const data = await res.json();
+    
+    if (data.chain && data.count > 1) {
+      resultsDiv.innerHTML = `
+        <div class="empty-state" style="margin-bottom: 12px;">
+          <div class="empty-state-title">决策链长度: ${data.count}</div>
+        </div>
+        <div class="list compact">
+          ${data.chain.map((id, index) => `
+            <div class="list-row">
+              <div>
+                <div class="row-title"><a href="/documents/${id}">${id}</a></div>
+                <div class="row-meta">${index === 0 ? '起点' : index === data.chain.length - 1 ? '终点' : '第 ' + index + ' 步'}</div>
+              </div>
+              ${index < data.chain.length - 1 ? '<span class="status-pill">→</span>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-title">无决策链</div><p>此文档不属于任何决策演进链。</p></div>';
+    }
+  } catch (error) {
+    resultsDiv.innerHTML = '<div class="empty-state"><div class="empty-state-title">追踪失败</div><p>' + error.message + '</p></div>';
+  }
+}
+</script>
+{% endif %}
 {% endblock %}

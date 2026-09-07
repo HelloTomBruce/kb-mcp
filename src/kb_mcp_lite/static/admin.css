@@ -780,6 +780,29 @@
     background: var(--muted);
   }
 
+  .relation-select {
+    background: var(--card);
+    color: var(--foreground);
+    border: 1px solid var(--input);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: var(--transition);
+    width: 100%;
+  }
+
+  .relation-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px var(--ring);
+  }
+
+  .relation-select option {
+    padding: 8px;
+    font-size: 14px;
+  }
+
   .filter-grid {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));

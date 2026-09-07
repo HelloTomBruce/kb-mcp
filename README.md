@@ -5,7 +5,7 @@
 
 `pip install kb-mcp-lite` — 让任何AI编程助手都拥有结构化、可查询、可同步的团队"第二大脑"
 
-[![PyPI version](https://img.shields.io/badge/pypi-v0.7.0-blue)](https://pypi.org/project/kb-mcp-lite/)
+[![PyPI version](https://img.shields.io/badge/pypi-v0.8.0-blue)](https://pypi.org/project/kb-mcp-lite/)
 [![Python](https://img.shields.io/badge/python-≥3.10-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-兼容-purple)](https://modelcontextprotocol.io/)
@@ -66,15 +66,18 @@
 ---
 
 ### 3. 🔍 多模式智能搜索
-支持三种搜索模式，满足不同场景的查询需求：
+支持四种搜索模式，满足不同场景的查询需求：
 - **词法搜索（默认）**：基于SQLite FTS5，BM25排序，精准匹配关键词，适合查找确定的技术点
 - **模糊搜索**：基于trigram索引，容错拼写错误、缩写、别名，适合模糊记忆的查询
 - **语义搜索（可选）**：安装 `sqlite-vec` 扩展后支持，支持自然语言语义匹配，适合模糊问题查找相关知识
+- **混合搜索**：融合词法、模糊、语义三种搜索结果，使用倒数排名融合（RRF）算法，提供最佳综合搜索结果
 
 **搜索能力特性**：
 - 支持按文档类型、标签过滤
+- 支持 `vault="*"` 跨库联合搜索
 - 自动关联相关文档的反向链接
 - 搜索结果返回完整的结构化信息，AI可以直接使用
+- 支持图扩展选项，自动显示相关文档
 
 ---
 
@@ -84,13 +87,17 @@
 - 支持版本对比，字段级差异展示，清楚知道改了什么
 - 支持恢复到任意历史版本，误修改可以一键回滚
 - 软删除机制，删除的文档可以随时恢复，不会丢失数据
+- 审计日志记录所有操作，支持审计追踪
 
 ---
 
 ### 5. 🔗 类型化知识图谱
 文档之间可以创建带关系的链接：
-- 支持自定义关系类型（比如「governs」「relates-to」「depends-on」）
+- 支持10种标准关系类型：`relates-to`、`supersedes`、`superseded-by`、`depends-on`、`blocks`、`implements`、`references`、`governs`、`owned-by`、`tagged-with`
+- 支持自定义关系类型（在配置文件中定义）
 - 自动生成反向链接，查找某个决策影响哪些项目，某个Bug关联哪些经验
+- 支持影响分析：当文档变更时，自动识别所有下游受影响的文档
+- 支持决策演进链追踪：查看决策如何随时间演变
 - 支持知识图谱可视化（Web管理后台），直观看到知识之间的关联关系
 - 链接完整性校验，自动检测失效链接
 
@@ -99,7 +106,8 @@
 ### 6. 🤝 Git原生团队协作 & 智能三方合并
 完全基于Git的团队同步机制，学习成本为零：
 - **智能元数据合并 (3-Way Merge)**：多人同时修改文档时，对 `tags` / `aliases` / `links` / `metadata` 自动做集合并集合并，杜绝 Git 冲突；
-- **自动化文件监听 (Auto-Watcher)**：提供 `kb watch` 命令，本地编辑 Markdown 文件实时增量同步至 SQLite 数据库；
+- **自动化文件监听 (Auto-Watcher)**：提供 `kb watch` 命令，支持事件驱动（Linux inotify、macOS FSEvents、Windows ReadDirectoryChangesW）和轮询模式，本地编辑 Markdown 文件实时增量同步至 SQLite 数据库；
+- **自动链接提取**：文档添加或更新时，自动从Markdown正文中提取文档引用（`[text](id)` 和 `` `id` `` 语法），创建 `references` 关系链接；
 - 数据库文件本地存储，不会提交到Git，每个成员有独立的本地实例；
 - 完全兼容现有Git工作流，支持PR评审、分支管理、Code Owner等机制。
 
@@ -109,30 +117,56 @@
 支持创建多个独立的知识库，数据完全隔离且支持 MCP 动态路由：
 - 不同项目、不同团队使用独立的vault，互不干扰；
 - **跨库联合搜索**：在 MCP 中支持 `kb_search(query="...", vault="*")`，一次调用同时检索全局公共库与当前项目私有库；
-- **动态单库切换**：`kb_get(id="...", vault="work")` 无需重启服务，随时精准路由。
+- **动态单库切换**：`kb_get(id="...", vault="work")` 无需重启服务，随时精准路由；
+- **Vault管理**：支持创建、切换、列出vault，以及Git同步操作。
 
 ---
 
-### 8. 🌐 MCP协议原生支持
+### 8. ⏰ 智能计划任务
+内置APScheduler任务调度器，支持自动维护任务：
+- **自动提交**：定时导出vault变更并Git提交（默认30分钟）
+- **自动嵌入**：定时处理嵌入队列（默认5分钟）
+- **自动重建索引**：定时重建FTS5索引（默认每天凌晨3点）
+- **健康检查**：定时运行健康检查（默认每周一上午9点）
+- **清理任务**：定时清理软删除超过30天的文档（默认每周日凌晨2点）
+- 支持自定义任务间隔和Cron表达式
+- 任务失败自动禁用，支持手动重新启用
+- 跨进程安全，防止并发执行
+
+---
+
+### 9. 🌐 MCP协议原生支持 (25工具/13资源/7提示)
 完全兼容MCP（Model Context Protocol）标准协议，任何支持MCP的客户端（Claude Desktop、Cursor、Composio等）都可以直接接入，AI自动获得以下能力：
-#### 15个内置工具
+#### 25个内置工具
 | 工具名称 | 功能说明 | AI使用场景 |
 |---|---|---|
-| `kb_search` | 全文搜索 (支持 `vault="*"` 跨库) | AI遇到问题时，先搜索团队知识库有没有相关解决方案 |
-| `kb_get` | 获取文档详情 (支持 `section` 提取) | AI按需拉取完整内容或指定章节，节省上下文 Token |
-| `kb_add` | 创建新文档 (支持 `metadata`) | AI学习到新知识后，自动沉淀结构化事实到知识库 |
-| `kb_update` | 更新现有文档 (支持 `metadata`) | 文档内容过时，AI自动更新补充 |
+| `kb_add` | 创建文档 (支持 `aliases`, `metadata`, `source`, `id`) | AI学习到新知识后，自动沉淀结构化事实到知识库 |
+| `kb_get` | 获取文档详情 (支持 `vault` 参数) | AI按需拉取完整内容或指定章节，节省上下文 Token |
+| `kb_update` | 更新文档 (支持 `aliases`, `metadata`, `source`) | 文档内容过时，AI自动更新补充 |
 | `kb_delete` | 软删除文档 | 废弃的文档，AI可以删除 |
+| `kb_restore` | 恢复到指定版本 | 误修改后回滚 |
+| `kb_restore_deleted` | 恢复软删除文档 | 误删后恢复 |
+| `kb_search` | 全文搜索 (支持 `mode`, `vault` 通配符) | AI遇到问题时，先搜索团队知识库有没有相关解决方案 |
 | `kb_list` | 按类型/标签/Vault筛选文档 | AI查看所有架构决策、所有项目信息等 |
-| `kb_link` | 创建文档之间的链接 | AI发现文档之间的关联关系，自动建立链接 |
+| `kb_link` | 创建带类型的文档链接 | AI发现文档之间的关联关系，自动建立链接 |
 | `kb_unlink` | 移除链接 | 关联关系失效时删除 |
-| `kb_history` | 查看文档版本历史 | AI想知道某个决策的变更过程 |
-| `kb_restore` | 恢复到历史版本 | 误修改后回滚 |
-| `kb_diff` | 对比版本差异 | AI查看文档修改了什么内容 |
-| `kb_restore_deleted` | 恢复已删除文档 | 误删后恢复 |
+| `kb_rel_spec` | 列出或查看关系类型详情 | AI了解可用的文档关系类型 |
+| `kb_query_relations` | 多跳图遍历 | AI分析文档之间的复杂关系网络 |
+| `kb_impact` | 影响分析 | AI评估文档变更的影响范围 |
+| `kb_decision_chain` | 决策演进链追踪 | AI了解决策的演变历史 |
+| `kb_expand` | 1跳图扩展 | AI查看文档的直接关联文档 |
+| `kb_similar` | 嵌入相似度搜索 | AI找相关上下文，避免重复沉淀 |
+| `kb_duplicates` | 近似重复检测 | AI发现并合并重复知识 |
+| `kb_embed_status` | 嵌入队列状态 | AI了解嵌入处理进度 |
+| `kb_embed_retry` | 重新排队失败嵌入 | AI修复嵌入失败问题 |
+| `kb_schedule_list` | 列出计划任务 | AI查看自动任务配置 |
+| `kb_schedule_status` | 调度器状态 | AI了解任务运行状态 |
+| `kb_schedule_run` | 手动触发任务 | AI立即执行维护任务 |
+| `kb_schedule_history` | 任务执行历史 | AI查看任务执行记录 |
+| `kb_history` | 版本历史 | AI想知道某个决策的变更过程 |
+| `kb_diff` | 版本差异对比 | AI查看文档修改了什么内容 |
 | `kb_doctor` | 健康检查 | AI先确认知识库结构和索引是否正常 |
-| `kb_similar` | 相似文档推荐 | AI找相关上下文，避免重复沉淀 |
-| `kb_duplicates` | 重复文档检测 | AI发现并合并重复知识 |
+| `kb_diff_check` | Git差异分析 | AI分析代码变更并推荐相关文档 |
 
 > 批量导入/导出、`prune`、`reindex`、vault 和 Git 同步属于 CLI/Admin 生命周期能力，不会作为 MCP 文件系统工具暴露。
 
@@ -173,6 +207,12 @@ pip install kb-mcp-lite
 
 # 可选安装语义搜索支持（需要SQLite扩展支持）
 pip install kb-mcp-lite[vec]
+
+# 可选安装事件驱动文件监听（Linux/macOS/Windows原生支持）
+pip install kb-mcp-lite[v0_8]
+
+# 安装所有可选依赖
+pip install kb-mcp-lite[vec,v0_8]
 ```
 
 ### 个人用户基础使用
@@ -225,20 +265,57 @@ kb get <文档ID> --section "Architecture"
 # 更新文档
 kb update <文档ID> --title "新标题"
 
-# 自动监听 Markdown 目录实时增量同步入库
-kb watch --interval 1.0
-
 # 删除文档
 kb delete <文档ID>
 
 # 查看版本历史
 kb history <文档ID>
 
+# 对比版本差异
+kb diff <文档ID> --v1 1 --v2 2
+
 # 恢复到指定版本
 kb restore <文档ID> --version 2
 
+# 创建文档链接
+kb link --from <文档ID1> --to <文档ID2> --rel "relates-to"
+
+# 查看文档链接
+kb links <文档ID>
+
+# 影响分析
+kb impact <文档ID>
+
+# 决策演进链追踪
+kb chain <决策文档ID>
+
+# 关系类型管理
+kb rel list                    # 列出所有标准关系类型
+kb rel show supersedes         # 查看特定关系详情
+
+# 自动监听 Markdown 目录实时增量同步入库
+kb watch --interval 1.0
+
 # 启动Web管理后台
 kb admin start
+
+# 计划任务管理
+kb scheduler list              # 列出所有任务
+kb scheduler status            # 查看调度器状态
+kb scheduler run auto-commit   # 手动触发任务
+kb scheduler history           # 查看执行历史
+
+# 健康检查
+kb doctor
+
+# 统计信息
+kb stats
+
+# 清理软删除文档
+kb prune --older-than 30
+
+# Git差异分析
+kb diff-check
 ```
 
 ---
@@ -339,6 +416,25 @@ hooks:
 "args": ["serve", "--vault", "team"]
 ```
 
+#### Cline 配置
+在Cline设置中找到MCP服务器配置，添加：
+- 名称：`kb`
+- 命令：`kb`
+- 参数：`["serve"]`
+
+#### OpenCode 配置
+在OpenCode配置文件中添加：
+```json
+{
+  "mcpServers": {
+    "kb": {
+      "command": "kb",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
 ---
 
 ### 🔌 高级用法
@@ -420,33 +516,54 @@ git clone https://github.com/HelloTomBruce/kb-mcp-lite
 cd kb-mcp-lite
 
 # 安装依赖（推荐使用uv）
-pip install -e ".[dev,vec]"
+uv sync --extra dev
 
 # 运行测试
-pytest
+uv run pytest
 
 # 代码检查
-ruff check .
-mypy src/
+uv run ruff check .
+uv run mypy src/
+
+# 格式化代码
+uv run ruff format .
+uv run ruff check --fix .
 ```
 
 ### 项目结构说明
 ```
 src/kb_mcp_lite/
-├── cli.py              # CLI命令入口
-├── mcp_server.py       # MCP服务端实现
-├── schema.py           # 数据结构和文档类型定义
+├── cli.py              # Click CLI (28 commands)
+├── mcp_server.py       # FastMCP server (25 tools, 13 resources, 7 prompts)
+├── schema.py           # Document, Link, SearchHit, TypeRegistry, exceptions
+├── store.py            # Store Protocol (interface contract)
 ├── store/              # SQLite存储核心
-│   ├── sqlite.py       # 基础SQL操作
-│   ├── search.py       # 搜索逻辑
-│   ├── versioning.py   # 版本控制
-│   ├── embedding.py    # 向量搜索支持
-│   └── maintenance.py  # 维护工具
-├── md_io.py            # Markdown导入导出
-├── vault.py            # 多vault管理
-├── admin/              # Web管理后台
-├── migrations/         # 数据库迁移脚本
-└── config.py           # 配置管理
+│   ├── sqlite.py       # SqliteStore (composes 4 mixins)
+│   ├── search.py       # SearchMixin — FTS5 + vec0 hybrid search
+│   ├── embedding.py    # EmbeddingMixin — vec0 vectors, similarity, duplicates
+│   ├── versioning.py   # VersioningMixin — history, snapshots, diff, restore
+│   ├── maintenance.py  # MaintenanceMixin — doctor, prune, stats, subgraph
+│   ├── embedding_queue.py # EmbeddingQueue — async queue with state machine
+│   └── connection.py   # Shared sqlite3 connection factory
+├── md_io.py            # Markdown frontmatter parser + bulk import/export
+├── vault.py            # Multi-vault management
+├── admin/              # FastAPI web UI
+│   ├── routes_docs.py  # Document CRUD + search
+│   └── routes_meta.py  # Overview, links, graph, settings
+├── migrations/         # Forward-only SQL migration runner
+├── config.py           # XDG config loader
+├── embedder.py         # OpenAI-compatible embedding client
+├── worker.py           # Background embedding worker thread
+├── watcher.py          # File watcher (event/poll modes)
+├── scheduler.py        # APScheduler task scheduler (5 built-in tasks)
+├── graph_query.py      # Multi-hop graph query engine (BFS)
+├── relations.py        # Typed relation vocabulary + impact analysis
+├── link_parser.py      # Body-level reference parser [text](id)
+├── context_guard.py    # Git diff → relevant decisions/lessons
+├── merge.py            # 3-way Markdown merge
+├── migrations.py       # Forward-only SQL migration runner
+└── concurrency/
+    └── write_lock.py   # Cross-process flock-based write lock
 ```
 
 ---
@@ -454,10 +571,23 @@ src/kb_mcp_lite/
 ## 📌 状态说明
 当前处于**Beta测试阶段**：
 - API和存储格式从v0.5.0开始已经稳定，不会有破坏性变更
-- 生产环境使用建议锁定版本：`kb-mcp-lite>=0.5,<0.6`
+- v0.8.0 新增：auto-link、关系词汇、调度器、嵌入队列、多跳图查询等
+- 生产环境使用建议锁定版本：`kb-mcp-lite>=0.8,<0.9`
 - 欢迎提交Issue和PR，贡献代码请查看 [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ---
 
 ## 📄 许可证
 MIT License，可自由使用、修改、分发，保留版权声明即可。
+
+---
+
+## 🔗 相关链接
+- **GitHub仓库**：https://github.com/HelloTomBruce/kb-mcp-lite
+- **PyPI包**：https://pypi.org/project/kb-mcp-lite/
+- **问题反馈**：https://github.com/HelloTomBruce/kb-mcp-lite/issues
+- **更新日志**：https://github.com/HelloTomBruce/kb-mcp-lite/releases
+- **架构文档**：[docs/architecture.md](./docs/architecture.md)
+- **CLI参考**：[docs/cli-reference.md](./docs/cli-reference.md)
+- **关系词汇**：[docs/relation-vocabulary.md](./docs/relation-vocabulary.md)
+- **计划任务**：[docs/scheduler.md](./docs/scheduler.md)

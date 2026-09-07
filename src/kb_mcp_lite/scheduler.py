@@ -197,22 +197,86 @@ class TaskScheduler:
 
     def list_tasks(self) -> list[dict[str, Any]]:
         """Return all registered tasks with their status."""
+        # Get schedule config from file
+        from kb_mcp_lite.config import load_config
+        cfg = load_config()
+        schedule_cfg = cfg.get("kb", {}).get("schedule", [])
+        task_configs = {t.get("task"): t for t in schedule_cfg}
+        
         tasks = []
         for name, cls in TASK_REGISTRY.items():
+            file_config = task_configs.get(name, {})
+            # Check disabled from config file (enabled=false means disabled)
+            file_disabled = file_config.get("enabled") is False
+            # Also check in-memory disabled set
+            memory_disabled = name in self._disabled_tasks
+            
             tasks.append({
                 "name": name,
                 "description": cls.description,
-                "disabled": name in self._disabled_tasks,
+                "disabled": file_disabled or memory_disabled,
                 "consecutive_failures": self._consecutive_failures.get(name, 0),
             })
         return tasks
 
-    def enable_task(self, task_name: str) -> None:
+    def get_task_config(self, task_name: str) -> dict[str, Any] | None:
+        """Get configuration for a specific task from the config file."""
+        schedule_cfg = self.config.get("kb", {}).get("schedule", [])
+        for task_config in schedule_cfg:
+            if task_config.get("task") == task_name:
+                return task_config
+        return None
+
+    def update_task(self, task_name: str, updates: dict) -> bool:
+        """Update an existing task configuration."""
+        if task_name not in TASK_REGISTRY:
+            raise ValueError(f"unknown task: {task_name!r}")
+        
+        from kb_mcp_lite.config import config_path, load_config
+        cfg_path = config_path()
+        cfg = load_config()
+        
+        # Ensure kb.schedule exists
+        if "kb" not in cfg:
+            cfg["kb"] = {}
+        if "schedule" not in cfg["kb"]:
+            cfg["kb"]["schedule"] = []
+        
+        # Find and update or add the task
+        found = False
+        for i, existing in enumerate(cfg["kb"]["schedule"]):
+            if existing.get("task") == task_name:
+                cfg["kb"]["schedule"][i].update(updates)
+                cfg["kb"]["schedule"][i]["task"] = task_name  # Ensure task name is preserved
+                found = True
+                break
+        
+        # If task not found, add it
+        if not found:
+            new_config = {"task": task_name}
+            new_config.update(updates)
+            cfg["kb"]["schedule"].append(new_config)
+        
+        # Save config
+        import yaml
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg_path.write_text(yaml.dump(cfg, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        return True
+
+    def enable_task(self, task_name: str) -> bool:
         """Re-enable a previously auto-disabled task."""
         if task_name not in TASK_REGISTRY:
             raise ValueError(f"unknown task: {task_name!r}")
         self._disabled_tasks.discard(task_name)
         self._consecutive_failures[task_name] = 0
+        return self.update_task(task_name, {"enabled": True})
+
+    def disable_task(self, task_name: str) -> bool:
+        """Disable a task."""
+        if task_name not in TASK_REGISTRY:
+            raise ValueError(f"unknown task: {task_name!r}")
+        self._disabled_tasks.add(task_name)
+        return self.update_task(task_name, {"enabled": False})
 
     def get_status(self) -> dict[str, Any]:
         """Return scheduler status including next run times."""

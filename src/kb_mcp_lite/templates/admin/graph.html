@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Graph · kb-mcp admin{% endblock %}
+{% block title %}图谱 · kb-mcp admin{% endblock %}
 {% block content %}
 <header class="page-header">
   <div>
-    <h1>Document Graph</h1>
-    <p>Interactive map of documents and their relationships.</p>
+    <h1>文档图谱</h1>
+    <p>交互式文档关系图。</p>
   </div>
   <div class="header-meta" id="graph-stats"></div>
 </header>
@@ -15,23 +15,23 @@
       <input
         type="text"
         id="graph-search-input"
-        placeholder="Doc id or title…"
+        placeholder="文档 ID 或标题…"
         class="graph-search-input"
       />
       <select id="graph-depth-select" class="graph-depth-select">
-        <option value="1">Depth 1</option>
-        <option value="2" selected>Depth 2</option>
-        <option value="3">Depth 3</option>
-        <option value="4">Depth 4</option>
+        <option value="1">深度 1</option>
+        <option value="2" selected>深度 2</option>
+        <option value="3">深度 3</option>
+        <option value="4">深度 4</option>
       </select>
-      <button type="submit" class="button secondary small-button">Focus</button>
-      <button type="button" id="graph-reset-btn" class="button ghost small-button">Reset</button>
+      <button type="submit" class="button secondary small-button">聚焦</button>
+      <button type="button" id="graph-reset-btn" class="button ghost small-button">重置</button>
     </form>
   </div>
   <div class="graph-controls">
     <label class="graph-legend-item">
       <input type="checkbox" id="toggle-physics" checked />
-      <span>Physics</span>
+      <span>物理引擎</span>
     </label>
     <div class="graph-legend" id="type-legend"></div>
   </div>
@@ -82,7 +82,7 @@ async function loadGraph(rootId, depth) {
 function showGraphLoading() {
   const container = document.getElementById("graph-container");
   container.innerHTML =
-    '<div class="graph-loading"><span class="graph-spinner"></span><span>Loading graph…</span></div>';
+    '<div class="graph-loading"><span class="graph-spinner"></span><span>加载图谱中…</span></div>';
 }
 
 function showGraphError(message) {
@@ -92,7 +92,7 @@ function showGraphError(message) {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
   );
   container.innerHTML =
-    `<div class="graph-loading">⚠️ Failed to load graph: ${msg}</div>`;
+    `<div class="graph-loading">⚠️ 加载图谱失败: ${msg}</div>`;
 }
 
 function getNodeColor(type) {
@@ -116,8 +116,8 @@ function buildNetwork(graphData) {
 
   // Stats
   document.getElementById("graph-stats").innerHTML =
-    `<span class="meta-chip">${nodes.length} documents</span>` +
-    `<span class="meta-chip">${edges.length} links</span>`;
+    `<span class="meta-chip">${nodes.length} 个文档</span>` +
+    `<span class="meta-chip">${edges.length} 条链接</span>`;
 
   // Type legend
   const typeSet = new Map();
@@ -308,7 +308,7 @@ async function focusSubgraph(rootId, depth) {
     buildNetwork(data);
     currentMode = "subgraph";
     document.getElementById("graph-subgraph-badge").innerHTML =
-      `Subgraph: <strong>${rootId}</strong> (depth ${depth}) &mdash; ${data.nodes.length} docs, ${data.edges.length} links`;
+      `子图: <strong>${rootId}</strong> (深度 ${depth}) &mdash; ${data.nodes.length} 个文档, ${data.edges.length} 条链接`;
     document.getElementById("graph-subgraph-badge").style.display = "block";
   } catch (err) {
     showGraphError(err && err.message || err);
