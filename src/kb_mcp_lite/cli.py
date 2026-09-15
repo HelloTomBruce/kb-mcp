@@ -364,6 +364,13 @@ def restore(ctx: click.Context, doc_id: str, version: int | None, as_json: bool)
 @click.option("--type", "doc_type", help="Filter by document type.")
 @click.option("--tags", multiple=True, help="Filter by tags (may be used multiple times).")
 @click.option("--fuzzy", is_flag=True, help="Use fuzzy trigram search.")
+@click.option(
+    "--mode",
+    type=click.Choice(["lexical", "fuzzy", "semantic", "hybrid", "rrf"]),
+    default=None,
+    help="Search scoring mode (default lexical, or hybrid if preferred).",
+)
+@click.option("--rerank", is_flag=True, help="Apply Cross-Encoder reranking to results.")
 @click.option("--limit", default=20, type=click.IntRange(1, 100), show_default=True)
 @_json_option
 @click.pass_context
@@ -374,14 +381,22 @@ def search(
     doc_type: str | None,
     tags: tuple[str, ...],
     fuzzy: bool,
+    mode: str | None,
+    rerank: bool,
     limit: int,
     as_json: bool,
 ) -> None:
     """Search the knowledge base."""
     store = _get_store(ctx)
     tag_list = list(tags) if tags else None
+    search_mode = mode or ("fuzzy" if fuzzy else "lexical")
     results = store.search(
-        query, type=doc_type, tags=tag_list, mode="fuzzy" if fuzzy else "lexical", limit=limit
+        query,
+        type=doc_type,
+        tags=tag_list,
+        mode=search_mode,
+        limit=limit,
+        rerank=rerank,
     )
     if as_json:
         _emit_json(

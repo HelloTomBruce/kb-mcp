@@ -29,6 +29,17 @@ from kb_mcp_lite.schema import (
     slugify,
 )
 
+from kb_mcp_lite.reranker import (
+    HttpReranker,
+    NullReranker,
+    RerankConfig,
+    RerankError,
+    RerankItem,
+    Reranker,
+    load_rerank_config,
+    make_reranker,
+)
+
 __version__ = "0.8.3"
 
 __all__ = [
@@ -51,6 +62,15 @@ __all__ = [
     "default_registry",
     "make_id",
     "slugify",
+    # reranker
+    "Reranker",
+    "RerankConfig",
+    "RerankError",
+    "RerankItem",
+    "HttpReranker",
+    "NullReranker",
+    "load_rerank_config",
+    "make_reranker",
     # exceptions
     "KbMcpError",
     "NotFoundError",

@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import TYPE_CHECKING, Any, Literal
 
 from kb_mcp_lite.schema import Document, RelatedDoc, SearchHit, ValidationError
+
+if TYPE_CHECKING:
+    import sqlite3
+
+    from kb_mcp_lite.reranker import Reranker
+
+    _conn: sqlite3.Connection
+    _vec_row_is_tuple: bool
+
+    def _vec_conn_lazy(self) -> Any: ...
+    def get(self, doc_id: str, include_deleted: bool = False) -> Document: ...
+
+
+logger = logging.getLogger("kb_mcp_lite.store.search")
 
 
 class SearchMixin:
@@ -16,8 +31,6 @@ class SearchMixin:
     """
 
     if TYPE_CHECKING:
-        import sqlite3
-
         _conn: sqlite3.Connection
         _vec_row_is_tuple: bool
 
@@ -35,6 +48,8 @@ class SearchMixin:
         expand_graph: bool = True,
         max_neighbors: int = 5,
         decay: float = 0.6,
+        rerank: bool = False,
+        reranker: Reranker | None = None,
     ) -> list[SearchHit]:
         """Full-text search via the backend's FTS engine.
 
@@ -46,6 +61,9 @@ class SearchMixin:
         - ``"hybrid"`` / ``"rrf"``: reciprocal-rank fusion of all three.
 
         ``limit`` is capped at 100. ``rrf_k`` sets the RRF constant (default 60).
+
+        When ``rerank=True``, retrieves a wider candidate set and applies Cross-Encoder
+        re-scoring using the configured reranking model.
 
         When ``expand_graph=True`` (default), each top hit is enriched with
         its 1-hop graph neighbors as ``related`` documents.
@@ -61,14 +79,49 @@ class SearchMixin:
                 f"'hybrid', or 'rrf' (got {mode!r})"
             )
 
+        fetch_limit = min(100, max(limit * 3, 20)) if rerank else limit
+
         if mode == "lexical":
-            hits = self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts")
+            hits = self._search_fts(
+                query, type=type, tags=tags, limit=fetch_limit, table="docs_fts"
+            )
         elif mode == "fuzzy":
-            hits = self._search_fts(query, type=type, tags=tags, limit=limit, table="docs_fts_trgm")
+            hits = self._search_fts(
+                query, type=type, tags=tags, limit=fetch_limit, table="docs_fts_trgm"
+            )
         elif mode == "semantic":
-            hits = self._search_semantic(query, type=type, tags=tags, limit=limit)
+            hits = self._search_semantic(query, type=type, tags=tags, limit=fetch_limit)
         else:
-            hits = self._search_rrf(query, type=type, tags=tags, limit=limit, k=rrf_k)
+            hits = self._search_rrf(query, type=type, tags=tags, limit=fetch_limit, k=rrf_k)
+
+        if rerank and hits:
+            from kb_mcp_lite.reranker import make_reranker
+
+            active_reranker = reranker or make_reranker()
+            if active_reranker.enabled:
+                doc_texts = [f"{h.doc.title}\n{h.doc.body[:2000]}" for h in hits]
+                try:
+                    ranked_items = active_reranker.rerank(query, doc_texts, top_n=limit)
+                    reranked_hits: list[SearchHit] = []
+                    for item in ranked_items:
+                        if 0 <= item.index < len(hits):
+                            h = hits[item.index]
+                            reranked_hits.append(
+                                SearchHit(
+                                    doc=h.doc,
+                                    snippet=h.snippet,
+                                    score=item.score,
+                                    related=h.related,
+                                )
+                            )
+                    hits = reranked_hits
+                except Exception as e:
+                    logger.warning("Reranking failed: %s; falling back to initial ranking", e)
+                    hits = hits[:limit]
+            else:
+                hits = hits[:limit]
+        else:
+            hits = hits[:limit]
 
         if expand_graph and hits:
             hits = self._expand_with_graph(hits, max_neighbors=max_neighbors, decay=decay)

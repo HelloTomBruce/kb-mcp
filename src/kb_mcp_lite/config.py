@@ -120,6 +120,51 @@ def get_embedding_api_key() -> str | None:
     return block.get("api_key")
 
 
+def get_rerank_block() -> dict[str, Any] | None:
+    """Extract the ``rerank`` block from kb-mcp config.
+
+    Returns ``None`` if the config file is missing or has no rerank key.
+    The block is searched under ``rerank`` (kb-mcp native) and
+    ``auxiliary.rerank`` (Hermes compatibility).
+    """
+    cfg = load_config()
+    # kb-mcp native: top-level "rerank" key
+    rrk = cfg.get("rerank")
+    if isinstance(rrk, dict):
+        return rrk
+    # Hermes compatibility: "auxiliary.rerank" key
+    aux = cfg.get("auxiliary")
+    if isinstance(aux, dict):
+        rrk = aux.get("rerank")
+        if isinstance(rrk, dict):
+            return rrk
+    return None
+
+
+def get_rerank_url() -> str | None:
+    """Return the rerank service URL, if configured."""
+    block = get_rerank_block()
+    if block is None:
+        return None
+    return block.get("url") or block.get("base_url")
+
+
+def get_rerank_model() -> str | None:
+    """Return the rerank model name, if configured."""
+    block = get_rerank_block()
+    if block is None:
+        return None
+    return block.get("model")
+
+
+def get_rerank_api_key() -> str | None:
+    """Return the rerank API key, if configured."""
+    block = get_rerank_block()
+    if block is None:
+        return None
+    return block.get("api_key")
+
+
 # ---- Config template -----------------------------------------------------
 
 TEMPLATE = """# kb-mcp configuration
@@ -132,6 +177,13 @@ TEMPLATE = """# kb-mcp configuration
 #   model: "bge-m3"
 #   timeout: 120                         # seconds (Ollama cold-start may need >30)
 #   # api_key: "${OPENAI_API_KEY}"       # env var expansion supported
+
+# Rerank service (optional — cross-encoder reranking for precision RAG)
+# Supports SiliconFlow, Cohere, Jina, Voyage, or any /v1/rerank endpoint.
+# rerank:
+#   url: "https://api.siliconflow.cn/v1/rerank"
+#   model: "BAAI/bge-reranker-v2-m3"
+#   api_key: "${SILICONFLOW_API_KEY}"
 
 # Data root directory (optional, default ~/.local/share/kb-mcp/)
 # data_dir: "~/.local/share/kb-mcp"
@@ -159,6 +211,10 @@ __all__ = [
     "get_embedding_url",
     "get_embedding_model",
     "get_embedding_api_key",
+    "get_rerank_block",
+    "get_rerank_url",
+    "get_rerank_model",
+    "get_rerank_api_key",
     "ensure_config",
     "TEMPLATE",
 ]

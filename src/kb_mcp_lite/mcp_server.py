@@ -67,6 +67,7 @@ class KbSearchInput(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
     mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|semantic|hybrid|rrf)$")
     rrf_k: int = Field(default=60, ge=1, le=200)
+    rerank: bool = Field(default=False, description="Apply Cross-Encoder reranking")
     vault: str | None = Field(default=None, description="Target vault name or '*' for all vaults")
 
 
@@ -371,11 +372,12 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.tool()
     def kb_search(
         query: str,
-        type: str | None = None,  # matches MCP schema in architecture.md § 4.4
+        type: str | None = None,  # noqa: A002
         tags: list[str] | None = None,
         limit: int = 10,
         mode: str = "hybrid",
         rrf_k: int = 60,
+        rerank: bool = False,
         vault: str | None = None,
     ) -> Any:
         """Full-text search the knowledge base across current or specified vault(s).
@@ -391,6 +393,7 @@ def _make_server(vault: str | None = None) -> Any:
                 'rrf' (same as hybrid), or 'semantic' (vectors).
             rrf_k: RRF constant (default 60). Lower = more weight on
                 top ranks. Only used in hybrid/rrf mode.
+            rerank: Apply Cross-Encoder reranking to rescale and re-order top results.
             vault: Target vault name, or '*' to search across all registered vaults.
 
         Returns:
@@ -404,6 +407,7 @@ def _make_server(vault: str | None = None) -> Any:
                 limit=limit,
                 mode=mode,
                 rrf_k=rrf_k,
+                rerank=rerank,
                 vault=vault,
             )
         except PydanticValidationError as e:
@@ -411,13 +415,14 @@ def _make_server(vault: str | None = None) -> Any:
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_search query=%r type=%r tags=%r limit=%d mode=%r rrf_k=%d vault=%r",
+            "kb_search query=%r type=%r tags=%r limit=%d mode=%r rrf_k=%d rerank=%s vault=%r",
             inp.query,
             inp.type,
             inp.tags,
             inp.limit,
             inp.mode,
             inp.rrf_k,
+            inp.rerank,
             inp.vault,
         )
         try:
@@ -435,6 +440,7 @@ def _make_server(vault: str | None = None) -> Any:
                             limit=inp.limit,
                             mode=inp.mode,
                             rrf_k=inp.rrf_k,
+                            rerank=inp.rerank,
                         )
                         for h in v_hits:
                             all_hits.append(
@@ -449,7 +455,7 @@ def _make_server(vault: str | None = None) -> Any:
                             )
                     finally:
                         v_store.close()
-                is_lexical_or_fuzzy = inp.mode in ("lexical", "fuzzy")
+                is_lexical_or_fuzzy = inp.mode in ("lexical", "fuzzy") and not inp.rerank
                 all_hits.sort(key=lambda x: x["score"], reverse=(not is_lexical_or_fuzzy))
                 return {
                     "hits": all_hits[: inp.limit],
@@ -465,6 +471,7 @@ def _make_server(vault: str | None = None) -> Any:
                     limit=inp.limit,
                     mode=inp.mode,
                     rrf_k=inp.rrf_k,
+                    rerank=inp.rerank,
                 )
                 v_name = inp.vault or mgr.get_current()
                 return {
