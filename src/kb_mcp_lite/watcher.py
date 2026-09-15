@@ -30,15 +30,13 @@ from kb_mcp_lite.vault import VaultManager
 
 logger = logging.getLogger("kb_mcp_lite.watcher")
 
-# Optional dependency: watchfiles provides native filesystem events.
-# We try to import it once at module load and degrade gracefully if missing.
 try:
-    from watchfiles import Change, awatch  # type: ignore[import-not-found]
+    from watchfiles import Change, awatch
 
     _WATCHFILES_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only when extra is missing
-    Change = None  # type: ignore[assignment,unused-ignore]
-    awatch = None  # type: ignore[assignment,unused-ignore]
+    Change = None  # type: ignore[assignment,misc]
+    awatch = None  # type: ignore[assignment]
     _WATCHFILES_AVAILABLE = False
 
 WatchMode = Literal["event", "poll", "auto"]
@@ -336,7 +334,6 @@ class VaultWatcher:
             step=max(50, debounce_ms // 4),
             debounce=debounce_ms,
             recursive=True,
-            ignore_patterns=[".git/*", ".*"],
         ):
             if not self._running:
                 break
