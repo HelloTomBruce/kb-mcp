@@ -31,11 +31,17 @@
         <label>
           <span>类型</span>
           {% if editing %}
-          <input type="text" value="{{ doc_form.type }}" disabled />
+          {% set cur_type_info = doc_types_map.get(doc_form.type) if doc_types_map is defined else none %}
+          {% set cur_type_label = cur_type_info.label if (cur_type_info and cur_type_info.label) else doc_form.type %}
+          <input type="text" value="{% if cur_type_label != doc_form.type %}{{ cur_type_label }} ({{ doc_form.type }}){% else %}{{ doc_form.type }}{% endif %}" disabled />
           {% else %}
           <select name="type">
-            {% for type_name in doc_types %}
-            <option value="{{ type_name }}" {% if doc_form.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+            {% for t in doc_types %}
+            {% set t_name = t.name if t.name is defined else t %}
+            {% set t_label = t.label if (t.label is defined and t.label) else t_name %}
+            <option value="{{ t_name }}" {% if doc_form.type == t_name %}selected{% endif %}>
+              {% if t_label != t_name %}{{ t_label }} ({{ t_name }}){% else %}{{ t_name }}{% endif %}
+            </option>
             {% endfor %}
           </select>
           {% endif %}
@@ -120,8 +126,16 @@
   <script>
     (function() {
       function initSimpleMDE() {
+        var el = document.getElementById("markdown-editor");
+        if (!el) return;
+        if (typeof SimpleMDE === "undefined") {
+          setTimeout(initSimpleMDE, 50);
+          return;
+        }
+        if (el.dataset.simplemdeInit) return;
+        el.dataset.simplemdeInit = "1";
         var simplemde = new SimpleMDE({
-          element: document.getElementById("markdown-editor"),
+          element: el,
           spellChecker: false,
           lineWrapping: true,
           indentWithTabs: false,
@@ -155,6 +169,9 @@
       <div class="panel-head"><h2>元数据</h2></div>
       <div class="meta-list">
         <div><span>ID</span><strong>{{ doc.id }}</strong></div>
+        {% set meta_type_info = doc_types_map.get(doc.type) if doc_types_map is defined else none %}
+        {% set meta_type_label = meta_type_info.label if (meta_type_info and meta_type_info.label) else doc.type %}
+        <div><span>类型</span><strong>{% if meta_type_label != doc.type %}{{ meta_type_label }} ({{ doc.type }}){% else %}{{ doc.type }}{% endif %}</strong></div>
         <div><span>创建时间</span><strong>{{ doc.created_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
         <div><span>更新时间</span><strong>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</strong></div>
         <div><span>删除时间</span><strong>{{ doc.deleted_at.strftime("%Y-%m-%d %H:%M") if doc.deleted_at else "否" }}</strong></div>

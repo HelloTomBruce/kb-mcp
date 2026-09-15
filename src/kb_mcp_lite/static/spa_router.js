@@ -164,11 +164,13 @@ const SPA = {
       const pathMap = {
         '/': 'Overview',
         '/documents': 'Documents',
+        '/types': 'Types',
         '/search': 'Search Lab',
         '/links': 'Links',
         '/graph': 'Graph',
         '/imports': 'Imports',
-        '/settings': 'Settings'
+        '/settings': 'Settings',
+        '/scheduler': 'Scheduler'
       };
       let pageName = pathMap[currentPath];
       if (!pageName) {

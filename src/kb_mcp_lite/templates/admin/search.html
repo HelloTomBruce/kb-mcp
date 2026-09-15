@@ -19,8 +19,12 @@
       <span>类型</span>
       <select name="type">
         <option value="">所有类型</option>
-        {% for type_name in doc_types %}
-        <option value="{{ type_name }}" {% if filters.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+        {% for t in doc_types %}
+        {% set t_name = t.name if t.name is defined else t %}
+        {% set t_label = t.label if (t.label is defined and t.label) else t_name %}
+        <option value="{{ t_name }}" {% if filters.type == t_name %}selected{% endif %}>
+          {% if t_label != t_name %}{{ t_label }} ({{ t_name }}){% else %}{{ t_name }}{% endif %}
+        </option>
         {% endfor %}
       </select>
     </label>
@@ -59,11 +63,13 @@
   </div>
   <div class="result-list">
     {% for hit in hits %}
-    <article class="result-card">
+    <article class="result-card" onclick="if(window.SPA && typeof window.SPA.navigate === 'function') { window.SPA.navigate('/documents/{{ hit.doc.id }}'); } else { window.location.href='/documents/{{ hit.doc.id }}'; }" style="cursor: pointer;">
       <div class="result-head">
         <div>
           <a class="result-title" href="/documents/{{ hit.doc.id }}">{{ hit.doc.title }}</a>
-          <div class="row-meta">{{ hit.doc.type }} · {{ hit.doc.id }}</div>
+          {% set hit_t_info = doc_types_map.get(hit.doc.type) if doc_types_map is defined else none %}
+          {% set hit_t_label = hit_t_info.label if (hit_t_info and hit_t_info.label) else hit.doc.type %}
+          <div class="row-meta">{{ hit_t_label }} · {{ hit.doc.id }}</div>
         </div>
         <span class="score-pill">{{ "%.3f"|format(hit.score) }}</span>
       </div>

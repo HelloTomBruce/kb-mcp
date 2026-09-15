@@ -12,9 +12,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from kb_mcp_lite.admin._helpers import (
-    DOC_TYPES,
     SEARCH_MODES,
     create_default_store,
+    open_store,
 )
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.vault import get_current_vault_name
@@ -62,9 +62,26 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
         *,
         status_code: int = 200,
     ) -> HTMLResponse:
+        try:
+            with open_store(app) as st:
+                from kb_mcp_lite.admin._helpers import get_all_types
+
+                current_doc_types = get_all_types(st)
+        except Exception:
+            from kb_mcp_lite.admin._helpers import BUILTIN_TYPES
+
+            current_doc_types = BUILTIN_TYPES
+
+        doc_types_map = {
+            t["name"]: t
+            for t in current_doc_types
+            if isinstance(t, dict) and "name" in t
+        }
+
         payload = {
             "request": request,
-            "doc_types": DOC_TYPES,
+            "doc_types": current_doc_types,
+            "doc_types_map": doc_types_map,
             "search_modes": SEARCH_MODES,
             "vault_name": get_current_vault_name(),
             "flash": {

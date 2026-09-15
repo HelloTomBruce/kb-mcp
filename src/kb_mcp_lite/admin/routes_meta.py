@@ -363,6 +363,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
 
             cfg_path = config_path()
             cfg_content = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
+            queue_status = store.embedding_queue_status()
             return render(
                 request,
                 "settings.html",
@@ -371,6 +372,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     "db_path": str(store.path),
                     "embedder_enabled": bool(embedder and getattr(embedder, "enabled", False)),
                     "embedder_dim": getattr(embedder, "dim", 0) if embedder else 0,
+                    "embed_queue": queue_status.get("counts", {}),
                     "kb_home": os.environ.get("KB_MCP_HOME", ""),
                     "version": schema_version(store),
                     "audit_log": store.audit_log(limit=50),
@@ -378,6 +380,37 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     "config_content": cfg_content,
                 },
             )
+
+    # ── Embed Queue ────────────────────────────────────────────────────
+
+    @app.get("/api/embed/status")
+    def api_embed_status() -> JSONResponse:
+        with open_store(app) as store:
+            queue_status = store.embedding_queue_status()
+            counts = queue_status.get("counts", {})
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "pending": counts.get("pending", 0),
+                    "in_progress": counts.get("in_progress", 0),
+                    "done": counts.get("done", 0),
+                    "failed": counts.get("failed", 0),
+                    "counts": counts,
+                    "oldest_pending": queue_status.get("oldest_pending"),
+                    "oldest_failed": queue_status.get("oldest_failed"),
+                }
+            )
+
+    @app.post("/api/embed/retry")
+    def api_embed_retry(payload: dict[str, Any] | None = None) -> JSONResponse:
+        with open_store(app) as store:
+            doc_id = payload.get("doc_id") if payload else None
+            try:
+                retried = store.retry_embedding(doc_id=doc_id)
+                return JSONResponse({"ok": True, "retried": retried})
+            except Exception as e:
+                return json_error(str(e), status_code=500)
+
 
     # ── Vault management ───────────────────────────────────────────────
 
@@ -502,3 +535,262 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return JSONResponse({"ok": True, "path": str(p)})
+
+    # ── Scheduler ──────────────────────────────────────────────────────
+
+    @app.get("/scheduler", response_class=HTMLResponse)
+    def page_scheduler(request: Request) -> HTMLResponse:
+        return render(request, "scheduler.html", {"active_page": "scheduler"})
+
+    @app.get("/api/scheduler/status")
+    def api_scheduler_status() -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            return JSONResponse(sched.get_status())
+
+    @app.get("/api/scheduler/tasks")
+    def api_scheduler_tasks() -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            tasks = sched.list_tasks()
+            return JSONResponse({"ok": True, "tasks": tasks, "count": len(tasks)})
+
+    @app.get("/api/scheduler/history")
+    def api_scheduler_history(limit: int = 50) -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            history = sched.get_history(limit=limit)
+            return JSONResponse({"ok": True, "history": history, "count": len(history)})
+
+    @app.post("/api/scheduler/run")
+    def api_scheduler_run(payload: dict[str, Any]) -> JSONResponse:
+        task_name = payload.get("task_name")
+        if not task_name:
+            return json_error("task_name is required", status_code=400)
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            try:
+                run = sched.run_task_now(task_name)
+                return JSONResponse(
+                    {
+                        "ok": run.status == "ok",
+                        "task_name": run.task_name,
+                        "status": run.status,
+                        "duration_ms": run.duration_ms,
+                        "error": run.error,
+                    }
+                )
+            except Exception as e:
+                return json_error(str(e), status_code=500)
+
+    @app.post("/api/scheduler/tasks/{task_name}/enable")
+    def api_scheduler_enable_task(task_name: str) -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            try:
+                sched.enable_task(task_name)
+                return JSONResponse({"ok": True, "task_name": task_name, "enabled": True})
+            except Exception as e:
+                return json_error(str(e), status_code=500)
+
+    @app.post("/api/scheduler/tasks/{task_name}/disable")
+    def api_scheduler_disable_task(task_name: str) -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            try:
+                sched.disable_task(task_name)
+                return JSONResponse({"ok": True, "task_name": task_name, "enabled": False})
+            except Exception as e:
+                return json_error(str(e), status_code=500)
+
+    @app.put("/api/scheduler/tasks/{task_name}")
+    def api_scheduler_update_task(task_name: str, payload: dict[str, Any]) -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
+
+            cfg = load_config()
+            sched = TaskScheduler(store, cfg)
+            try:
+                sched.update_task(task_name, payload)
+                return JSONResponse({"ok": True, "task_name": task_name, "updated": payload})
+            except Exception as e:
+                return json_error(str(e), status_code=500)
+
+    # ── Document Types Management ──────────────────────────────────────
+
+    @app.get("/types", response_class=HTMLResponse)
+    def types_page(request: Request) -> HTMLResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_all_types, get_custom_types
+
+            all_types = get_all_types(store)
+            custom_types = get_custom_types()
+            total_docs = sum(t.get("doc_count", 0) for t in all_types)
+            return render(
+                request,
+                "types.html",
+                {
+                    "types": all_types,
+                    "stats": {
+                        "total": len(all_types),
+                        "builtin": len(BUILTIN_TYPES),
+                        "custom": len(custom_types),
+                        "total_docs": total_docs,
+                    },
+                },
+            )
+
+    @app.get("/api/types")
+    def api_types_list() -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_all_types, get_custom_types
+
+            all_types = get_all_types(store)
+            custom_types = get_custom_types()
+            total_docs = sum(t.get("doc_count", 0) for t in all_types)
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "types": all_types,
+                    "stats": {
+                        "total": len(all_types),
+                        "builtin": len(BUILTIN_TYPES),
+                        "custom": len(custom_types),
+                        "total_docs": total_docs,
+                    },
+                }
+            )
+
+    @app.post("/api/types")
+    def api_types_create(payload: dict[str, Any]) -> JSONResponse:
+        raw_name = str(payload.get("name", "")).strip().lower()
+        label = str(payload.get("label", "")).strip() or raw_name
+        description = str(payload.get("description", "")).strip()
+        color = str(payload.get("color", "")).strip() or "#64748b"
+
+        if not raw_name:
+            return json_error("类型标识符 (name) 不能为空", status_code=400)
+        import re
+
+        if not re.match(r"^[a-z0-9_\-]+$", raw_name):
+            return json_error("类型标识符只能包含小写字母、数字、短横线和下划线", status_code=400)
+
+        from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_custom_types, save_custom_types
+
+        builtin_names = {t["name"] for t in BUILTIN_TYPES}
+        if raw_name in builtin_names:
+            return json_error(f"'{raw_name}' 为系统内置类型，无需重复创建", status_code=409)
+
+        custom_types = get_custom_types()
+        if any(t.get("name") == raw_name for t in custom_types):
+            return json_error(f"自定义类型 '{raw_name}' 已存在", status_code=409)
+
+        new_entry = {
+            "name": raw_name,
+            "label": label,
+            "description": description,
+            "color": color,
+        }
+        custom_types.append(new_entry)
+        save_custom_types(custom_types)
+
+        return JSONResponse({"ok": True, "type": new_entry}, status_code=201)
+
+    @app.put("/api/types/{type_name}")
+    def api_types_update(type_name: str, payload: dict[str, Any]) -> JSONResponse:
+        type_name = type_name.strip().lower()
+        if not type_name:
+            return json_error("类型标识符不能为空", status_code=400)
+        import re
+
+        if not re.match(r"^[a-z0-9_\-]+$", type_name):
+            return json_error("类型标识符只能包含小写字母、数字、短横线和下划线", status_code=400)
+
+        label = str(payload.get("label", "")).strip() or type_name
+        description = str(payload.get("description", "")).strip()
+        color = str(payload.get("color", "")).strip() or "#64748b"
+
+        from kb_mcp_lite.admin._helpers import get_custom_types, save_custom_types
+
+        custom_types = get_custom_types()
+        found = False
+        updated_item: dict[str, Any] = {}
+
+        for t in custom_types:
+            if t.get("name") == type_name:
+                t["label"] = label
+                t["description"] = description
+                t["color"] = color
+                found = True
+                updated_item = t
+                break
+
+        if not found:
+            override = {
+                "name": type_name,
+                "label": label,
+                "description": description,
+                "color": color,
+            }
+            custom_types.append(override)
+            updated_item = override
+
+        save_custom_types(custom_types)
+        return JSONResponse({"ok": True, "type": updated_item})
+
+    @app.delete("/api/types/{type_name}")
+    def api_types_delete(type_name: str) -> JSONResponse:
+        type_name = type_name.strip().lower()
+        from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_custom_types, save_custom_types
+
+        builtin_names = {t["name"] for t in BUILTIN_TYPES}
+        if type_name in builtin_names:
+            return json_error(f"内置类型 '{type_name}' 不可删除", status_code=400)
+
+        with open_store(app) as store:
+            doc_cnt = int(
+                store._conn.execute(
+                    "SELECT COUNT(*) FROM documents WHERE type = ? AND deleted_at IS NULL",
+                    (type_name,),
+                ).fetchone()[0]
+            )
+            if doc_cnt > 0:
+                return json_error(
+                    f"类型 '{type_name}' 下仍有 {doc_cnt} 篇有效文档正在使用，不可删除",
+                    status_code=400,
+                )
+
+        custom_types = get_custom_types()
+        new_list = [t for t in custom_types if t.get("name") != type_name]
+        if len(new_list) == len(custom_types):
+            return json_error(f"自定义类型 '{type_name}' 不存在", status_code=404)
+
+        save_custom_types(new_list)
+        return JSONResponse({"ok": True, "deleted": type_name})
+
+

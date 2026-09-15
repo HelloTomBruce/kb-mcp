@@ -44,7 +44,9 @@
         <a class="list-row" href="/documents/{{ doc.id }}">
           <div>
             <div class="row-title">{{ doc.title }}</div>
-            <div class="row-meta">{{ doc.type }} · {{ doc.id }}</div>
+            {% set doc_t_info = doc_types_map.get(doc.type) if doc_types_map is defined else none %}
+            {% set doc_t_label = doc_t_info.label if (doc_t_info and doc_t_info.label) else doc.type %}
+            <div class="row-meta">{{ doc_t_label }} · {{ doc.id }}</div>
           </div>
           <time>{{ doc.updated_at.strftime("%Y-%m-%d %H:%M") }}</time>
         </a>
@@ -89,8 +91,10 @@
       <div class="bar-list">
         {% for type_name, count in type_counts %}
         <div class="bar-row">
-          <div class="bar-label">{{ type_name }}</div>
-          <div class="bar-track"><div class="bar-fill" style="width: {{ (count / stats.documents * 100) if stats.documents else 0 }}%"></div></div>
+          {% set dist_t_info = doc_types_map.get(type_name) if doc_types_map is defined else none %}
+          {% set dist_t_label = dist_t_info.label if (dist_t_info and dist_t_info.label) else type_name %}
+          <div class="bar-label">{{ dist_t_label }}</div>
+          <div class="bar-track"><div class="bar-fill" style="width: {{ (count / stats.documents * 100) if stats.documents else 0 }}%{% if dist_t_info and dist_t_info.color %}; background: {{ dist_t_info.color }}{% endif %}"></div></div>
           <div class="bar-value">{{ count }}</div>
         </div>
         {% else %}

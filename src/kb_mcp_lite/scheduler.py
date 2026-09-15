@@ -219,6 +219,9 @@ class TaskScheduler:
                     "description": cls.description,
                     "disabled": file_disabled or memory_disabled,
                     "consecutive_failures": self._consecutive_failures.get(name, 0),
+                    "interval": file_config.get("interval"),
+                    "cron": file_config.get("cron"),
+                    "config": file_config,
                 }
             )
         return tasks

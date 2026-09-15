@@ -16,8 +16,160 @@ from kb_mcp_lite.schema import Document, Link, SearchHit, ValidationError
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.vault import VaultManager
 
-DOC_TYPES = ["project", "decision", "lesson", "glossary", "person", "faq"]
+BUILTIN_TYPES: list[dict[str, Any]] = [
+    {
+        "name": "project",
+        "label": "项目/规划",
+        "description": "项目、代码库、架构栈、技术选型与负责人",
+        "color": "#3b82f6",
+        "is_builtin": True,
+    },
+    {
+        "name": "decision",
+        "label": "架构决策",
+        "description": "ADR 决策记录（背景 → 选型决策 → 带来的后果）",
+        "color": "#8b5cf6",
+        "is_builtin": True,
+    },
+    {
+        "name": "lesson",
+        "label": "经验复盘",
+        "description": "故障复盘、踩坑经验与避坑防范规则",
+        "color": "#10b981",
+        "is_builtin": True,
+    },
+    {
+        "name": "glossary",
+        "label": "术语定义",
+        "description": "业务专有名词与核心概念解释",
+        "color": "#f59e0b",
+        "is_builtin": True,
+    },
+    {
+        "name": "person",
+        "label": "团队角色",
+        "description": "团队成员、业务与技术负责人信息",
+        "color": "#ec4899",
+        "is_builtin": True,
+    },
+    {
+        "name": "faq",
+        "label": "常见问答",
+        "description": "常见问题汇总（标题为问题，正文为解答）",
+        "color": "#06b6d4",
+        "is_builtin": True,
+    },
+    {
+        "name": "api",
+        "label": "接口约定",
+        "description": "API 规范、请求响应协议与接口 Mock 定义",
+        "color": "#6366f1",
+        "is_builtin": True,
+    },
+    {
+        "name": "runbook",
+        "label": "运维手册",
+        "description": "SOP 操作流程、部署上线与故障排查步骤",
+        "color": "#f43f5e",
+        "is_builtin": True,
+    },
+    {
+        "name": "release",
+        "label": "发布说明",
+        "description": "版本发布记录与变更日志",
+        "color": "#14b8a6",
+        "is_builtin": True,
+    },
+]
+
+DOC_TYPES = [t["name"] for t in BUILTIN_TYPES]
 SEARCH_MODES = ["lexical", "fuzzy", "semantic", "hybrid"]
+
+
+def get_custom_types() -> list[dict[str, Any]]:
+    from kb_mcp_lite.config import load_config
+
+    cfg = load_config()
+    types_val = cfg.get("types", [])
+    if isinstance(types_val, list):
+        return [t for t in types_val if isinstance(t, dict) and t.get("name")]
+    return []
+
+
+def save_custom_types(custom_types: list[dict[str, Any]]) -> None:
+    import yaml
+    from kb_mcp_lite.config import config_path, load_config
+
+    p = config_path()
+    cfg = load_config()
+    cfg["types"] = custom_types
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def get_all_types(store: SqliteStore | None = None) -> list[dict[str, Any]]:
+    # Start with built-in types
+    type_map: dict[str, dict[str, Any]] = {
+        t["name"]: dict(t) for t in BUILTIN_TYPES
+    }
+    # Merge custom types from config
+    for ct in get_custom_types():
+        name = str(ct.get("name", "")).strip()
+        if not name:
+            continue
+        if name in type_map:
+            type_map[name].update(ct)
+        else:
+            type_map[name] = {
+                "name": name,
+                "label": ct.get("label", name),
+                "description": ct.get("description", ""),
+                "color": ct.get("color", "#64748b"),
+                "is_builtin": False,
+            }
+
+    # Query database for document counts and extra types
+    doc_counts: dict[str, int] = {}
+    if store is not None:
+        try:
+            rows = store._conn.execute(
+                "SELECT type, COUNT(*) AS cnt FROM documents WHERE deleted_at IS NULL GROUP BY type"
+            ).fetchall()
+            for r in rows:
+                t_name = str(r["type"])
+                doc_counts[t_name] = int(r["cnt"])
+                if t_name not in type_map:
+                    type_map[t_name] = {
+                        "name": t_name,
+                        "label": t_name,
+                        "description": "数据库中存在的历史文档类型",
+                        "color": "#64748b",
+                        "is_builtin": False,
+                    }
+        except Exception:
+            pass
+
+    result = []
+    builtin_names = {t["name"]: idx for idx, t in enumerate(BUILTIN_TYPES)}
+    for name, item in type_map.items():
+        item_copy = dict(item)
+        item_copy["doc_count"] = doc_counts.get(name, 0)
+        result.append(item_copy)
+
+    result.sort(
+        key=lambda x: (
+            0 if x.get("is_builtin") else 1,
+            builtin_names.get(x["name"], 999),
+            x["name"],
+        )
+    )
+    return result
+
+
+def get_doc_type_names(store: SqliteStore | None = None) -> list[str]:
+    all_types = get_all_types(store)
+    return [t["name"] for t in all_types]
+
 
 
 def create_default_store() -> SqliteStore:
@@ -226,6 +378,7 @@ def schema_version(store: SqliteStore) -> str:
 
 
 __all__ = [
+    "BUILTIN_TYPES",
     "DOC_TYPES",
     "SEARCH_MODES",
     "create_default_store",
@@ -245,4 +398,9 @@ __all__ = [
     "flash_url",
     "overview_payload",
     "schema_version",
+    "get_custom_types",
+    "save_custom_types",
+    "get_all_types",
+    "get_doc_type_names",
 ]
+

@@ -23,8 +23,12 @@
         <span>类型</span>
         <select name="type">
           <option value="">所有类型</option>
-          {% for type_name in doc_types %}
-          <option value="{{ type_name }}" {% if filters.type == type_name %}selected{% endif %}>{{ type_name }}</option>
+          {% for t in doc_types %}
+          {% set t_name = t.name if t.name is defined else t %}
+          {% set t_label = t.label if (t.label is defined and t.label) else t_name %}
+          <option value="{{ t_name }}" {% if filters.type == t_name %}selected{% endif %}>
+            {% if t_label != t_name %}{{ t_label }} ({{ t_name }}){% else %}{{ t_name }}{% endif %}
+          </option>
           {% endfor %}
         </select>
       </label>
@@ -64,7 +68,11 @@
               <div class="table-title">{{ row.doc.title }}</div>
               <div class="table-subtitle">{{ row.doc.id }}</div>
             </td>
-            <td><span class="status-pill">{{ row.doc.type }}</span></td>
+            <td>
+              {% set t_info = doc_types_map.get(row.doc.type) if doc_types_map is defined else none %}
+              {% set t_label = t_info.label if (t_info and t_info.label) else row.doc.type %}
+              <span class="status-pill" {% if t_info and t_info.color %}style="border-color: {{ t_info.color }}40; background-color: {{ t_info.color }}15; color: {{ t_info.color }}"{% endif %}>{{ t_label }}</span>
+            </td>
             <td>
               <div class="tag-line">
                 {% for tag in row.doc.tags %}
