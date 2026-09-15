@@ -53,7 +53,8 @@ Callers MUST handle these. Callers MUST NOT catch the generic
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
+from collections.abc import Iterable
 
 from kb_mcp_lite.schema import (
     Document,
@@ -350,7 +351,7 @@ class Store(Protocol):
         """Release resources. Idempotent. Safe to call on error paths."""
         ...
 
-    def __enter__(self) -> "Store": ...
+    def __enter__(self) -> Store: ...
     def __exit__(self, *exc: object) -> None: ...
 
 

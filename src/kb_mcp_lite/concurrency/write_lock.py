@@ -34,7 +34,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
-from typing import Iterator, Optional, Type
+from collections.abc import Iterator
 
 from kb_mcp_lite.schema import KbMcpError
 
@@ -62,7 +62,7 @@ class ResourceBusyError(KbMcpError):
         self,
         db_path: str | os.PathLike[str],
         timeout: float,
-        holder_pid: Optional[int] = None,
+        holder_pid: int | None = None,
     ) -> None:
         self.db_path = os.fspath(db_path)
         self.timeout = timeout
@@ -168,7 +168,7 @@ class WriteLock:
         self.lock_path = self.db_path.with_suffix(self.db_path.suffix + ".lock")
         self.timeout = timeout
         self.poll_interval = max(0.01, poll_interval)
-        self._fd: Optional[int] = None
+        self._fd: int | None = None
         self._acquired = False
 
     @property
@@ -218,7 +218,7 @@ class WriteLock:
                 # be in the writer's page cache).
                 try:
                     if self._fd is not None:
-                        heartbeat = f"kb-mcp-lock pid={os.getpid()}\n".encode("utf-8")
+                        heartbeat = f"kb-mcp-lock pid={os.getpid()}\n".encode()
                         os.lseek(self._fd, 0, os.SEEK_SET)
                         os.write(self._fd, heartbeat)
                         os.ftruncate(self._fd, len(heartbeat))
@@ -246,7 +246,7 @@ class WriteLock:
             # Poll until either we get the lock or the deadline passes.
             time.sleep(min(self.poll_interval, remaining))
 
-    def _peek_holder_pid(self) -> Optional[int]:
+    def _peek_holder_pid(self) -> int | None:
         """Read the holder PID out of the lock file's heartbeat, if present.
 
         Used purely to enrich the :class:`ResourceBusyError` message. Returns
@@ -272,15 +272,15 @@ class WriteLock:
             self._release()
             logger.debug("Released write lock on %s", self.db_path)
 
-    def __enter__(self) -> "WriteLock":
+    def __enter__(self) -> WriteLock:
         self.acquire()
         return self
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc: Optional[BaseException],
-        tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
     ) -> None:
         self.release()
 

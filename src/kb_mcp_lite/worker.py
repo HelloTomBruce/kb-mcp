@@ -31,7 +31,7 @@ import sqlite3
 import threading
 import weakref
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from kb_mcp_lite.embedder import EmbeddingError
 from kb_mcp_lite.store.embedding_queue import (
@@ -73,9 +73,7 @@ def _open_worker_connection(db_path: str) -> sqlite3.Connection:
         sqlite_row_factory,
     )
 
-    conn = make_sqlite_connection(
-        db_path, isolation_level="", check_same_thread=False
-    )
+    conn = make_sqlite_connection(db_path, isolation_level="", check_same_thread=False)
     # Mirror the store: rows must come back as ``sqlite3.Row`` so the
     # queue layer can read by column name. Without this the queue's
     # ``_row_to_entry`` would crash on tuple indexing.
@@ -134,7 +132,7 @@ class WorkerJobResult:
 
     doc_id: str
     ok: bool
-    error: Optional[str]
+    error: str | None
     permanent: bool = False
 
 
@@ -165,13 +163,13 @@ class EmbeddingWorker:
     # weak-value dictionary so a store that explicitly closes its
     # worker can be garbage-collected without a manual ``unregister``
     # call.
-    _live: "weakref.WeakValueDictionary[int, EmbeddingWorker] | None" = None
+    _live: weakref.WeakValueDictionary[int, EmbeddingWorker] | None = None
     _live_lock = threading.Lock()
     _atexit_registered = False
 
     def __init__(
         self,
-        store: "SqliteStore",
+        store: SqliteStore,
         *,
         embedder: Any,
         queue: EmbeddingQueue | None = None,
@@ -207,10 +205,10 @@ class EmbeddingWorker:
         self._queue = EmbeddingQueue(self._conn)
 
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._started = False
         # Introspection — useful for tests and the CLI status command.
-        self.last_job: Optional[WorkerJobResult] = None
+        self.last_job: WorkerJobResult | None = None
         self.processed_total: int = 0
         self.failed_total: int = 0
         # Lock that serialises the embedder. The queue itself is
@@ -224,13 +222,13 @@ class EmbeddingWorker:
     # ---- registry / atexit ----------------------------------------------
 
     @classmethod
-    def _live_registry(cls) -> "weakref.WeakValueDictionary[int, EmbeddingWorker]":
+    def _live_registry(cls) -> weakref.WeakValueDictionary[int, EmbeddingWorker]:
         if cls._live is None:
             cls._live = weakref.WeakValueDictionary()
         return cls._live
 
     @classmethod
-    def _register(cls, worker: "EmbeddingWorker") -> None:
+    def _register(cls, worker: EmbeddingWorker) -> None:
         with cls._live_lock:
             reg = cls._live_registry()
             reg[id(worker)] = worker
@@ -256,7 +254,7 @@ class EmbeddingWorker:
                 logger.debug("atexit: error stopping worker", exc_info=True)
 
     @classmethod
-    def live_workers(cls) -> list["EmbeddingWorker"]:
+    def live_workers(cls) -> list[EmbeddingWorker]:
         """Return the workers currently registered in this process.
 
         Mostly for tests; the CLI does not introspect this.
@@ -408,15 +406,11 @@ class EmbeddingWorker:
             except EmbeddingError as e:
                 permanent = _is_permanent_error(str(e))
                 self._queue.mark_failed(doc_id, str(e), permanent=permanent)
-                return WorkerJobResult(
-                    doc_id=doc_id, ok=False, error=str(e), permanent=permanent
-                )
+                return WorkerJobResult(doc_id=doc_id, ok=False, error=str(e), permanent=permanent)
             except Exception as e:  # noqa: BLE001
                 err = f"unexpected embedder error: {e!r}"
                 self._queue.mark_failed(doc_id, err, permanent=False)
-                return WorkerJobResult(
-                    doc_id=doc_id, ok=False, error=err, permanent=False
-                )
+                return WorkerJobResult(doc_id=doc_id, ok=False, error=err, permanent=False)
 
         # 4. Persist the vector in vec0 through the worker's own
         #    connection. This keeps the write on the worker thread and
@@ -428,9 +422,7 @@ class EmbeddingWorker:
         except Exception as e:  # noqa: BLE001
             err = f"vec0 write failed: {e}"
             self._queue.mark_failed(doc_id, err, permanent=False)
-            return WorkerJobResult(
-                doc_id=doc_id, ok=False, error=err, permanent=False
-            )
+            return WorkerJobResult(doc_id=doc_id, ok=False, error=err, permanent=False)
 
         # 5. Mark done.
         self._queue.mark_done(doc_id)
@@ -490,9 +482,7 @@ class EmbeddingWorker:
         # different dim. The pre-async code path silently skipped in
         # that case too, so we preserve that contract here.
         try:
-            self._conn.execute(
-                "DELETE FROM docs_vec WHERE rowid = ?", (rowid,)
-            )
+            self._conn.execute("DELETE FROM docs_vec WHERE rowid = ?", (rowid,))
             self._conn.execute(
                 "INSERT INTO docs_vec(rowid, embedding) VALUES (?, ?)",
                 (rowid, serialize_float32(vector)),

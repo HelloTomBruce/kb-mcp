@@ -20,7 +20,8 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Callable, Dict, Literal, Optional, Set
+from typing import Literal
+from collections.abc import Callable
 
 from kb_mcp_lite.md_io import parse_frontmatter, doc_from_frontmatter, _coerce_links
 from kb_mcp_lite.schema import NotFoundError
@@ -80,17 +81,17 @@ class VaultWatcher:
 
     def __init__(
         self,
-        vault_name: Optional[str] = None,
+        vault_name: str | None = None,
         debounce_seconds: float = 1.0,
-        vault_manager: Optional[VaultManager] = None,
-        on_change: Optional[Callable[[str, str], None]] = None,
+        vault_manager: VaultManager | None = None,
+        on_change: Callable[[str, str], None] | None = None,
     ) -> None:
         self.vm = vault_manager or VaultManager()
         self.vault_name = vault_name or self.vm.get_current()
         self.debounce_seconds = debounce_seconds
         self.on_change = on_change
         self._running = False
-        self._file_mtimes: Dict[Path, float] = {}
+        self._file_mtimes: dict[Path, float] = {}
 
     @property
     def watch_dir(self) -> Path:
@@ -102,7 +103,7 @@ class VaultWatcher:
         """Return the database path for the target vault."""
         return self.vm.resolve_path(self.vault_name)
 
-    def scan_once(self, store: Optional[SqliteStore] = None) -> dict[str, list[str]]:
+    def scan_once(self, store: SqliteStore | None = None) -> dict[str, list[str]]:
         """Perform a single pass scan over watch_dir and sync detected changes.
 
         Returns a dict of {"created": [...], "updated": [...], "deleted": [...], "errors": [...]}.
@@ -120,7 +121,7 @@ class VaultWatcher:
         deleted: list[str] = []
         errors: list[str] = []
 
-        current_files: Set[Path] = set()
+        current_files: set[Path] = set()
 
         try:
             for root, dirs, files in os.walk(w_dir):
@@ -190,7 +191,7 @@ class VaultWatcher:
             "errors": errors,
         }
 
-    def _sync_file(self, store: SqliteStore, file_path: Path, base_dir: Path) -> Optional[str]:
+    def _sync_file(self, store: SqliteStore, file_path: Path, base_dir: Path) -> str | None:
         """Parse and upsert a single markdown file into the store."""
         try:
             text = file_path.read_text(encoding="utf-8")
@@ -238,7 +239,7 @@ class VaultWatcher:
         except Exception as e:
             return f"{type(e).__name__}: {e}"
 
-    def _resolve_doc_id(self, file_path: Path, base_dir: Path) -> Optional[str]:
+    def _resolve_doc_id(self, file_path: Path, base_dir: Path) -> str | None:
         """Compute the canonical doc id for a file path. Returns None if outside base_dir."""
         try:
             rel = file_path.relative_to(base_dir)
@@ -354,7 +355,7 @@ class VaultWatcher:
     def run_event_based(
         self,
         debounce_ms: int = 200,
-        store: Optional[SqliteStore] = None,
+        store: SqliteStore | None = None,
     ) -> None:
         """Run the watcher in event-driven mode (requires ``watchfiles``).
 
@@ -413,7 +414,7 @@ class VaultWatcher:
     def run(
         self,
         interval_seconds: float = 1.0,
-        max_iterations: Optional[int] = None,
+        max_iterations: int | None = None,
         mode: WatchMode = "auto",
         debounce_ms: int = 200,
     ) -> None:
@@ -445,8 +446,12 @@ class VaultWatcher:
                 res = self.scan_once()
                 total_changes = len(res["created"]) + len(res["updated"]) + len(res["deleted"])
                 if total_changes > 0:
-                    logger.info("Watcher synced: %d created, %d updated, %d deleted",
-                                len(res["created"]), len(res["updated"]), len(res["deleted"]))
+                    logger.info(
+                        "Watcher synced: %d created, %d updated, %d deleted",
+                        len(res["created"]),
+                        len(res["updated"]),
+                        len(res["deleted"]),
+                    )
             except Exception as e:
                 logger.error("Watcher error during scan: %s", e)
 

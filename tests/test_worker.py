@@ -148,9 +148,7 @@ class TestProcessOne:
         # directly (the worker must still guard against it — e.g. rows
         # written by a future importer).
         doc_id = store.add(_doc("d/empty"))
-        store._conn.execute(
-            "UPDATE documents SET title='', body='' WHERE id=?", (doc_id,)
-        )
+        store._conn.execute("UPDATE documents SET title='', body='' WHERE id=?", (doc_id,))
         store._conn.commit()
         store.embedding_queue.enqueue(doc_id)
         result = _process(store, doc_id)
@@ -184,9 +182,9 @@ class TestWorkerLifecycle:
         worker = EmbeddingWorker(store, embedder=ConstEmbedder(), idle_poll=0.02)
         worker.start()
         try:
-            assert _wait_until(
-                lambda: store.embedding_queue.count_by_state()["done"] == 3
-            ), f"queue never drained: {store.embedding_queue.count_by_state()}"
+            assert _wait_until(lambda: store.embedding_queue.count_by_state()["done"] == 3), (
+                f"queue never drained: {store.embedding_queue.count_by_state()}"
+            )
         finally:
             worker.stop()
 
@@ -214,9 +212,7 @@ class TestWorkerLifecycle:
 
 
 class TestWorkerLifecycleFK:
-    def test_orphan_queue_row_dropped_after_doc_hard_delete(
-        self, store: SqliteStore
-    ) -> None:
+    def test_orphan_queue_row_dropped_after_doc_hard_delete(self, store: SqliteStore) -> None:
         """Migration 0007 declares ``embedding_queue.doc_id REFERENCES
         documents(id) ON DELETE CASCADE`` and the worker's connection
         sets ``PRAGMA foreign_keys = ON``. A hard delete on the

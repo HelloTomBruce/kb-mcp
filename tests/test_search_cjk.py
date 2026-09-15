@@ -2,6 +2,7 @@ from pathlib import Path
 from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
 
+
 def test_cjk_search(tmp_path: Path):
     db_path = tmp_path / "cjk_kb.db"
     store = SqliteStore(db_path)
@@ -11,14 +12,14 @@ def test_cjk_search(tmp_path: Path):
         type="lesson",
         title="缓存击穿排障记录",
         body="生产环境由于高并发导致Redis缓存击穿，数据库负载过高崩溃。",
-        tags=["redis", "线上故障"]
+        tags=["redis", "线上故障"],
     )
     doc2 = Document(
         id="dec/use-jwt",
         type="decision",
         title="认证架构选型决策",
         body="鉴权机制采用无状态的JWT Token与非对称加密算法。",
-        tags=["架构", "安全"]
+        tags=["架构", "安全"],
     )
     store.add(doc1)
     store.add(doc2)

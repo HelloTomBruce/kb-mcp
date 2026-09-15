@@ -188,8 +188,8 @@ def test_store_init_accepts_strict_lock_and_timeout(tmp_path: Path) -> None:
 def _lock_worker(
     db_path: str,
     hold_for: float,
-    ready_evt: "mp.Event",
-    done_evt: "mp.Queue",
+    ready_evt: mp.Event,
+    done_evt: mp.Queue,
 ) -> None:
     """Process entry point. Reports 'ok' on acquire, 'busy' on timeout."""
     from kb_mcp_lite.concurrency import ResourceBusyError, WriteLock
@@ -214,17 +214,13 @@ def test_cross_process_mutual_exclusion(tmp_path: Path) -> None:
 
     ready_a = mp.Event()
     done_a: mp.Queue = mp.Queue()
-    pa = mp.Process(
-        target=_lock_worker, args=(str(db), 1.0, ready_a, done_a), daemon=True
-    )
+    pa = mp.Process(target=_lock_worker, args=(str(db), 1.0, ready_a, done_a), daemon=True)
     pa.start()
     assert ready_a.wait(timeout=3.0), "process A did not start"
 
     ready_b = mp.Event()
     done_b: mp.Queue = mp.Queue()
-    pb = mp.Process(
-        target=_lock_worker, args=(str(db), 0.0, ready_b, done_b), daemon=True
-    )
+    pb = mp.Process(target=_lock_worker, args=(str(db), 0.0, ready_b, done_b), daemon=True)
     pb.start()
     assert ready_b.wait(timeout=3.0), "process B did not start"
 

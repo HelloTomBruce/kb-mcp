@@ -10,7 +10,8 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, TypeVar, Iterator
+from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import Iterable, Iterator
 
 from kb_mcp_lite.schema import (
     Document,
@@ -25,8 +26,10 @@ from kb_mcp_lite.store.maintenance import MaintenanceMixin
 from kb_mcp_lite.store.search import SearchMixin
 from kb_mcp_lite.store.versioning import VersioningMixin
 from kb_mcp_lite.store.embedding import EmbeddingMixin
+import builtins
 
 if TYPE_CHECKING:
+    from kb_mcp_lite.concurrency import WriteLock
     from kb_mcp_lite.store.embedding_queue import EmbeddingQueue
     from kb_mcp_lite.worker import EmbeddingWorker
 
@@ -79,6 +82,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         self._auto_link_cfg: dict = {}
         try:
             from kb_mcp_lite.config import load_config
+
             _cfg = load_config()
             self._auto_link_cfg = _cfg.get("kb", {}).get("auto_link", {})
         except Exception:
@@ -116,7 +120,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         return self.db_path
 
     @property
-    def write_lock(self) -> "WriteLock":
+    def write_lock(self) -> WriteLock:
         """Return a :class:`~kb_mcp_lite.concurrency.WriteLock` bound to this store.
 
         The lock is constructed lazily on first access so stores that do
@@ -142,12 +146,12 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     # ---- embedding queue / worker ---------------------------------------
 
     @property
-    def embedding_queue(self) -> "EmbeddingQueue":
+    def embedding_queue(self) -> EmbeddingQueue:
         """The :class:`EmbeddingQueue` bound to this store's connection."""
         return self._embedding_queue
 
     @property
-    def embedding_worker(self) -> "EmbeddingWorker | None":
+    def embedding_worker(self) -> EmbeddingWorker | None:
         """Lazily construct, start, and return the background worker.
 
         Returns ``None`` when the embedder is disabled or the store
@@ -162,9 +166,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         if self._embedding_worker is None:
             from kb_mcp_lite.worker import EmbeddingWorker
 
-            self._embedding_worker = EmbeddingWorker(
-                self, embedder=self._embedder
-            )
+            self._embedding_worker = EmbeddingWorker(self, embedder=self._embedder)
             self._embedding_worker.start()
         return self._embedding_worker
 
@@ -186,7 +188,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         *,
         max_jobs: int | None = None,
         timeout: float = 30.0,
-    ) -> "dict[str, Any]":
+    ) -> dict[str, Any]:
         """Drain the queue synchronously on the calling thread.
 
         Used by the ``kb embed`` admin commands and by tests. The
@@ -256,14 +258,14 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         status["processed"] = processed
         return status
 
-    def embedding_queue_status(self) -> "dict[str, Any]":
+    def embedding_queue_status(self) -> dict[str, Any]:
         """Return the embedding queue status report (counts + oldest rows).
 
         Shape is produced by :meth:`EmbeddingQueue.status`.
         """
         return self._embedding_queue.status()
 
-    def embedding_status(self) -> "dict[str, Any]":
+    def embedding_status(self) -> dict[str, Any]:
         """Return a full embedder + queue report for CLI / MCP admin tools.
 
         Combines the embedder capability (``enabled`` / ``dim``), the
@@ -335,7 +337,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 pass
             self._vec_conn = None
 
-    def __enter__(self) -> "SqliteStore":
+    def __enter__(self) -> SqliteStore:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -357,12 +359,12 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         finally:
             cur.close()
 
-    def _row_to_doc(self, row: Dict[str, Any]) -> Document:
+    def _row_to_doc(self, row: dict[str, Any]) -> Document:
         """Convert a database row to a Document object."""
         return Document.from_row(row)
 
     @staticmethod
-    def _row_to_link(row: Dict[str, Any]) -> Link:
+    def _row_to_link(row: dict[str, Any]) -> Link:
         """Convert a database row to a Link object."""
         return Link(**row)
 
@@ -390,7 +392,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         Raises NotFoundError if the document doesn't exist.
         """
         sql = "SELECT * FROM documents WHERE id = ?"
-        params: List[Any] = [doc_id]
+        params: list[Any] = [doc_id]
         if not include_deleted:
             sql += " AND deleted_at IS NULL"
 
@@ -416,13 +418,13 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     def list(
         self,
         type: str | None = None,
-        tags: List[str] | None = None,
+        tags: builtins.list[str] | None = None,
         link_to: str | None = None,
         link_from: str | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
-    ) -> List[Document]:
+    ) -> builtins.list[Document]:
         """List documents with optional filtering.
 
         Args:
@@ -440,7 +442,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             raise ValidationError("offset must be >= 0")
 
         sql_parts = ["SELECT DISTINCT d.* FROM documents d"]
-        params: List[object] = []
+        params: list[object] = []
         joins = []
         conditions = ["1=1"]
 
@@ -826,7 +828,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
         return removed
 
-    def outgoing_links(self, doc_id: str) -> List[Link]:
+    def outgoing_links(self, doc_id: str) -> builtins.list[Link]:
         """Get all outgoing links from a document."""
         rows = self._conn.execute(
             "SELECT * FROM links WHERE from_id = ? ORDER BY created_at DESC",
@@ -834,7 +836,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         ).fetchall()
         return [Link(**row) for row in rows]
 
-    def incoming_links(self, doc_id: str) -> List[Link]:
+    def incoming_links(self, doc_id: str) -> builtins.list[Link]:
         """Get all incoming links to a document."""
         rows = self._conn.execute(
             "SELECT * FROM links WHERE to_id = ? ORDER BY created_at DESC",
@@ -844,11 +846,11 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
     # ---- compatibility aliases (backlinks / outlinks) -------------------------
 
-    def backlinks(self, doc_id: str) -> List[Link]:
+    def backlinks(self, doc_id: str) -> builtins.list[Link]:
         """Alias for :meth:`incoming_links`."""
         return self.incoming_links(doc_id)
 
-    def outlinks(self, doc_id: str) -> List[Link]:
+    def outlinks(self, doc_id: str) -> builtins.list[Link]:
         """Alias for :meth:`outgoing_links`."""
         return self.outgoing_links(doc_id)
 
@@ -866,6 +868,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         rel = auto_link_cfg.get("rel", "references")
 
         from kb_mcp_lite.link_parser import sync_body_references
+
         try:
             sync_body_references(self, doc_id, body, rel=rel)
         except Exception:
@@ -914,7 +917,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                 report.skipped += 1
         return report
 
-    def export_all(self, include_deleted: bool = False) -> List[Document]:
+    def export_all(self, include_deleted: bool = False) -> builtins.list[Document]:
         """Export all documents, optionally including soft-deleted ones."""
         sql = "SELECT * FROM documents"
         if not include_deleted:

@@ -3,14 +3,19 @@ from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.graph_query import GraphQueryEngine, doctor_fix_hygiene
 
+
 def test_multi_hop_path_and_query(tmp_path: Path):
     db_path = tmp_path / "graph_kb.db"
     store = SqliteStore(db_path)
 
     # A -> B -> C
     doc_a = Document(id="proj/service-a", type="project", title="Service A", body="Service A")
-    doc_b = Document(id="dec/cache-strategy", type="decision", title="Cache Strategy", body="Cache ADR")
-    doc_c = Document(id="lesson/redis-oom", type="lesson", title="Redis OOM", body="Lesson about memory")
+    doc_b = Document(
+        id="dec/cache-strategy", type="decision", title="Cache Strategy", body="Cache ADR"
+    )
+    doc_c = Document(
+        id="lesson/redis-oom", type="lesson", title="Redis OOM", body="Lesson about memory"
+    )
 
     store.add(doc_a)
     store.add(doc_b)

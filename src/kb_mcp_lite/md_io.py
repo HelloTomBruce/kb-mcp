@@ -26,7 +26,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import frontmatter
 
@@ -67,11 +67,11 @@ class Frontmatter(TypedDict, total=False):
 
     type: str
     title: str
-    tags: List[str]
+    tags: list[str]
     source: str
     created_at: str
     updated_at: str
-    links: List[dict]
+    links: list[dict]
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ def render_document(doc: Document, outlinks: list[Link] | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_tags(value: Any) -> List[str]:
+def _coerce_tags(value: Any) -> list[str]:
     """Best-effort coercion of the ``tags`` frontmatter value to ``List[str]``.
 
     Accepts a list (returned as-is with non-string entries stringified)
@@ -383,8 +383,8 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
     if not base.is_dir():
         raise ValidationError(f"not a directory: {dir!r}")
 
-    docs: List[Document] = []
-    errors: List[str] = []
+    docs: list[Document] = []
+    errors: list[str] = []
     # Each entry: (from_id, to_id, rel, source_path) — source_path for error messages.
     pending_links: list[tuple[str, str, str, str]] = []
 
@@ -656,9 +656,9 @@ class PendingExport:
       under ``dir`` (the next export would remove it).
     """
 
-    added: List[str] = field(default_factory=list)
-    modified: List[str] = field(default_factory=list)
-    deleted: List[str] = field(default_factory=list)
+    added: list[str] = field(default_factory=list)
+    modified: list[str] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:

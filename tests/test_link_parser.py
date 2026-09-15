@@ -91,8 +91,9 @@ class TestExtractBodyReferences:
 class TestSyncBodyReferences:
     def test_creates_references_links(self, tmp_path):
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="source", type="decision", title="Source",
-                           body="See [target](target/doc)."))
+        store.add(
+            Document(id="source", type="decision", title="Source", body="See [target](target/doc).")
+        )
         store.add(Document(id="target/doc", type="lesson", title="Target"))
 
         count = sync_body_references(store, "source", "See [target](target/doc).")
@@ -113,8 +114,7 @@ class TestSyncBodyReferences:
 
     def test_removes_stale_references(self, tmp_path):
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="src", type="decision", title="Src",
-                           body="See [old](old/doc)."))
+        store.add(Document(id="src", type="decision", title="Src", body="See [old](old/doc)."))
         store.add(Document(id="old/doc", type="lesson", title="Old"))
         store.add(Document(id="new/doc", type="lesson", title="New"))
 
@@ -140,8 +140,11 @@ class TestAutoLinkIntegration:
     def test_add_creates_auto_links(self, tmp_path):
         store = SqliteStore(tmp_path / "test.db")
         store.add(Document(id="ref-target", type="lesson", title="Target"))
-        store.add(Document(id="ref-source", type="decision", title="Source",
-                           body="See [target](ref-target)."))
+        store.add(
+            Document(
+                id="ref-source", type="decision", title="Source", body="See [target](ref-target)."
+            )
+        )
 
         links = store.outgoing_links("ref-source")
         assert any(link.to_id == "ref-target" and link.rel == "references" for link in links)
@@ -151,8 +154,7 @@ class TestAutoLinkIntegration:
         store = SqliteStore(tmp_path / "test.db")
         store.add(Document(id="t1", type="lesson", title="T1"))
         store.add(Document(id="t2", type="lesson", title="T2"))
-        store.add(Document(id="src", type="decision", title="Src",
-                           body="Ref [t1](t1)."))
+        store.add(Document(id="src", type="decision", title="Src", body="Ref [t1](t1)."))
 
         # Verify initial link
         assert any(link.to_id == "t1" for link in store.outgoing_links("src"))

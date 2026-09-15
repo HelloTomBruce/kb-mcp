@@ -38,7 +38,7 @@ import json
 import logging
 import os
 import sys
-from typing import Any, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
@@ -63,7 +63,7 @@ from kb_mcp_lite.vault import VaultManager
 class KbSearchInput(BaseModel):
     query: str = Field(min_length=1)
     type: str | None = None
-    tags: List[str] | None = None
+    tags: list[str] | None = None
     limit: int = Field(default=10, ge=1, le=100)
     mode: str = Field(default="hybrid", pattern="^(lexical|fuzzy|semantic|hybrid|rrf)$")
     rrf_k: int = Field(default=60, ge=1, le=200)
@@ -82,8 +82,8 @@ class KbAddInput(BaseModel):
     type: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=512)
     body: str = Field(default="", max_length=1_000_000)
-    tags: List[str] | None = None
-    aliases: List[str] | None = None
+    tags: list[str] | None = None
+    aliases: list[str] | None = None
     metadata: dict[str, Any] | None = None
     source: str | None = None
     id: str | None = Field(default=None, min_length=1, max_length=512)
@@ -97,7 +97,7 @@ class KbLinkInput(BaseModel):
 
 class KbListInput(BaseModel):
     type: str | None = None
-    tags: List[str] | None = None
+    tags: list[str] | None = None
     limit: int = Field(default=100, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)
     include_deleted: bool = False
@@ -108,8 +108,8 @@ class KbUpdateInput(BaseModel):
     id: str = Field(min_length=1)
     title: str | None = Field(default=None, min_length=1, max_length=512)
     body: str | None = Field(default=None, max_length=1_000_000)
-    tags: List[str] | None = None
-    aliases: List[str] | None = None
+    tags: list[str] | None = None
+    aliases: list[str] | None = None
     metadata: dict[str, Any] | None = None
     source: str | None = None
 
@@ -141,7 +141,9 @@ class KbDiffCheckInput(BaseModel):
 
 class KbGraphQueryInput(BaseModel):
     start_id: str = Field(min_length=1)
-    target_id: str | None = Field(default=None, description="Optional target id to find shortest path to")
+    target_id: str | None = Field(
+        default=None, description="Optional target id to find shortest path to"
+    )
     rel: str | None = Field(default=None, description="Filter by relation type")
     direction: str = Field(default="outbound", pattern="^(outbound|inbound|both)$")
     doc_type: str | None = Field(default=None, description="Filter reached documents by type")
@@ -369,12 +371,12 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.tool()
     def kb_search(
         query: str,
-        type: Optional[str] = None,  # matches MCP schema in architecture.md § 4.4
-        tags: Optional[List[str]] = None,
+        type: str | None = None,  # matches MCP schema in architecture.md § 4.4
+        tags: list[str] | None = None,
         limit: int = 10,
         mode: str = "hybrid",
         rrf_k: int = 60,
-        vault: Optional[str] = None,
+        vault: str | None = None,
     ) -> Any:
         """Full-text search the knowledge base across current or specified vault(s).
 
@@ -435,26 +437,28 @@ def _make_server(vault: str | None = None) -> Any:
                             rrf_k=inp.rrf_k,
                         )
                         for h in v_hits:
-                            all_hits.append({
-                                "id": h.doc.id,
-                                "title": h.doc.title,
-                                "type": h.doc.type,
-                                "snippet": h.snippet,
-                                "score": h.score,
-                                "vault": vinfo.name,
-                            })
+                            all_hits.append(
+                                {
+                                    "id": h.doc.id,
+                                    "title": h.doc.title,
+                                    "type": h.doc.type,
+                                    "snippet": h.snippet,
+                                    "score": h.score,
+                                    "vault": vinfo.name,
+                                }
+                            )
                     finally:
                         v_store.close()
                 is_lexical_or_fuzzy = inp.mode in ("lexical", "fuzzy")
                 all_hits.sort(key=lambda x: x["score"], reverse=(not is_lexical_or_fuzzy))
                 return {
-                    "hits": all_hits[:inp.limit],
+                    "hits": all_hits[: inp.limit],
                     "count": min(len(all_hits), inp.limit),
                 }
 
             target_store = _create_store(inp.vault) if inp.vault else store
             try:
-                hits: List[SearchHit] = target_store.search(
+                hits: list[SearchHit] = target_store.search(
                     query=inp.query,
                     type=inp.type,
                     tags=inp.tags,
@@ -490,8 +494,8 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.tool()
     def kb_get(
         id: str,
-        section: Optional[str] = None,
-        vault: Optional[str] = None,
+        section: str | None = None,
+        vault: str | None = None,
     ) -> Any:
         """Fetch a document by id, with optional section-level extraction and vault selection.
 
@@ -543,11 +547,11 @@ def _make_server(vault: str | None = None) -> Any:
         type: str,  # matches MCP schema in architecture.md § 4.4
         title: str,
         body: str = "",
-        tags: Optional[List[str]] = None,
-        aliases: Optional[List[str]] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        source: Optional[str] = None,
-        id: Optional[str] = None,
+        tags: list[str] | None = None,
+        aliases: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        source: str | None = None,
+        id: str | None = None,
     ) -> Any:
         """Create a new document.
 
@@ -660,12 +664,12 @@ def _make_server(vault: str | None = None) -> Any:
 
     @mcp.tool()
     def kb_list(
-        type: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        type: str | None = None,
+        tags: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
-        vault: Optional[str] = None,
+        vault: str | None = None,
     ) -> Any:
         """List documents, sorted by ``updated_at`` DESC.
 
@@ -738,12 +742,12 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.tool()
     def kb_update(
         id: str,
-        title: Optional[str] = None,
-        body: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        aliases: Optional[List[str]] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        source: Optional[str] = None,
+        title: str | None = None,
+        body: str | None = None,
+        tags: list[str] | None = None,
+        aliases: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        source: str | None = None,
     ) -> Any:
         """Patch fields on an existing document.
 
@@ -840,7 +844,7 @@ def _make_server(vault: str | None = None) -> Any:
     def kb_unlink(
         from_id: str,
         to_id: str,
-        rel: Optional[str] = None,
+        rel: str | None = None,
     ) -> Any:
         """Remove typed edges between two documents.
 
@@ -915,7 +919,7 @@ def _make_server(vault: str | None = None) -> Any:
         version: int | None = None
 
     @mcp.tool()
-    def kb_restore(id: str, version: Optional[int] = None) -> Any:
+    def kb_restore(id: str, version: int | None = None) -> Any:
         """Restore a document to a previous version.
 
         Args:
@@ -1127,7 +1131,7 @@ def _make_server(vault: str | None = None) -> Any:
             raise RuntimeError(f"MCP error {code}: {msg}")
 
     @mcp.tool()
-    def kb_embed_retry(doc_id: Optional[str] = None) -> Any:
+    def kb_embed_retry(doc_id: str | None = None) -> Any:
         """Re-queue embedding jobs that are not currently pending.
 
         Args:
@@ -1159,7 +1163,7 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- kb_diff_check ----------------------------------------------------
 
     @mcp.tool()
-    def kb_diff_check(cwd: Optional[str] = None, vault: Optional[str] = None) -> Any:
+    def kb_diff_check(cwd: str | None = None, vault: str | None = None) -> Any:
         """Analyze git repository diff and proactively recommend mandatory ADRs, lessons, and constraints.
 
         Args:
@@ -1196,12 +1200,12 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.tool()
     def kb_query_relations(
         start_id: str,
-        target_id: Optional[str] = None,
-        rel: Optional[str] = None,
+        target_id: str | None = None,
+        rel: str | None = None,
         direction: str = "outbound",
-        doc_type: Optional[str] = None,
+        doc_type: str | None = None,
         max_depth: int = 2,
-        vault: Optional[str] = None,
+        vault: str | None = None,
     ) -> Any:
         """Query multi-hop relations or find paths between documents in the knowledge graph.
 
@@ -1304,6 +1308,7 @@ def _make_server(vault: str | None = None) -> Any:
         logger.info("kb_impact doc_id=%r max_depth=%d", inp.doc_id, inp.max_depth)
         try:
             from kb_mcp_lite.relations import ImpactAnalyzer
+
             analyzer = ImpactAnalyzer(store)
             nodes = analyzer.analyze(
                 root_id=inp.doc_id,
@@ -1356,6 +1361,7 @@ def _make_server(vault: str | None = None) -> Any:
         logger.info("kb_decision_chain decision_id=%r", inp.decision_id)
         try:
             from kb_mcp_lite.relations import supersession_chain
+
             chain = supersession_chain(store, inp.decision_id)
             return {
                 "decision_id": inp.decision_id,
@@ -1371,7 +1377,7 @@ def _make_server(vault: str | None = None) -> Any:
 
     @mcp.tool()
     def kb_rel_spec(
-        rel_name: Optional[str] = None,
+        rel_name: str | None = None,
     ) -> Any:
         """List standard relation types or show details for a specific relation.
 
@@ -1390,6 +1396,7 @@ def _make_server(vault: str | None = None) -> Any:
         logger.info("kb_rel_spec rel_name=%r", inp.rel_name)
         try:
             from kb_mcp_lite.relations import STANDARD_RELATIONS, get_relation_spec
+
             if inp.rel_name:
                 spec = get_relation_spec(inp.rel_name)
                 if spec is None:
@@ -1463,10 +1470,15 @@ def _make_server(vault: str | None = None) -> Any:
                     seen.add(lnk.to_id)
                     try:
                         doc = store.get(lnk.to_id)
-                        neighbors.append({
-                            "id": doc.id, "title": doc.title, "type": doc.type,
-                            "rel": lnk.rel, "direction": "outbound",
-                        })
+                        neighbors.append(
+                            {
+                                "id": doc.id,
+                                "title": doc.title,
+                                "type": doc.type,
+                                "rel": lnk.rel,
+                                "direction": "outbound",
+                            }
+                        )
                     except NotFoundError:
                         pass
             for lnk in in_links:
@@ -1474,16 +1486,21 @@ def _make_server(vault: str | None = None) -> Any:
                     seen.add(lnk.from_id)
                     try:
                         doc = store.get(lnk.from_id)
-                        neighbors.append({
-                            "id": doc.id, "title": doc.title, "type": doc.type,
-                            "rel": lnk.rel, "direction": "inbound",
-                        })
+                        neighbors.append(
+                            {
+                                "id": doc.id,
+                                "title": doc.title,
+                                "type": doc.type,
+                                "rel": lnk.rel,
+                                "direction": "inbound",
+                            }
+                        )
                     except NotFoundError:
                         pass
 
             return {
                 "doc_id": inp.doc_id,
-                "neighbors": neighbors[:inp.max_neighbors],
+                "neighbors": neighbors[: inp.max_neighbors],
                 "count": min(len(neighbors), inp.max_neighbors),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
@@ -1503,6 +1520,7 @@ def _make_server(vault: str | None = None) -> Any:
         logger.info("kb_schedule_list")
         try:
             from kb_mcp_lite.scheduler import TASK_REGISTRY
+
             return {
                 "tasks": [
                     {"name": name, "description": cls.description}
@@ -1526,6 +1544,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             from kb_mcp_lite.scheduler import TaskScheduler
             from kb_mcp_lite.config import load_config
+
             config = load_config()
             scheduler = TaskScheduler(store, config)
             return scheduler.get_status()
@@ -1550,6 +1569,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             from kb_mcp_lite.scheduler import TaskScheduler
             from kb_mcp_lite.config import load_config
+
             config = load_config()
             scheduler = TaskScheduler(store, config)
             run = scheduler.run_task_now(task_name)

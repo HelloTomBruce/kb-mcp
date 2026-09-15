@@ -27,7 +27,8 @@ import os
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
+from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -339,7 +340,7 @@ class Document(BaseModel):
         }
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "Document":
+    def from_row(cls, row: dict[str, Any]) -> Document:
         """Inverse of :meth:`to_row`."""
         import json
         from datetime import datetime
@@ -405,7 +406,7 @@ class SearchHit(BaseModel):
     doc: Document
     snippet: str = Field(default="", description="Body excerpt with markers around matched terms")
     score: float = 0.0
-    related: list["RelatedDoc"] = Field(default_factory=list, description="1-hop graph neighbors")
+    related: list[RelatedDoc] = Field(default_factory=list, description="1-hop graph neighbors")
 
 
 # ---------------------------------------------------------------------------

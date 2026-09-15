@@ -129,6 +129,7 @@ class PruneTask:
 
     def run(self, store: Any, config: dict) -> None:
         from datetime import timedelta
+
         older_than = timedelta(days=config.get("older_than_days", 30))
         store.prune(older_than=older_than)
 
@@ -199,10 +200,11 @@ class TaskScheduler:
         """Return all registered tasks with their status."""
         # Get schedule config from file
         from kb_mcp_lite.config import load_config
+
         cfg = load_config()
         schedule_cfg = cfg.get("kb", {}).get("schedule", [])
         task_configs = {t.get("task"): t for t in schedule_cfg}
-        
+
         tasks = []
         for name, cls in TASK_REGISTRY.items():
             file_config = task_configs.get(name, {})
@@ -210,13 +212,15 @@ class TaskScheduler:
             file_disabled = file_config.get("enabled") is False
             # Also check in-memory disabled set
             memory_disabled = name in self._disabled_tasks
-            
-            tasks.append({
-                "name": name,
-                "description": cls.description,
-                "disabled": file_disabled or memory_disabled,
-                "consecutive_failures": self._consecutive_failures.get(name, 0),
-            })
+
+            tasks.append(
+                {
+                    "name": name,
+                    "description": cls.description,
+                    "disabled": file_disabled or memory_disabled,
+                    "consecutive_failures": self._consecutive_failures.get(name, 0),
+                }
+            )
         return tasks
 
     def get_task_config(self, task_name: str) -> dict[str, Any] | None:
@@ -231,17 +235,18 @@ class TaskScheduler:
         """Update an existing task configuration."""
         if task_name not in TASK_REGISTRY:
             raise ValueError(f"unknown task: {task_name!r}")
-        
+
         from kb_mcp_lite.config import config_path, load_config
+
         cfg_path = config_path()
         cfg = load_config()
-        
+
         # Ensure kb.schedule exists
         if "kb" not in cfg:
             cfg["kb"] = {}
         if "schedule" not in cfg["kb"]:
             cfg["kb"]["schedule"] = []
-        
+
         # Find and update or add the task
         found = False
         for i, existing in enumerate(cfg["kb"]["schedule"]):
@@ -250,17 +255,20 @@ class TaskScheduler:
                 cfg["kb"]["schedule"][i]["task"] = task_name  # Ensure task name is preserved
                 found = True
                 break
-        
+
         # If task not found, add it
         if not found:
             new_config = {"task": task_name}
             new_config.update(updates)
             cfg["kb"]["schedule"].append(new_config)
-        
+
         # Save config
         import yaml
+
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
-        cfg_path.write_text(yaml.dump(cfg, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        cfg_path.write_text(
+            yaml.dump(cfg, allow_unicode=True, default_flow_style=False), encoding="utf-8"
+        )
         return True
 
     def enable_task(self, task_name: str) -> bool:
@@ -284,10 +292,12 @@ class TaskScheduler:
         if self._scheduler:
             for job in self._scheduler.get_jobs():
                 next_run = job.next_run_time
-                jobs.append({
-                    "id": job.id,
-                    "next_run": next_run.isoformat() if next_run else None,
-                })
+                jobs.append(
+                    {
+                        "id": job.id,
+                        "next_run": next_run.isoformat() if next_run else None,
+                    }
+                )
         return {
             "running": self._scheduler is not None and self._scheduler.running,
             "jobs": jobs,
@@ -415,7 +425,9 @@ class TaskScheduler:
                 error=str(exc),
                 triggered_by=triggered_by,
             )
-            logger.exception("Scheduled task %s failed (%d/%d)", task_name, failures, self._max_failures)
+            logger.exception(
+                "Scheduled task %s failed (%d/%d)", task_name, failures, self._max_failures
+            )
 
             if failures >= self._max_failures:
                 self._disabled_tasks.add(task_name)
@@ -428,7 +440,8 @@ class TaskScheduler:
                         pass
                 logger.warning(
                     "Task %s auto-disabled after %d consecutive failures",
-                    task_name, failures,
+                    task_name,
+                    failures,
                 )
 
         self._record_history(run)
@@ -443,8 +456,15 @@ class TaskScheduler:
                     (task_name, started_at, finished_at, status, duration_ms, error, triggered_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (run.task_name, run.started_at, run.finished_at,
-                 run.status, run.duration_ms, run.error, run.triggered_by),
+                (
+                    run.task_name,
+                    run.started_at,
+                    run.finished_at,
+                    run.status,
+                    run.duration_ms,
+                    run.error,
+                    run.triggered_by,
+                ),
             )
             self.store._conn.commit()
         except Exception:

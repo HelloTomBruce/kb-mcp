@@ -23,7 +23,13 @@ from kb_mcp_lite.admin._helpers import (
 from kb_mcp_lite.admin import ApiDocCreate, ApiDocUpdate
 from kb_mcp_lite.admin._helpers import serialize_link
 from kb_mcp_lite.relations import STANDARD_RELATIONS
-from kb_mcp_lite.schema import SearchHit, ValidationError, NotFoundError, DuplicateError, IntegrityError
+from kb_mcp_lite.schema import (
+    SearchHit,
+    ValidationError,
+    NotFoundError,
+    DuplicateError,
+    IntegrityError,
+)
 
 
 def register_doc_routes(app: FastAPI, render: Any) -> None:

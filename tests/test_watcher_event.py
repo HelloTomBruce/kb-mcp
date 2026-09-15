@@ -72,15 +72,7 @@ def watcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> VaultWatcher:
 
 
 def _md_text(title: str, body: str = "Body.") -> str:
-    return (
-        f"---\n"
-        f"type: project\n"
-        f"title: {title}\n"
-        f"tags: [watch]\n"
-        f"---\n"
-        f"# {title}\n"
-        f"{body}\n"
-    )
+    return f"---\ntype: project\ntitle: {title}\ntags: [watch]\n---\n# {title}\n{body}\n"
 
 
 class _FakeChange:
@@ -109,9 +101,7 @@ def test_handle_change_set_added(watcher: VaultWatcher, tmp_path: Path) -> None:
 
     store = SqliteStore(watcher.db_path)
     try:
-        res = watcher._handle_change_set(
-            {(_FakeChange.added, str(target))}, store
-        )
+        res = watcher._handle_change_set({(_FakeChange.added, str(target))}, store)
         assert res["created"] == ["proj/alpha.md"]
         assert res["updated"] == []
         assert res["deleted"] == []
@@ -138,9 +128,7 @@ def test_handle_change_set_modified(watcher: VaultWatcher, tmp_path: Path) -> No
 
         # Now modify
         target.write_text(_md_text("Beta v2", body="Updated."), encoding="utf-8")
-        res = watcher._handle_change_set(
-            {(_FakeChange.modified, str(target))}, store
-        )
+        res = watcher._handle_change_set({(_FakeChange.modified, str(target))}, store)
         assert res["updated"] == ["proj/beta.md"]
         assert res["created"] == []
         assert res["errors"] == []
@@ -164,9 +152,7 @@ def test_handle_change_set_deleted(watcher: VaultWatcher, tmp_path: Path) -> Non
         assert store.get("proj/gamma").title == "Gamma"
 
         target.unlink()
-        res = watcher._handle_change_set(
-            {(_FakeChange.deleted, str(target))}, store
-        )
+        res = watcher._handle_change_set({(_FakeChange.deleted, str(target))}, store)
         assert res["deleted"] == ["proj/gamma.md"]
         assert res["errors"] == []
         # Soft delete: doc is still fetchable with include_deleted
@@ -178,9 +164,7 @@ def test_handle_change_set_deleted(watcher: VaultWatcher, tmp_path: Path) -> Non
         store.close()
 
 
-def test_handle_change_set_atomic_save_pattern(
-    watcher: VaultWatcher, tmp_path: Path
-) -> None:
+def test_handle_change_set_atomic_save_pattern(watcher: VaultWatcher, tmp_path: Path) -> None:
     """A (deleted, added) pair within one batch should be treated as update."""
     from kb_mcp_lite.store.sqlite import SqliteStore
 
@@ -222,9 +206,7 @@ def test_handle_change_set_ignores_paths_outside_watch_dir(
 
     store = SqliteStore(watcher.db_path)
     try:
-        res = watcher._handle_change_set(
-            {(_FakeChange.added, str(outside))}, store
-        )
+        res = watcher._handle_change_set({(_FakeChange.added, str(outside))}, store)
         assert res["created"] == []
         assert res["updated"] == []
         assert res["deleted"] == []
@@ -247,9 +229,7 @@ def test_handle_change_set_deleted_for_unknown_doc_is_noop(
     # which will raise NotFoundError — but the handler swallows that.
     store = SqliteStore(watcher.db_path)
     try:
-        res = watcher._handle_change_set(
-            {(_FakeChange.deleted, str(target))}, store
-        )
+        res = watcher._handle_change_set({(_FakeChange.deleted, str(target))}, store)
         assert res["errors"] == []
     finally:
         store.close()
@@ -268,9 +248,7 @@ def test_handle_change_set_collects_errors(
 
     store = SqliteStore(watcher.db_path)
     try:
-        res = watcher._handle_change_set(
-            {(_FakeChange.added, str(target))}, store
-        )
+        res = watcher._handle_change_set({(_FakeChange.added, str(target))}, store)
         # The bad file should be reported as an error, not a success.
         assert res["created"] == []
         assert res["errors"], "expected at least one error"
@@ -306,9 +284,9 @@ def test_run_event_based_falls_back_when_watchfiles_missing(
     caplog.set_level(logging.WARNING, logger="kb_mcp_lite.watcher")
     watcher.run_event_based()
 
-    assert any(
-        "watchfiles is not installed" in rec.message for rec in caplog.records
-    ), "expected a warning about watchfiles being missing"
+    assert any("watchfiles is not installed" in rec.message for rec in caplog.records), (
+        "expected a warning about watchfiles being missing"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +324,6 @@ def test_run_routes_to_event_based_when_watchfiles_missing(
         assert doc.title == "Alpha"
     finally:
         store.close()
-
-
 
 
 def test_handle_change_set_atomic_save_restores_soft_deleted_doc(

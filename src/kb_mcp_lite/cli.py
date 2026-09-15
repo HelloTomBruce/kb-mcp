@@ -5,7 +5,8 @@ import sys
 import json
 import functools
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
+from collections.abc import Callable
 
 import click
 from pydantic import ValidationError
@@ -613,13 +614,20 @@ def rel_group(ctx: click.Context) -> None:
 def rel_list(ctx: click.Context, as_json: bool) -> None:
     """List all standard relation types."""
     from kb_mcp_lite.relations import STANDARD_RELATIONS
+
     if as_json:
-        _emit_json([
-            {"name": s.name, "forward_label": s.forward_label,
-             "is_influence": s.is_influence, "is_supersession": s.is_supersession,
-             "description": s.description}
-            for s in STANDARD_RELATIONS.values()
-        ])
+        _emit_json(
+            [
+                {
+                    "name": s.name,
+                    "forward_label": s.forward_label,
+                    "is_influence": s.is_influence,
+                    "is_supersession": s.is_supersession,
+                    "description": s.description,
+                }
+                for s in STANDARD_RELATIONS.values()
+            ]
+        )
     else:
         for spec in STANDARD_RELATIONS.values():
             flags = []
@@ -639,19 +647,23 @@ def rel_list(ctx: click.Context, as_json: bool) -> None:
 def rel_show(ctx: click.Context, rel_name: str, as_json: bool) -> None:
     """Show details for a specific relation type."""
     from kb_mcp_lite.relations import get_relation_spec
+
     spec = get_relation_spec(rel_name)
     if spec is None:
         raise click.ClickException(f"unknown relation: {rel_name!r}")
     if as_json:
-        _emit_json({
-            "name": spec.name, "forward_label": spec.forward_label,
-            "backward_label": spec.backward_label,
-            "default_direction": spec.default_direction,
-            "traversal_cost": spec.traversal_cost,
-            "is_influence": spec.is_influence,
-            "is_supersession": spec.is_supersession,
-            "description": spec.description,
-        })
+        _emit_json(
+            {
+                "name": spec.name,
+                "forward_label": spec.forward_label,
+                "backward_label": spec.backward_label,
+                "default_direction": spec.default_direction,
+                "traversal_cost": spec.traversal_cost,
+                "is_influence": spec.is_influence,
+                "is_supersession": spec.is_supersession,
+                "description": spec.description,
+            }
+        )
     else:
         click.echo(f"Relation: {spec.name}")
         click.echo(f"  Forward:  {spec.forward_label}")
@@ -683,21 +695,33 @@ def impact(
     """Impact analysis: find documents influenced by the given document."""
     store = _get_store(ctx)
     from kb_mcp_lite.relations import ImpactAnalyzer
+
     analyzer = ImpactAnalyzer(store)
     nodes = analyzer.analyze(root_id=doc_id, max_depth=max_depth, max_results=max_results)
     if as_json:
-        _emit_json([
-            {"id": n.doc.id, "title": n.doc.title, "type": n.doc.type,
-             "distance": n.distance, "via": n.via, "rel": n.rel, "path": n.path}
-            for n in nodes
-        ])
+        _emit_json(
+            [
+                {
+                    "id": n.doc.id,
+                    "title": n.doc.title,
+                    "type": n.doc.type,
+                    "distance": n.distance,
+                    "via": n.via,
+                    "rel": n.rel,
+                    "path": n.path,
+                }
+                for n in nodes
+            ]
+        )
     else:
         if not nodes:
             click.echo(f"No impact found for {doc_id}")
             return
         click.echo(f"Impact from {doc_id} ({len(nodes)} documents):")
         for n in nodes:
-            click.echo(f"  {'  ' * (n.distance - 1)}[d{n.distance}] {n.doc.id} ({n.rel} via {n.via})")
+            click.echo(
+                f"  {'  ' * (n.distance - 1)}[d{n.distance}] {n.doc.id} ({n.rel} via {n.via})"
+            )
 
 
 @cli.command()
@@ -709,6 +733,7 @@ def chain(ctx: click.Context, decision_id: str, as_json: bool) -> None:
     """Trace the supersession chain for a decision document."""
     store = _get_store(ctx)
     from kb_mcp_lite.relations import supersession_chain
+
     chain_result = supersession_chain(store, decision_id)
     if as_json:
         _emit_json({"decision_id": decision_id, "chain": chain_result, "count": len(chain_result)})
@@ -923,9 +948,7 @@ def embed_status(ctx: click.Context, as_json: bool) -> None:
 @_json_option
 @click.pass_context
 @_handle_errors
-def embed_retry(
-    ctx: click.Context, doc_id: str | None, reset_all: bool, as_json: bool
-) -> None:
+def embed_retry(ctx: click.Context, doc_id: str | None, reset_all: bool, as_json: bool) -> None:
     """Re-queue embedding jobs that failed.
 
     ``DOC_ID`` resets a single document; ``--all`` resets every failed
@@ -1232,7 +1255,9 @@ def admin_start(ctx: click.Context, port: int) -> None:
 
 
 @cli.command(name="watch")
-@click.option("--interval", default=1.0, type=float, help="Poll interval in seconds (poll mode only).")
+@click.option(
+    "--interval", default=1.0, type=float, help="Poll interval in seconds (poll mode only)."
+)
 @click.option(
     "--mode",
     type=click.Choice(["auto", "event", "poll"], case_sensitive=False),
@@ -1309,6 +1334,7 @@ def scheduler_group(ctx: click.Context) -> None:
 def scheduler_list(ctx: click.Context, as_json: bool) -> None:
     """List all registered scheduled tasks."""
     from kb_mcp_lite.scheduler import TASK_REGISTRY
+
     tasks = [{"name": name, "description": cls.description} for name, cls in TASK_REGISTRY.items()]
     if as_json:
         _emit_json(tasks)
@@ -1327,8 +1353,10 @@ def scheduler_list(ctx: click.Context, as_json: bool) -> None:
 def scheduler_status(ctx: click.Context, as_json: bool) -> None:
     """Show scheduler status and next run times."""
     from kb_mcp_lite.scheduler import TaskScheduler
+
     store = _get_store(ctx)
     from kb_mcp_lite.config import load_config
+
     config = load_config()
     scheduler = TaskScheduler(store, config)
     status = scheduler.get_status()
@@ -1350,18 +1378,22 @@ def scheduler_status(ctx: click.Context, as_json: bool) -> None:
 def scheduler_run(ctx: click.Context, task_name: str, as_json: bool) -> None:
     """Manually trigger a scheduled task."""
     from kb_mcp_lite.scheduler import TaskScheduler
+
     store = _get_store(ctx)
     from kb_mcp_lite.config import load_config
+
     config = load_config()
     scheduler = TaskScheduler(store, config)
     run = scheduler.run_task_now(task_name)
     if as_json:
-        _emit_json({
-            "task_name": run.task_name,
-            "status": run.status,
-            "duration_ms": run.duration_ms,
-            "error": run.error,
-        })
+        _emit_json(
+            {
+                "task_name": run.task_name,
+                "status": run.status,
+                "duration_ms": run.duration_ms,
+                "error": run.error,
+            }
+        )
     else:
         if run.status == "ok":
             click.echo(f"Task {run.task_name} completed in {run.duration_ms}ms")

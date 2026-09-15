@@ -203,6 +203,7 @@ class TestTaskScheduler:
     def test_consecutive_failures_reset_on_success(self, tmp_path):
         """Failure counter should reset to 0 on success."""
         from kb_mcp_lite.scheduler import register_task
+
         call_count = [0]
 
         @register_task("_test_flaky")

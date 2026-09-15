@@ -83,7 +83,9 @@ class ContextGuard:
             self.store = SqliteStore(vm.resolve_path(v_name))
             self._owns_store = True
 
-    def evaluate_diff(self, cwd: Path | str | None = None, limit_per_type: int = 3) -> dict[str, Any]:
+    def evaluate_diff(
+        self, cwd: Path | str | None = None, limit_per_type: int = 3
+    ) -> dict[str, Any]:
         """Scan git diff and find related lessons, decisions, and runbooks."""
         diff_info = get_git_diff_summary(cwd)
         files = diff_info["files"]
@@ -126,7 +128,9 @@ class ContextGuard:
         # Generate structured context prompt for AI agents
         prompt_lines: list[str] = []
         if decisions or lessons or apis:
-            prompt_lines.append("<!-- KB-MCP CONTEXT GUARD: Mandatory Team Constraints & Lessons -->")
+            prompt_lines.append(
+                "<!-- KB-MCP CONTEXT GUARD: Mandatory Team Constraints & Lessons -->"
+            )
             prompt_lines.append("The current codebase changes relate to existing team knowledge:")
 
             if decisions:
@@ -137,14 +141,18 @@ class ContextGuard:
             if lessons:
                 prompt_lines.append("\n[Prior Lessons / Pitfalls to Avoid]")
                 for lesson in lessons:
-                    prompt_lines.append(f"- ⚠️ {lesson.id} ({lesson.title}): {lesson.body[:150].strip()}...")
+                    prompt_lines.append(
+                        f"- ⚠️ {lesson.id} ({lesson.title}): {lesson.body[:150].strip()}..."
+                    )
 
             if apis:
                 prompt_lines.append("\n[Related API Contracts]")
                 for a in apis:
                     prompt_lines.append(f"- {a.id} ({a.title})")
 
-            prompt_lines.append("\nPlease review these constraints to ensure backward compatibility and prevent regression.")
+            prompt_lines.append(
+                "\nPlease review these constraints to ensure backward compatibility and prevent regression."
+            )
 
         return {
             "has_recommendations": bool(decisions or lessons or apis),

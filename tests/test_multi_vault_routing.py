@@ -5,6 +5,7 @@ from kb_mcp_lite.vault import VaultManager
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.mcp_server import _make_server
 
+
 def test_multi_vault_mcp_routing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("KB_MCP_HOME", str(tmp_path))
     vm = VaultManager(tmp_path)
@@ -13,12 +14,21 @@ def test_multi_vault_mcp_routing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     # Add doc to work vault
     store_work = SqliteStore(vm.resolve_path("work"))
-    store_work.add(Document(id="proj/corp-api", type="project", title="Corp API", body="Company internal microservice."))
+    store_work.add(
+        Document(
+            id="proj/corp-api",
+            type="project",
+            title="Corp API",
+            body="Company internal microservice.",
+        )
+    )
     store_work.close()
 
     # Add doc to personal vault
     store_personal = SqliteStore(vm.resolve_path("personal"))
-    store_personal.add(Document(id="proj/blog", type="project", title="My Blog", body="Personal static site."))
+    store_personal.add(
+        Document(id="proj/blog", type="project", title="My Blog", body="Personal static site.")
+    )
     store_personal.close()
 
     # Create server

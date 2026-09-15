@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -39,11 +38,11 @@ class _HashingEmbedder(Embedder):
     def enabled(self) -> bool:
         return True
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         # Hash each 3-char window of the text, take the first byte as a
         # 0..255 value, normalise to [-1, 1]. Pad/truncate to ``dim``.
         text = text.lower()
-        out: List[float] = []
+        out: list[float] = []
         for i in range(0, max(1, len(text) - 2)):
             h = hashlib.md5(text[i : i + 3].encode("utf-8")).digest()
             out.append((h[0] - 128) / 128.0)
@@ -196,7 +195,7 @@ class _BrokenEmbedder(Embedder):
     def enabled(self) -> bool:
         return True
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         raise RuntimeError("intentional embedder failure")
 
 

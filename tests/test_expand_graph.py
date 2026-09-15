@@ -11,12 +11,9 @@ class TestSearchExpandGraph:
     def test_search_returns_related(self, tmp_path):
         """Search hits should have related docs from graph edges."""
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="a", type="decision", title="Alpha Decision",
-                           body="alpha content"))
-        store.add(Document(id="b", type="lesson", title="Beta Lesson",
-                           body="beta content"))
-        store.add(Document(id="c", type="lesson", title="Gamma Lesson",
-                           body="gamma content"))
+        store.add(Document(id="a", type="decision", title="Alpha Decision", body="alpha content"))
+        store.add(Document(id="b", type="lesson", title="Beta Lesson", body="beta content"))
+        store.add(Document(id="c", type="lesson", title="Gamma Lesson", body="gamma content"))
         store.link("a", "b", rel="governs")
         store.link("a", "c", rel="depends-on")
 
@@ -32,10 +29,8 @@ class TestSearchExpandGraph:
     def test_expand_disabled(self, tmp_path):
         """When expand_graph=False, related should be empty."""
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="x", type="decision", title="X",
-                           body="x content"))
-        store.add(Document(id="y", type="lesson", title="Y",
-                           body="y content"))
+        store.add(Document(id="x", type="decision", title="X", body="x content"))
+        store.add(Document(id="y", type="lesson", title="Y", body="y content"))
         store.link("x", "y", rel="governs")
 
         hits = store.search("X", mode="lexical", limit=5, expand_graph=False)
@@ -46,15 +41,14 @@ class TestSearchExpandGraph:
     def test_max_neighbors_limit(self, tmp_path):
         """Related count should not exceed max_neighbors."""
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="hub", type="decision", title="Hub",
-                           body="hub content"))
+        store.add(Document(id="hub", type="decision", title="Hub", body="hub content"))
         for i in range(8):
-            store.add(Document(id=f"spoke{i}", type="lesson", title=f"Spoke{i}",
-                               body=f"spoke{i} content"))
+            store.add(
+                Document(id=f"spoke{i}", type="lesson", title=f"Spoke{i}", body=f"spoke{i} content")
+            )
             store.link("hub", f"spoke{i}", rel="governs")
 
-        hits = store.search("Hub", mode="lexical", limit=5,
-                            expand_graph=True, max_neighbors=3)
+        hits = store.search("Hub", mode="lexical", limit=5, expand_graph=True, max_neighbors=3)
         assert len(hits) >= 1
         assert len(hits[0].related) <= 3
         store.close()
@@ -62,14 +56,11 @@ class TestSearchExpandGraph:
     def test_decay_applied(self, tmp_path):
         """Related scores should be parent_score * decay."""
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="main", type="decision", title="Main",
-                           body="main content"))
-        store.add(Document(id="sub", type="lesson", title="Sub",
-                           body="sub content"))
+        store.add(Document(id="main", type="decision", title="Main", body="main content"))
+        store.add(Document(id="sub", type="lesson", title="Sub", body="sub content"))
         store.link("main", "sub", rel="governs")
 
-        hits = store.search("Main", mode="lexical", limit=5,
-                            expand_graph=True, decay=0.5)
+        hits = store.search("Main", mode="lexical", limit=5, expand_graph=True, decay=0.5)
         assert len(hits) >= 1
         if hits[0].related:
             parent_score = hits[0].score
@@ -80,10 +71,8 @@ class TestSearchExpandGraph:
     def test_inbound_edges_in_related(self, tmp_path):
         """Inbound links should also appear in related."""
         store = SqliteStore(tmp_path / "test.db")
-        store.add(Document(id="target", type="lesson", title="Target",
-                           body="target content"))
-        store.add(Document(id="source", type="decision", title="Source",
-                           body="source content"))
+        store.add(Document(id="target", type="lesson", title="Target", body="target content"))
+        store.add(Document(id="source", type="decision", title="Source", body="source content"))
         store.link("source", "target", rel="governs")
 
         hits = store.search("Target", mode="lexical", limit=5, expand_graph=True)

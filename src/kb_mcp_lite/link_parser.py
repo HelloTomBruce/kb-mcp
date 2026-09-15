@@ -67,7 +67,7 @@ def extract_body_references(
 
 
 def sync_body_references(
-    store: "SqliteStore",  # noqa: F821 — forward ref
+    store: SqliteStore,  # noqa: F821 — forward ref
     doc_id: str,
     body: str,
     *,
@@ -80,9 +80,7 @@ def sync_body_references(
     # Lazy import to avoid circular dependency at module level
 
     # Load all known doc IDs (excluding deleted)
-    rows = store._conn.execute(
-        "SELECT id FROM documents WHERE deleted_at IS NULL"
-    ).fetchall()
+    rows = store._conn.execute("SELECT id FROM documents WHERE deleted_at IS NULL").fetchall()
     known_ids = {r["id"] for r in rows}
 
     refs = extract_body_references(body, known_ids)
@@ -91,9 +89,7 @@ def sync_body_references(
 
     # Get existing outgoing links with this rel type
     existing = store.outgoing_links(doc_id)
-    existing_refs = {
-        lnk.to_id for lnk in existing if lnk.rel == rel
-    }
+    existing_refs = {lnk.to_id for lnk in existing if lnk.rel == rel}
 
     new_count = 0
     for target_id, _syntax in refs:

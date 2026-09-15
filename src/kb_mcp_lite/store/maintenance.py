@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any
 
 from kb_mcp_lite.schema import DoctorCheck, DoctorReport
 
@@ -23,7 +23,7 @@ class MaintenanceMixin:
         def _remove_embedding(self, doc_id: str) -> None: ...
 
     def doctor(self) -> DoctorReport:
-        checks: List[DoctorCheck] = []
+        checks: list[DoctorCheck] = []
 
         # 1. PRAGMA integrity_check
         row = self._conn.execute("PRAGMA integrity_check").fetchone()

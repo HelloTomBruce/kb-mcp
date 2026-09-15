@@ -40,7 +40,8 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional
+from typing import Any
+from collections.abc import Iterable
 
 logger = logging.getLogger("kb_mcp_lite.store.embedding_queue")
 
@@ -90,8 +91,8 @@ class EmbeddingQueueEntry:
     enqueued_at: str
     attempts: int
     max_attempts: int
-    last_error: Optional[str]
-    last_attempt_at: Optional[str]
+    last_error: str | None
+    last_attempt_at: str | None
     state: str
 
     @property
@@ -211,7 +212,7 @@ class EmbeddingQueue:
         )
         self._conn.commit()
 
-    def claim_next(self) -> Optional[EmbeddingQueueEntry]:
+    def claim_next(self) -> EmbeddingQueueEntry | None:
         """Atomically pick the next ready ``pending`` row and flip it to
         ``in_progress``.
 
@@ -364,7 +365,11 @@ class EmbeddingQueue:
         self._conn.commit()
         logger.debug(
             "embedding_queue: %s -> %s (attempt %d/%d): %s",
-            doc_id, new_state, new_attempts, max_attempts, truncated,
+            doc_id,
+            new_state,
+            new_attempts,
+            max_attempts,
+            truncated,
         )
         return EmbeddingQueueEntry(
             doc_id=doc_id,
@@ -478,12 +483,8 @@ class EmbeddingQueue:
         ).fetchone()
         return {
             "counts": counts,
-            "oldest_pending": dict(oldest_pending_row)
-            if oldest_pending_row is not None
-            else None,
-            "oldest_failed": dict(oldest_failed_row)
-            if oldest_failed_row is not None
-            else None,
+            "oldest_pending": dict(oldest_pending_row) if oldest_pending_row is not None else None,
+            "oldest_failed": dict(oldest_failed_row) if oldest_failed_row is not None else None,
         }
 
     # ---- admin ----------------------------------------------------------

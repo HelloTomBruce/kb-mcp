@@ -42,7 +42,8 @@ predictably in tests:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Iterable, Tuple, Dict, cast
+from typing import cast
+from collections.abc import Iterable
 
 from kb_mcp_lite.schema import (
     Document,
@@ -56,6 +57,7 @@ from kb_mcp_lite.schema import (
     ValidationError,
     make_id,
 )
+import builtins
 
 # NOTE: ``Store`` is the Protocol defined in ``kb_mcp_lite.store``. We do not
 # import it here — in Wave 1A the ``kb_mcp_lite.store`` namespace became a
@@ -241,18 +243,18 @@ class StubStore(_Store):
     def list(
         self,
         type: str | None = None,  # noqa: A002
-        tags: List[str] | None = None,
+        tags: builtins.list[str] | None = None,
         link_to: str | None = None,
         link_from: str | None = None,
         limit: int = 100,
         offset: int = 0,
         include_deleted: bool = False,
-    ) -> List[Document]:
+    ) -> builtins.list[Document]:
         if limit < 0 or limit > 1000:
             raise ValidationError(f"limit must be 0..1000 (got {limit})")
         if offset < 0:
             raise ValidationError(f"offset must be >= 0 (got {offset})")
-        results: List[Document] = []
+        results: list[Document] = []
         for doc in self._docs.values():
             if doc.deleted_at is not None and not include_deleted:
                 continue
@@ -286,11 +288,11 @@ class StubStore(_Store):
         self,
         query: str,
         type: str | None = None,  # noqa: A002
-        tags: List[str] | None = None,
+        tags: builtins.list[str] | None = None,
         limit: int = 10,
         fuzzy: bool = False,
         **kwargs: object,
-    ) -> List[SearchHit]:
+    ) -> builtins.list[SearchHit]:
         if not query or not query.strip():
             raise ValidationError("query must be non-empty")
         if limit < 1 or limit > 100:
@@ -308,7 +310,7 @@ class StubStore(_Store):
             for tok in lower_q.split():
                 if len(tok) >= 3:
                     fuzzy_tokens.append(tok)
-        hits: List[SearchHit] = []
+        hits: list[SearchHit] = []
         for doc in self._docs.values():
             if doc.deleted_at is not None:
                 continue
@@ -376,17 +378,17 @@ class StubStore(_Store):
             del self._links[k]
         return len(to_remove)
 
-    def outgoing_links(self, doc_id: str) -> List[Link]:
+    def outgoing_links(self, doc_id: str) -> builtins.list[Link]:
         return self.outlinks(doc_id)
 
-    def incoming_links(self, doc_id: str) -> List[Link]:
+    def incoming_links(self, doc_id: str) -> builtins.list[Link]:
         return self.backlinks(doc_id)
 
-    def backlinks(self, doc_id: str) -> List[Link]:
+    def backlinks(self, doc_id: str) -> builtins.list[Link]:
         # ``__exit__`` callers may pass a soft-deleted id; we don't raise.
         return [lk for lk in self._links.values() if lk.to_id == doc_id]
 
-    def outlinks(self, doc_id: str) -> List[Link]:
+    def outlinks(self, doc_id: str) -> builtins.list[Link]:
         return [lk for lk in self._links.values() if lk.from_id == doc_id]
 
     # ---- bulk / io ------------------------------------------------------
@@ -436,7 +438,7 @@ class StubStore(_Store):
                 report.skipped += 1
         return report
 
-    def export_all(self, include_deleted: bool = False) -> List[Document]:
+    def export_all(self, include_deleted: bool = False) -> builtins.list[Document]:
         results = []
         for doc in self._docs.values():
             if doc.deleted_at is not None and not include_deleted:
@@ -446,18 +448,18 @@ class StubStore(_Store):
 
     # ---- embedding / similarity -----------------------------------------
 
-    def similar_docs(self, doc_id: str, limit: int = 10) -> List[Tuple[Document, float]]:
+    def similar_docs(self, doc_id: str, limit: int = 10) -> builtins.list[tuple[Document, float]]:
         return []
 
-    def suggest_tags(self, doc_id: str, limit: int = 10) -> List[Tuple[str, float]]:
+    def suggest_tags(self, doc_id: str, limit: int = 10) -> builtins.list[tuple[str, float]]:
         return []
 
-    def suggest_type(self, doc_id: str, limit: int = 10) -> List[Tuple[str, float]]:
+    def suggest_type(self, doc_id: str, limit: int = 10) -> builtins.list[tuple[str, float]]:
         return []
 
     def find_duplicates(
         self, threshold: float = 0.15, limit: int = 50
-    ) -> List[Tuple[str, str, float]]:
+    ) -> builtins.list[tuple[str, str, float]]:
         return []
 
     # ---- maintenance ----------------------------------------------------
@@ -536,7 +538,7 @@ class StubStore(_Store):
             },
         )
 
-    def get_versions(self, doc_id: str) -> List[Dict[str, object]]:
+    def get_versions(self, doc_id: str) -> builtins.list[dict[str, object]]:
         """Alias for document_history (returns list of version dicts)."""
         return self.document_history(doc_id)
 
@@ -571,11 +573,11 @@ class StubStore(_Store):
         """Recompute embeddings (no-op for StubStore)."""
         return 0
 
-    def document_history(self, doc_id: str, limit: int = 50) -> List[Dict[str, object]]:
+    def document_history(self, doc_id: str, limit: int = 50) -> builtins.list[dict[str, object]]:
         raw = self._version_history.get(doc_id, [])
         return raw[:limit]
 
-    def audit_log(self, limit: int = 100) -> List[Dict[str, object]]:
+    def audit_log(self, limit: int = 100) -> builtins.list[dict[str, object]]:
         return self._audit_log[:limit]
 
     def restore(self, doc_id: str, version_id: int | None = None) -> Document:
@@ -591,7 +593,7 @@ class StubStore(_Store):
         else:
             entry = history[0]
 
-        snapshot = dict(cast(Dict[str, object], entry["snapshot"]))
+        snapshot = dict(cast(dict[str, object], entry["snapshot"]))
         snapshot["id"] = doc_id
         restored_doc = Document.model_validate(snapshot)
 
@@ -615,8 +617,8 @@ class StubStore(_Store):
         if entry_b is None:
             raise NotFoundError(f"version {version_b} for {doc_id!r}")
 
-        snap_a = dict(cast(Dict[str, object], entry_a["snapshot"]))
-        snap_b = dict(cast(Dict[str, object], entry_b["snapshot"]))
+        snap_a = dict(cast(dict[str, object], entry_a["snapshot"]))
+        snap_b = dict(cast(dict[str, object], entry_b["snapshot"]))
 
         keys_a = set(snap_a.keys())
         keys_b = set(snap_b.keys())
@@ -660,7 +662,7 @@ class StubStore(_Store):
         self._links.clear()
         self._by_source.clear()
 
-    def __enter__(self) -> "StubStore":
+    def __enter__(self) -> StubStore:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -668,7 +670,7 @@ class StubStore(_Store):
 
     # ---- test helpers (not part of the Protocol) -----------------------
 
-    def _all_ids(self) -> List[str]:
+    def _all_ids(self) -> builtins.list[str]:
         """Return every stored id (including soft-deleted). Test-only."""
         return list(self._docs.keys())
 

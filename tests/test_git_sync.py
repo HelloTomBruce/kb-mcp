@@ -27,7 +27,7 @@ Remote body content
 >>>>>>> main
 """
     fm, body = parse_frontmatter(conflict_text)
-    
+
     assert fm["type"] == "conflict"
     assert fm["title"] == "Git Sync Conflict"
     assert "conflict" in fm["tags"]

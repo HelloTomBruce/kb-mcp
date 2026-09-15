@@ -16,7 +16,9 @@ class GraphQueryEngine:
     def __init__(self, store: SqliteStore) -> None:
         self.store = store
 
-    def find_path(self, start_id: str, target_id: str, max_depth: int = 5) -> list[dict[str, str]] | None:
+    def find_path(
+        self, start_id: str, target_id: str, max_depth: int = 5
+    ) -> list[dict[str, str]] | None:
         """Find the shortest directed path from start_id to target_id."""
         if start_id == target_id:
             return []
@@ -34,7 +36,7 @@ class GraphQueryEngine:
             placeholders = ",".join("?" for _ in current_level)
             rows = self.store._conn.execute(
                 f"SELECT from_id, to_id, rel FROM links WHERE from_id IN ({placeholders})",
-                current_level
+                current_level,
             ).fetchall()
 
             for r in rows:
@@ -70,10 +72,14 @@ class GraphQueryEngine:
             params: list[Any] = []
 
             if direction in ("outbound", "both"):
-                sql_parts.append(f"SELECT from_id AS src, to_id AS dst, rel FROM links WHERE from_id IN ({placeholders})")
+                sql_parts.append(
+                    f"SELECT from_id AS src, to_id AS dst, rel FROM links WHERE from_id IN ({placeholders})"
+                )
                 params.extend(current_frontier)
             if direction in ("inbound", "both"):
-                sql_parts.append(f"SELECT to_id AS src, from_id AS dst, rel FROM links WHERE to_id IN ({placeholders})")
+                sql_parts.append(
+                    f"SELECT to_id AS src, from_id AS dst, rel FROM links WHERE to_id IN ({placeholders})"
+                )
                 params.extend(current_frontier)
 
             full_sql = " UNION ".join(sql_parts)
@@ -91,14 +97,16 @@ class GraphQueryEngine:
                         doc = self.store.get(dst)
                         if doc_type and doc.type != doc_type:
                             continue
-                        results.append({
-                            "id": doc.id,
-                            "type": doc.type,
-                            "title": doc.title,
-                            "rel": relation,
-                            "hop": hop,
-                            "via": r["src"],
-                        })
+                        results.append(
+                            {
+                                "id": doc.id,
+                                "type": doc.type,
+                                "title": doc.title,
+                                "rel": relation,
+                                "hop": hop,
+                                "via": r["src"],
+                            }
+                        )
                         next_frontier.append(dst)
                     except Exception:
                         pass

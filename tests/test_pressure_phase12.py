@@ -100,7 +100,9 @@ class TestConcurrentWrites:
         ).fetchone()[0]
         store.close()
 
-        print(f"\n  5-process concurrent add: {total_ok} docs, {total_errors} errors, {total_elapsed:.3f}s")
+        print(
+            f"\n  5-process concurrent add: {total_ok} docs, {total_errors} errors, {total_elapsed:.3f}s"
+        )
         assert total_ok == n_workers * docs_per_worker
         assert total_errors == 0
         assert count == n_workers * docs_per_worker
@@ -178,6 +180,7 @@ class TestWatcherBenchmark:
 
         # Use import_dir to simulate bulk import timing
         from kb_mcp_lite.md_io import import_dir
+
         t0 = time.perf_counter()
         import_dir(store, vault_dir)
         first_scan = time.perf_counter() - t0
@@ -191,7 +194,9 @@ class TestWatcherBenchmark:
             "SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL"
         ).fetchone()[0]
 
-        print(f"\n  import 1k files: first={first_scan:.3f}s second={second_scan:.3f}s imported={count}")
+        print(
+            f"\n  import 1k files: first={first_scan:.3f}s second={second_scan:.3f}s imported={count}"
+        )
         assert first_scan < 5.0, f"first scan too slow: {first_scan:.1f}s"
         assert second_scan < 2.0, f"second scan too slow: {second_scan:.1f}s"
         assert count == 1000
@@ -209,11 +214,14 @@ class TestSearchLatency:
         """Search on 1k documents should complete under 200ms (lexical mode)."""
         store = SqliteStore(tmp_path / "search_lat.db")
         for i in range(1000):
-            store.add(Document(
-                id=f"s{i}", type="lesson",
-                title=f"Search Doc {i}",
-                body=f"Content about topic {i % 50} with keyword term{i}",
-            ))
+            store.add(
+                Document(
+                    id=f"s{i}",
+                    type="lesson",
+                    title=f"Search Doc {i}",
+                    body=f"Content about topic {i % 50} with keyword term{i}",
+                )
+            )
 
         # Warm up FTS
         store.search("topic", mode="lexical", limit=10)
@@ -235,11 +243,14 @@ class TestSearchLatency:
         """Hybrid search on 1k docs should complete under 1s."""
         store = SqliteStore(tmp_path / "search_hybrid.db")
         for i in range(1000):
-            store.add(Document(
-                id=f"h{i}", type="lesson",
-                title=f"Hybrid Doc {i}",
-                body=f"Content about topic {i % 50} with keyword term{i}",
-            ))
+            store.add(
+                Document(
+                    id=f"h{i}",
+                    type="lesson",
+                    title=f"Hybrid Doc {i}",
+                    body=f"Content about topic {i % 50} with keyword term{i}",
+                )
+            )
 
         latencies = []
         queries = ["topic", "term42", "keyword"]

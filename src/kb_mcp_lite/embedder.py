@@ -37,7 +37,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Protocol
+from typing import Protocol
 
 logger = logging.getLogger("kb_mcp_lite.embedder")
 
@@ -106,7 +106,7 @@ def _load_yaml(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _extract_embedding_block(d: dict) -> Optional[dict]:
+def _extract_embedding_block(d: dict) -> dict | None:
     """Find the embedding config inside a parsed YAML.
 
     Looks in three places, in order:
@@ -135,7 +135,7 @@ def _expand_env(value: str) -> str:
     """
     import re
 
-    def _sub(m: "re.Match[str]") -> str:
+    def _sub(m: re.Match[str]) -> str:
         name = m.group(1) or m.group(2)
         return os.environ.get(name, m.group(0))
 
@@ -177,7 +177,7 @@ def _load_dotenv() -> None:
         break
 
 
-def load_embedding_config() -> Optional[EmbeddingConfig]:
+def load_embedding_config() -> EmbeddingConfig | None:
     """Resolve the embedding config in priority order.
 
     1. ``KB_MCP_EMBEDDING_CONFIG`` env var (path to a YAML file).
@@ -242,7 +242,7 @@ class Embedder(Protocol):
         """True if this embedder produces real vectors."""
         ...
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         """Return a list of ``dim`` floats for ``text``.
 
         Raises:
@@ -260,7 +260,7 @@ class NullEmbedder:
     def enabled(self) -> bool:
         return False
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         raise EmbeddingError("NullEmbedder cannot produce vectors")
 
 
@@ -285,7 +285,7 @@ class HttpEmbedder:
     def enabled(self) -> bool:
         return True
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         if not text:
             raise EmbeddingError("cannot embed empty text")
         import httpx

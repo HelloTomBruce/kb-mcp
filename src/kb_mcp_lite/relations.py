@@ -26,11 +26,11 @@ class RelationSpec:
     """Metadata for a named relation type."""
 
     name: str
-    forward_label: str   # "A supersedes B" from A's perspective
+    forward_label: str  # "A supersedes B" from A's perspective
     backward_label: str  # "A supersedes B" from B's perspective
     default_direction: Literal["forward", "backward", "bidirectional"]
     traversal_cost: float  # BFS weight — higher cost = less preferred traversal
-    is_influence: bool     # included in impact analysis
+    is_influence: bool  # included in impact analysis
     is_supersession: bool  # part of the decision evolution chain
     description: str
 
@@ -161,10 +161,10 @@ class ImpactNode:
     """One node in an impact analysis result."""
 
     doc: Document
-    distance: int       # hops from root
-    via: str            # doc_id of the node that reached this one
-    rel: str            # relation type used to reach this node
-    path: list[str]     # full path from root, e.g. ["root", "a", "b"]
+    distance: int  # hops from root
+    via: str  # doc_id of the node that reached this one
+    rel: str  # relation type used to reach this node
+    path: list[str]  # full path from root, e.g. ["root", "a", "b"]
 
 
 class ImpactAnalyzer:
@@ -187,9 +187,7 @@ class ImpactAnalyzer:
         Results are ordered by distance (closest first), then by doc title.
         """
         # Collect influence relation names
-        influence_rels = {
-            name for name, spec in STANDARD_RELATIONS.items() if spec.is_influence
-        }
+        influence_rels = {name for name, spec in STANDARD_RELATIONS.items() if spec.is_influence}
         if not influence_rels:
             return []
 
@@ -261,9 +259,7 @@ def supersession_chain(store: SqliteStore, decision_id: str) -> list[str]:
 
     Only edges whose relation ``is_supersession=True`` are followed.
     """
-    supersession_rels = {
-        name for name, spec in STANDARD_RELATIONS.items() if spec.is_supersession
-    }
+    supersession_rels = {name for name, spec in STANDARD_RELATIONS.items() if spec.is_supersession}
     if not supersession_rels:
         return [decision_id]
 

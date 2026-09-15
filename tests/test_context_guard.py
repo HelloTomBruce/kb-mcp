@@ -3,6 +3,7 @@ from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.context_guard import ContextGuard
 
+
 def test_context_guard_evaluation(tmp_path: Path):
     db_path = tmp_path / "guard_kb.db"
     store = SqliteStore(db_path)
@@ -13,14 +14,14 @@ def test_context_guard_evaluation(tmp_path: Path):
         type="decision",
         title="Use FastAPI for HTTP APIs",
         body="All backend services must use FastAPI framework and Pydantic models for validation.",
-        tags=["framework", "fastapi"]
+        tags=["framework", "fastapi"],
     )
     lesson = Document(
         id="lesson/dont-block-async-event-loop",
         type="lesson",
         title="Avoid Blocking Sync IO in Async Handlers",
         body="Never call time.sleep() or blocking sqlite queries inside async def endpoints.",
-        tags=["async", "fastapi", "performance"]
+        tags=["async", "fastapi", "performance"],
     )
     store.add(dec)
     store.add(lesson)

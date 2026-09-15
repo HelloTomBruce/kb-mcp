@@ -7,18 +7,17 @@ and provides automated resolution strategies for body conflicts.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 import yaml
 
 
-
 def merge_frontmatter_dicts(
-    ours: Dict[str, Any],
-    theirs: Dict[str, Any],
-    base: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    ours: dict[str, Any],
+    theirs: dict[str, Any],
+    base: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Perform a 3-way/2-way merge of two Frontmatter metadata dicts.
-    
+
     Strategies:
     - tags: Set union of ours + theirs
     - aliases: Set union of ours + theirs
@@ -27,7 +26,7 @@ def merge_frontmatter_dicts(
     - title / type / other scalar: Prefer ours if changed from base, else theirs
     """
     base = base or {}
-    merged: Dict[str, Any] = dict(base)
+    merged: dict[str, Any] = dict(base)
 
     # 1. Merge scalar types and titles
     for k in ("type", "title", "source"):
@@ -78,16 +77,13 @@ def merge_frontmatter_dicts(
     return merged
 
 
-def resolve_git_conflict_text(conflict_text: str) -> Tuple[bool, str]:
+def resolve_git_conflict_text(conflict_text: str) -> tuple[bool, str]:
     """Attempt to resolve a git-conflicted markdown document automatically.
-    
+
     Extracts <<<<<<< ours, =======, >>>>>>> theirs blocks.
     Returns (resolved: bool, result_text: str).
     """
-    pattern = re.compile(
-        r"<<<<<<<[^\n]*\n(.*?)\n=======\n(.*?)\n>>>>>>>[^\n]*",
-        re.DOTALL
-    )
+    pattern = re.compile(r"<<<<<<<[^\n]*\n(.*?)\n=======\n(.*?)\n>>>>>>>[^\n]*", re.DOTALL)
 
     if not pattern.search(conflict_text):
         return False, conflict_text

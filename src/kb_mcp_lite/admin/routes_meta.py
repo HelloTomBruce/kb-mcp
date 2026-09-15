@@ -217,17 +217,17 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             if rel:
                 links = [link for link in links if link.rel == rel]
             rel_options = sorted({link.rel for link in list_links(store)})
-            
+
             total = len(links)
             total_pages = max(1, (total + per_page - 1) // per_page)
             page = min(page, total_pages)
             start = (page - 1) * per_page
             end = start + per_page
             paginated_links = links[start:end]
-            
+
             # Map doc_id to title for more friendly display
             id_to_title = {doc.id: doc.title for doc in docs}
-            
+
             return render(
                 request,
                 "links.html",

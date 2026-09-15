@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any
 
 from kb_mcp_lite.schema import Document, RelatedDoc, SearchHit, ValidationError
 
@@ -28,14 +28,14 @@ class SearchMixin:
         self,
         query: str,
         type: str | None = None,  # noqa: A002
-        tags: List[str] | None = None,
+        tags: list[str] | None = None,
         limit: int = 10,
         mode: str = "lexical",
         rrf_k: int = 60,
         expand_graph: bool = True,
         max_neighbors: int = 5,
         decay: float = 0.6,
-    ) -> List[SearchHit]:
+    ) -> list[SearchHit]:
         """Full-text search via the backend's FTS engine.
 
         ``mode`` selects the scoring strategy:
@@ -79,10 +79,10 @@ class SearchMixin:
         self,
         query: str,
         type: str | None,
-        tags: List[str] | None,
+        tags: list[str] | None,
         limit: int,
         table: str,
-    ) -> List[SearchHit]:
+    ) -> list[SearchHit]:
         """Run a single FTS5 query and return SearchHit list."""
         if table == "docs_fts_trgm":
             fts_q = self._escape_fts(query)
@@ -97,7 +97,7 @@ class SearchMixin:
             WHERE {table} MATCH ?
               AND d.deleted_at IS NULL
         """
-        params: List[object] = [fts_q]
+        params: list[object] = [fts_q]
         if type:
             sql += " AND d.type = ?"
             params.append(type)
@@ -109,7 +109,7 @@ class SearchMixin:
         except sqlite3.OperationalError as e:
             raise ValidationError(f"invalid FTS query {query!r}: {e}") from e
 
-        hits: List[SearchHit] = []
+        hits: list[SearchHit] = []
         for r in rows:
             d = dict(r)
             snippet_text = d.pop("snip", "") or ""
@@ -126,10 +126,10 @@ class SearchMixin:
         self,
         query: str,
         type: str | None,
-        tags: List[str] | None,
+        tags: list[str] | None,
         limit: int,
         k: int = 60,
-    ) -> List[SearchHit]:
+    ) -> list[SearchHit]:
         """Weighted reciprocal-rank fusion of lexical + fuzzy + semantic results."""
         fetch_n = limit * 3
         lexical = self._search_fts(query, type=type, tags=tags, limit=fetch_n, table="docs_fts")
@@ -222,9 +222,9 @@ class SearchMixin:
         self,
         query: str,
         type: str | None,
-        tags: List[str] | None,
+        tags: list[str] | None,
         limit: int,
-    ) -> List[SearchHit]:
+    ) -> list[SearchHit]:
         """Vector similarity search via the vec0 ``docs_vec`` table."""
         emb = getattr(self, "_embedder", None)
         if emb is None or not getattr(emb, "enabled", False):
@@ -246,7 +246,7 @@ class SearchMixin:
               AND k = ?
               AND d.deleted_at IS NULL
         """
-        params: List[object] = [serialize_float32(query_vec), limit * 4]
+        params: list[object] = [serialize_float32(query_vec), limit * 4]
         if type:
             sql += " AND d.type = ?"
             params.append(type)
@@ -258,7 +258,7 @@ class SearchMixin:
             raise ValidationError(f"vec0 query failed: {e}") from e
 
         row_is_tuple = getattr(self, "_vec_row_is_tuple", False)
-        hits: List[SearchHit] = []
+        hits: list[SearchHit] = []
         for r in rows:
             if row_is_tuple:
                 # ``d.id`` is always the first column of ``SELECT d.*`` and
@@ -283,10 +283,10 @@ class SearchMixin:
 
     def _expand_with_graph(
         self,
-        hits: List[SearchHit],
+        hits: list[SearchHit],
         max_neighbors: int = 5,
         decay: float = 0.6,
-    ) -> List[SearchHit]:
+    ) -> list[SearchHit]:
         """Enrich each hit with its 1-hop graph neighbors as ``related``.
 
         For each top hit, performs a single hop outbound + inbound query on
@@ -342,13 +342,15 @@ class SearchMixin:
                 try:
                     neighbor_doc = self.get(neighbor_id)
                     related_score = hit.score * decay
-                    related.append(RelatedDoc(
-                        doc=neighbor_doc,
-                        rel=rel,
-                        direction=direction,
-                        hop=1,
-                        score=round(related_score, 6),
-                    ))
+                    related.append(
+                        RelatedDoc(
+                            doc=neighbor_doc,
+                            rel=rel,
+                            direction=direction,
+                            hop=1,
+                            score=round(related_score, 6),
+                        )
+                    )
                 except Exception:
                     pass  # skip missing/deleted docs
             hit.related = related
@@ -369,17 +371,18 @@ class SearchMixin:
     @staticmethod
     def _tokenize_cjk_query(query: str) -> list[str]:
         """Split a query into ASCII terms and CJK bi-grams / characters.
-        
+
         Since SQLite's default unicode61 tokenizer splits on whitespace/punctuation,
         continuous Chinese characters without spaces need character/bi-gram tokenization
         to match trigram or prefix tokens properly.
         """
         import re
+
         tokens: list[str] = []
         # Match alphanumeric sequences or single CJK characters
         pattern = re.compile(r"([a-zA-Z0-9_\-]+|[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])")
         matches = pattern.findall(query)
-        
+
         cjk_buffer: list[str] = []
         for m in matches:
             if re.match(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", m):
@@ -389,7 +392,7 @@ class SearchMixin:
                     # Output CJK bi-grams and full string
                     if len(cjk_buffer) > 1:
                         for i in range(len(cjk_buffer) - 1):
-                            tokens.append(f"{cjk_buffer[i]}{cjk_buffer[i+1]}")
+                            tokens.append(f"{cjk_buffer[i]}{cjk_buffer[i + 1]}")
                     tokens.append("".join(cjk_buffer))
                     cjk_buffer = []
                 tokens.append(m)
@@ -397,7 +400,7 @@ class SearchMixin:
         if cjk_buffer:
             if len(cjk_buffer) > 1:
                 for i in range(len(cjk_buffer) - 1):
-                    tokens.append(f"{cjk_buffer[i]}{cjk_buffer[i+1]}")
+                    tokens.append(f"{cjk_buffer[i]}{cjk_buffer[i + 1]}")
             tokens.append("".join(cjk_buffer))
 
         return [t for t in tokens if t.strip()]
@@ -405,7 +408,7 @@ class SearchMixin:
     @classmethod
     def _escape_fts(cls, query: str) -> str:
         """Build an FTS5 expression tolerant to typos, CJK characters and word boundaries."""
-        tokens: List[str] = []
+        tokens: list[str] = []
         raw_tokens = cls._tokenize_cjk_query(query)
         for tok in raw_tokens:
             tok_clean = tok.strip().replace('"', '""')

@@ -21,13 +21,15 @@ def _make_docs(n: int) -> list[Document]:
             body += f" See [doc](test/doc{i - 1})."
         if i > 2 and i % 15 == 0:
             body += f" Also `test/doc{i - 2}`."
-        docs.append(Document(
-            id=f"test/doc{i}",
-            type="lesson" if i % 3 == 0 else "decision",
-            title=f"Test Document {i}",
-            body=body,
-            tags=[f"tag{i % 5}"],
-        ))
+        docs.append(
+            Document(
+                id=f"test/doc{i}",
+                type="lesson" if i % 3 == 0 else "decision",
+                title=f"Test Document {i}",
+                body=body,
+                tags=[f"tag{i % 5}"],
+            )
+        )
     return docs
 
 
@@ -126,12 +128,14 @@ class TestBenchmarkPhase3:
         store = SqliteStore(tmp_path / "bench_chain.db")
         # Create 200 decisions linked by superseded-by
         for i in range(200):
-            store.add(Document(
-                id=f"dec/v{i}",
-                type="decision",
-                title=f"Decision v{i}",
-                body=f"Decision version {i}",
-            ))
+            store.add(
+                Document(
+                    id=f"dec/v{i}",
+                    type="decision",
+                    title=f"Decision v{i}",
+                    body=f"Decision version {i}",
+                )
+            )
         for i in range(1, 200):
             store.link(f"dec/v{i - 1}", f"dec/v{i}", rel="superseded-by")
 

@@ -19,7 +19,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
+from collections.abc import Iterator
 
 import pytest
 
@@ -817,9 +818,7 @@ class TestKbHistory:
 
 
 class TestKbEmbedAdmin:
-    def test_embed_status_reports_disabled_embedder(
-        self, mcp_proc: subprocess.Popen
-    ) -> None:
+    def test_embed_status_reports_disabled_embedder(self, mcp_proc: subprocess.Popen) -> None:
         """kb_embed_status returns a structured report, no error."""
         resp = _call_tool(mcp_proc, "kb_embed_status", {})
         data = _extract_result(resp)
