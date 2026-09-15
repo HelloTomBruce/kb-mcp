@@ -1,12 +1,9 @@
 """Tests for the typed relation vocabulary and impact analyzer (v0.8 特性 #6)."""
 
-import pytest
 from kb_mcp_lite.schema import Document
 from kb_mcp_lite.relations import (
     STANDARD_RELATIONS,
     ImpactAnalyzer,
-    ImpactNode,
-    RelationSpec,
     get_relation_spec,
     resolve_relation,
     supersession_chain,

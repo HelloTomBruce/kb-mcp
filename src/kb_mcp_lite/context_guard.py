@@ -7,18 +7,17 @@ and formats proactive context/constraints for AI agents.
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from kb_mcp_lite.schema import Document, SearchHit
+from kb_mcp_lite.schema import SearchHit
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.vault import VaultManager
 
 
-def get_git_diff_summary(cwd: Optional[Path | str] = None) -> dict[str, Any]:
+def get_git_diff_summary(cwd: Path | str | None = None) -> dict[str, Any]:
     """Extract modified file paths and changed symbols from `git diff`."""
     work_dir = Path(cwd) if cwd else Path.cwd()
     if not (work_dir / ".git").exists() and not (work_dir.parent / ".git").exists():
@@ -64,7 +63,7 @@ def get_git_diff_summary(cwd: Optional[Path | str] = None) -> dict[str, Any]:
 
         return {
             "files": files,
-            "keywords": sorted(list(keywords))[:20],
+            "keywords": sorted(keywords)[:20],
             "raw_diff": diff_text[:5000],
         }
     except Exception:
@@ -74,7 +73,7 @@ def get_git_diff_summary(cwd: Optional[Path | str] = None) -> dict[str, Any]:
 class ContextGuard:
     """Evaluates git changes against the knowledge base and generates proactive constraints."""
 
-    def __init__(self, store: Optional[SqliteStore] = None, vault_name: Optional[str] = None) -> None:
+    def __init__(self, store: SqliteStore | None = None, vault_name: str | None = None) -> None:
         if store:
             self.store = store
             self._owns_store = False
@@ -84,7 +83,7 @@ class ContextGuard:
             self.store = SqliteStore(vm.resolve_path(v_name))
             self._owns_store = True
 
-    def evaluate_diff(self, cwd: Optional[Path | str] = None, limit_per_type: int = 3) -> dict[str, Any]:
+    def evaluate_diff(self, cwd: Path | str | None = None, limit_per_type: int = 3) -> dict[str, Any]:
         """Scan git diff and find related lessons, decisions, and runbooks."""
         diff_info = get_git_diff_summary(cwd)
         files = diff_info["files"]
@@ -102,7 +101,7 @@ class ContextGuard:
 
         # Search for related items
         query = " ".join(keywords[:10])
-        hits: List[SearchHit] = self.store.search(query, limit=15, mode="hybrid") if query else []
+        hits: list[SearchHit] = self.store.search(query, limit=15, mode="hybrid") if query else []
 
         decisions = []
         lessons = []
@@ -137,8 +136,8 @@ class ContextGuard:
 
             if lessons:
                 prompt_lines.append("\n[Prior Lessons / Pitfalls to Avoid]")
-                for l in lessons:
-                    prompt_lines.append(f"- ⚠️ {l.id} ({l.title}): {l.body[:150].strip()}...")
+                for lesson in lessons:
+                    prompt_lines.append(f"- ⚠️ {lesson.id} ({lesson.title}): {lesson.body[:150].strip()}...")
 
             if apis:
                 prompt_lines.append("\n[Related API Contracts]")
@@ -151,7 +150,7 @@ class ContextGuard:
             "has_recommendations": bool(decisions or lessons or apis),
             "files": files,
             "decisions": [d.model_dump(mode="json") for d in decisions],
-            "lessons": [l.model_dump(mode="json") for l in lessons],
+            "lessons": [lesson.model_dump(mode="json") for lesson in lessons],
             "apis": [a.model_dump(mode="json") for a in apis],
             "prompt_context": "\n".join(prompt_lines),
         }

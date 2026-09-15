@@ -4,15 +4,12 @@ Run with: pytest tests/test_pressure_phase12.py -v -s -m benchmark
 """
 
 import multiprocessing as mp
-import os
 import time
-from pathlib import Path
 
 import pytest
 
 from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
-
 
 # ---------------------------------------------------------------------------
 # Helper: concurrent write worker
@@ -41,7 +38,7 @@ def _concurrent_add_worker(
                     body=f"Body from worker {worker_id} doc {i}",
                 )
                 store.add(doc)
-            except Exception as e:
+            except Exception:
                 errors += 1
         elapsed = time.perf_counter() - t0
         store.close()
@@ -182,12 +179,12 @@ class TestWatcherBenchmark:
         # Use import_dir to simulate bulk import timing
         from kb_mcp_lite.md_io import import_dir
         t0 = time.perf_counter()
-        report = import_dir(store, vault_dir)
+        import_dir(store, vault_dir)
         first_scan = time.perf_counter() - t0
 
         # Second import (no changes — should be idempotent and fast)
         t0 = time.perf_counter()
-        report2 = import_dir(store, vault_dir)
+        import_dir(store, vault_dir)
         second_scan = time.perf_counter() - t0
 
         count = store._conn.execute(

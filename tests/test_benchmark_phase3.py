@@ -4,11 +4,11 @@ Run with: pytest tests/test_benchmark_phase3.py -v -s
 """
 
 import time
-import pytest
+
+from kb_mcp_lite.link_parser import extract_body_references
+from kb_mcp_lite.relations import ImpactAnalyzer, supersession_chain
 from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
-from kb_mcp_lite.link_parser import extract_body_references
-from kb_mcp_lite.relations import ImpactAnalyzer, STANDARD_RELATIONS, supersession_chain
 
 
 def _make_docs(n: int) -> list[Document]:
@@ -154,8 +154,8 @@ class TestBenchmarkPhase3:
 
         t0 = time.perf_counter()
         for i in range(0, 1000, 100):
-            out = store.outgoing_links(f"test/doc{i}")
-            inc = store.incoming_links(f"test/doc{i}")
+            store.outgoing_links(f"test/doc{i}")
+            store.incoming_links(f"test/doc{i}")
         elapsed = time.perf_counter() - t0
 
         print(f"\n  graph expand (10 queries on 1000 docs): {elapsed:.3f}s")

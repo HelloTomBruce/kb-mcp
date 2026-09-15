@@ -78,7 +78,6 @@ def sync_body_references(
     Returns the number of links created (net new).
     """
     # Lazy import to avoid circular dependency at module level
-    from kb_mcp_lite.store.sqlite import SqliteStore
 
     # Load all known doc IDs (excluding deleted)
     rows = store._conn.execute(

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from kb_mcp_lite.vault import VaultManager
 from kb_mcp_lite.watcher import (
-    _WATCHFILES_AVAILABLE,
     VaultWatcher,
     _detect_docker,
     resolve_mode,

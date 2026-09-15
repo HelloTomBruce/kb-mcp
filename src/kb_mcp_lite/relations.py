@@ -7,8 +7,8 @@ an impact analyzer that follows influence edges, and a supersession chain tracer
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from kb_mcp_lite.store.sqlite import SqliteStore

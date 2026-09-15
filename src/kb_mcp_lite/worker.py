@@ -29,7 +29,6 @@ import atexit
 import logging
 import sqlite3
 import threading
-import time
 import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional

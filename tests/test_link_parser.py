@@ -1,10 +1,8 @@
 """Tests for body reference parser (v0.8 特性 #4)."""
 
-import pytest
-from kb_mcp_lite.schema import Document
 from kb_mcp_lite.link_parser import extract_body_references, sync_body_references
+from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
-
 
 # ---------------------------------------------------------------------------
 # extract_body_references
@@ -100,7 +98,7 @@ class TestSyncBodyReferences:
         count = sync_body_references(store, "source", "See [target](target/doc).")
         assert count == 1
         links = store.outgoing_links("source")
-        assert any(l.to_id == "target/doc" and l.rel == "references" for l in links)
+        assert any(link.to_id == "target/doc" and link.rel == "references" for link in links)
         store.close()
 
     def test_no_refs_no_links(self, tmp_path):
@@ -125,9 +123,9 @@ class TestSyncBodyReferences:
         assert len(store.outgoing_links("src")) == 1
 
         # Second sync with different body removes old, adds new
-        count = sync_body_references(store, "src", "See [new](new/doc).")
+        sync_body_references(store, "src", "See [new](new/doc).")
         links = store.outgoing_links("src")
-        link_ids = {l.to_id for l in links}
+        link_ids = {link.to_id for link in links}
         assert "new/doc" in link_ids
         assert "old/doc" not in link_ids
         store.close()
@@ -146,7 +144,7 @@ class TestAutoLinkIntegration:
                            body="See [target](ref-target)."))
 
         links = store.outgoing_links("ref-source")
-        assert any(l.to_id == "ref-target" and l.rel == "references" for l in links)
+        assert any(link.to_id == "ref-target" and link.rel == "references" for link in links)
         store.close()
 
     def test_update_body_syncs_links(self, tmp_path):
@@ -157,12 +155,12 @@ class TestAutoLinkIntegration:
                            body="Ref [t1](t1)."))
 
         # Verify initial link
-        assert any(l.to_id == "t1" for l in store.outgoing_links("src"))
+        assert any(link.to_id == "t1" for link in store.outgoing_links("src"))
 
         # Update body to reference t2
         store.update("src", body="Ref [t2](t2).")
         links = store.outgoing_links("src")
-        link_ids = {l.to_id for l in links}
+        link_ids = {link.to_id for link in links}
         assert "t2" in link_ids
         assert "t1" not in link_ids
         store.close()

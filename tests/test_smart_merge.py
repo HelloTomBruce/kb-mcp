@@ -1,4 +1,3 @@
-import pytest
 from kb_mcp_lite.merge import merge_frontmatter_dicts, resolve_git_conflict_text
 
 def test_merge_frontmatter_dicts():

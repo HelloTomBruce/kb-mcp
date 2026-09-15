@@ -7,11 +7,9 @@ and provides automated resolution strategies for body conflicts.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 import yaml
-import frontmatter
 
-from kb_mcp_lite.schema import Document
 
 
 def merge_frontmatter_dicts(

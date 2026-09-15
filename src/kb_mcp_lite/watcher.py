@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Callable, Dict, Literal, Optional, Set
 
 from kb_mcp_lite.md_io import parse_frontmatter, doc_from_frontmatter, _coerce_links
-from kb_mcp_lite.schema import Document, NotFoundError, ValidationError
+from kb_mcp_lite.schema import NotFoundError
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.vault import VaultManager
 

@@ -5,8 +5,8 @@ Supports path finding, directional relation traversal, and graph-level integrity
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set
-from kb_mcp_lite.schema import Document
+from typing import Any
+
 from kb_mcp_lite.store.sqlite import SqliteStore
 
 
@@ -16,13 +16,12 @@ class GraphQueryEngine:
     def __init__(self, store: SqliteStore) -> None:
         self.store = store
 
-    def find_path(self, start_id: str, target_id: str, max_depth: int = 5) -> Optional[List[Dict[str, str]]]:
+    def find_path(self, start_id: str, target_id: str, max_depth: int = 5) -> list[dict[str, str]] | None:
         """Find the shortest directed path from start_id to target_id."""
         if start_id == target_id:
             return []
 
-        queue: list[list[tuple[str, str, str]]] = [[]]
-        visited: Set[str] = {start_id}
+        # visited: set[str] = {start_id}
 
         # BFS for shortest path
         current_level = [start_id]
@@ -53,15 +52,15 @@ class GraphQueryEngine:
     def query_relations(
         self,
         start_id: str,
-        rel: Optional[str] = None,
+        rel: str | None = None,
         direction: str = "outbound",  # "outbound", "inbound", "both"
-        doc_type: Optional[str] = None,
+        doc_type: str | None = None,
         max_depth: int = 2,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Multi-hop traversal with relation and type filtering."""
-        visited: Set[str] = {start_id}
+        visited: set[str] = {start_id}
         current_frontier = [start_id]
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
 
         for hop in range(1, max_depth + 1):
             if not current_frontier:
