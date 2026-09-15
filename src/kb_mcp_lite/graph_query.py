@@ -27,7 +27,7 @@ class GraphQueryEngine:
 
         # BFS for shortest path
         current_level = [start_id]
-        paths = {start_id: []}
+        paths: dict[str, list[dict[str, str]]] = {start_id: []}
 
         for _ in range(max_depth):
             if not current_level:

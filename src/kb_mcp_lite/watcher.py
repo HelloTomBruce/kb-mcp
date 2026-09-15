@@ -37,8 +37,8 @@ try:
 
     _WATCHFILES_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only when extra is missing
-    Change = None  # type: ignore[assignment]
-    awatch = None  # type: ignore[assignment]
+    Change = None  # type: ignore[assignment,unused-ignore]
+    awatch = None  # type: ignore[assignment,unused-ignore]
     _WATCHFILES_AVAILABLE = False
 
 WatchMode = Literal["event", "poll", "auto"]
@@ -68,7 +68,7 @@ def _detect_docker() -> bool:
 def resolve_mode(mode: WatchMode = "auto") -> Literal["event", "poll"]:
     """Resolve an ``auto`` mode to a concrete ``event`` or ``poll`` choice."""
     if mode != "auto":
-        return mode  # type: ignore[return-value]
+        return mode  # type: ignore[return-value,unused-ignore]
     if not _WATCHFILES_AVAILABLE:
         return "poll"
     if _detect_docker():
@@ -115,6 +115,7 @@ class VaultWatcher:
         owns_store = store is None
         if owns_store:
             store = SqliteStore(self.db_path)
+        assert store is not None  # narrowed for mypy
 
         created: list[str] = []
         updated: list[str] = []
@@ -383,6 +384,7 @@ class VaultWatcher:
         owns_store = store is None
         if owns_store:
             store = SqliteStore(self.db_path)
+        assert store is not None  # narrowed for mypy
 
         try:
             # Prime the in-memory mtime cache so the initial scan_once

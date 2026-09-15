@@ -167,6 +167,8 @@ class EmbeddingWorker:
     _live_lock = threading.Lock()
     _atexit_registered = False
 
+    _conn: sqlite3.Connection | None = None
+
     def __init__(
         self,
         store: SqliteStore,
@@ -373,6 +375,7 @@ class EmbeddingWorker:
         #    would crash with a pysqlite3 ``check_same_thread`` error
         #    if we called it from here. The worker only needs the
         #    title and body, so a small dedicated SELECT is enough.
+        assert self._conn is not None  # narrowed for mypy
         try:
             row = self._conn.execute(
                 "SELECT title, body FROM documents WHERE id = ? AND deleted_at IS NULL",
@@ -462,6 +465,7 @@ class EmbeddingWorker:
         # vector's length is the embedder dim by construction.
         from kb_mcp_lite.store.embedding import ensure_vec_table
 
+        assert self._conn is not None  # narrowed for mypy
         if not ensure_vec_table(self._conn, len(vector)):
             return
         try:

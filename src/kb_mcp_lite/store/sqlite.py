@@ -77,7 +77,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         from kb_mcp_lite.store.embedding_queue import EmbeddingQueue
 
         self._embedding_queue = EmbeddingQueue(self._conn)
-        self._embedding_worker = None  # type: ignore[var-annotated]
+        self._embedding_worker: EmbeddingWorker | None = None
         # Cache auto-link config (loaded once, avoids per-write YAML parse)
         self._auto_link_cfg: dict = {}
         try:

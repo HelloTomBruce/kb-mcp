@@ -5,7 +5,7 @@ import sys
 import json
 import functools
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import cast, Any, TypeVar
 from collections.abc import Callable
 
 import click
@@ -1276,17 +1276,19 @@ def admin_start(ctx: click.Context, port: int) -> None:
 @_handle_errors
 def watch_command(ctx: click.Context, interval: float, mode: str, debounce_ms: int) -> None:
     """Watch the Markdown directory and auto-sync changes to SQLite."""
-    from kb_mcp_lite.watcher import VaultWatcher, resolve_mode
+    from kb_mcp_lite.watcher import VaultWatcher, WatchMode, resolve_mode
 
     vm = VaultManager()
     vault_name = vm.get_current()
     watcher = VaultWatcher(vault_name=vault_name, vault_manager=vm)
-    resolved = resolve_mode(mode)
+    resolved = resolve_mode(cast(WatchMode, mode.lower()))
     click.echo(f"Watching vault '{vault_name}' markdown directory at: {watcher.watch_dir}")
     click.echo(f"Mode: {mode} -> {resolved}")
     click.echo("Press Ctrl+C to stop.")
     try:
-        watcher.run(interval_seconds=interval, mode=mode, debounce_ms=debounce_ms)
+        watcher.run(
+            interval_seconds=interval, mode=cast(WatchMode, mode.lower()), debounce_ms=debounce_ms
+        )
     except KeyboardInterrupt:
         click.echo("\nStopped watching.")
 

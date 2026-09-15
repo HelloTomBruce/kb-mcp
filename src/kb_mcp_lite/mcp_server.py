@@ -424,7 +424,7 @@ def _make_server(vault: str | None = None) -> Any:
             mgr = VaultManager()
             if inp.vault == "*":
                 # Search across all registered vaults
-                all_hits = []
+                all_hits: list[dict[str, Any]] = []
                 for vinfo in mgr.list_vaults():
                     v_store = SqliteStore(mgr.resolve_path(vinfo.name))
                     try:

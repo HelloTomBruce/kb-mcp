@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from kb_mcp_lite.schema import Document, RelatedDoc, SearchHit, ValidationError
 
@@ -319,7 +319,9 @@ class SearchMixin:
         ).fetchall()
 
         # Build neighbor map: doc_id → [(neighbor_id, rel, direction)]
-        neighbor_map: dict[str, list[tuple[str, str, str]]] = {did: [] for did in doc_ids}
+        neighbor_map: dict[str, list[tuple[str, str, Literal["outbound", "inbound"]]]] = {
+            did: [] for did in doc_ids
+        }
         seen_pairs: set[tuple[str, str]] = set()
 
         for r in out_rows:

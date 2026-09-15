@@ -11,7 +11,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
+    from kb_mcp_lite.store.sqlite import SqliteStore
 
 logger = logging.getLogger(__name__)
 

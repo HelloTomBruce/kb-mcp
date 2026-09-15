@@ -111,10 +111,10 @@ def flock_acquire(fd: int) -> bool:
     else:
         # Windows: msvcrt.locking raises OSError("Resource temporarily
         # unavailable") when the region is already locked.
-        import msvcrt  # type: ignore[import-not-found]
+        import msvcrt  # type: ignore[import-not-found,unused-ignore]
 
         try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
             return True
         except (OSError, BlockingIOError):
             return False
@@ -130,10 +130,10 @@ def flock_release(fd: int) -> None:
         except OSError:
             pass
     else:
-        import msvcrt  # type: ignore[import-not-found]
+        import msvcrt  # type: ignore[import-not-found,unused-ignore]
 
         try:
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
         except OSError:
             pass
 
