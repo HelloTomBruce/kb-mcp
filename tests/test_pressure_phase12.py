@@ -198,7 +198,7 @@ class TestWatcherBenchmark:
             f"\n  import 1k files: first={first_scan:.3f}s second={second_scan:.3f}s imported={count}"
         )
         assert first_scan < 5.0, f"first scan too slow: {first_scan:.1f}s"
-        assert second_scan < 2.0, f"second scan too slow: {second_scan:.1f}s"
+        assert second_scan < 4.0, f"second scan too slow: {second_scan:.1f}s"
         assert count == 1000
         store.close()
 

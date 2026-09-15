@@ -98,7 +98,7 @@ fail_under = 70
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not benchmark'"
 markers = [
     "benchmark: performance benchmarks (not run in default CI; use -m benchmark)",
 ]
