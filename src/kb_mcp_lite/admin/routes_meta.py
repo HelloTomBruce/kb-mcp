@@ -536,6 +536,91 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         p.write_text(content, encoding="utf-8")
         return JSONResponse({"ok": True, "path": str(p)})
 
+    # ── Git Management ────────────────────────────────────────────────
+
+    @app.get("/git", response_class=HTMLResponse)
+    def page_git(request: Request) -> HTMLResponse:
+        return render(request, "git.html", {"active_page": "git"})
+
+    @app.get("/api/git/status")
+    def api_git_status() -> JSONResponse:
+        mgr = VaultManager()
+        try:
+            status_data = mgr.git_status_info()
+            return JSONResponse({"ok": True, **status_data})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/git/history")
+    def api_git_history(limit: int = 30) -> JSONResponse:
+        mgr = VaultManager()
+        try:
+            commits = mgr.git_log(limit=limit)
+            return JSONResponse({"ok": True, "commits": commits, "count": len(commits)})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.post("/api/git/commit")
+    def api_git_commit(payload: dict[str, Any]) -> JSONResponse:
+        message = payload.get("message", "admin commit").strip() if isinstance(payload, dict) else "admin commit"
+        if not message:
+            message = "admin commit"
+        full = bool(payload.get("full", False)) if isinstance(payload, dict) else False
+        mgr = VaultManager()
+        try:
+            output = mgr.commit(message=message, full=full)
+            return JSONResponse({"ok": True, "output": output})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.post("/api/git/pull")
+    def api_git_pull(payload: dict[str, Any] | None = None) -> JSONResponse:
+        payload = payload or {}
+        remote = payload.get("remote", "origin")
+        branch = payload.get("branch", "main")
+        mgr = VaultManager()
+        try:
+            output = mgr.pull(remote=remote, branch=branch)
+            return JSONResponse({"ok": True, "output": output})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.post("/api/git/push")
+    def api_git_push(payload: dict[str, Any] | None = None) -> JSONResponse:
+        payload = payload or {}
+        remote = payload.get("remote", "origin")
+        branch = payload.get("branch", "main")
+        mgr = VaultManager()
+        try:
+            output = mgr.push(remote=remote, branch=branch)
+            return JSONResponse({"ok": True, "output": output})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.post("/api/git/sync")
+    def api_git_sync(payload: dict[str, Any] | None = None) -> JSONResponse:
+        payload = payload or {}
+        message = payload.get("message", "sync: admin auto-commit")
+        remote = payload.get("remote", "origin")
+        branch = payload.get("branch", "main")
+        mgr = VaultManager()
+        try:
+            output = mgr.sync(message=message, remote=remote, branch=branch)
+            return JSONResponse({"ok": True, "output": output})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.post("/api/git/init")
+    def api_git_init(payload: dict[str, Any] | None = None) -> JSONResponse:
+        payload = payload or {}
+        sync_dir = payload.get("sync_dir")
+        mgr = VaultManager()
+        try:
+            output = mgr.init_git(sync_dir=sync_dir)
+            return JSONResponse({"ok": True, "output": output})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
     # ── Scheduler ──────────────────────────────────────────────────────
 
     @app.get("/scheduler", response_class=HTMLResponse)

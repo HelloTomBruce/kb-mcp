@@ -1088,6 +1088,16 @@ def serve(ctx: click.Context, log_level: str, vault: str | None) -> None:
     run_mcp_server()
 
 
+@cli.command(name="mcp", help="Alias for 'serve'. Start the MCP server on stdio.")
+@click.option("--log-level", default="INFO", show_default=True, help="Log level.")
+@click.option("--vault", help="Vault name to serve.")
+@click.pass_context
+@_handle_errors
+def mcp_alias(ctx: click.Context, log_level: str, vault: str | None) -> None:
+    """Start the MCP server on stdio."""
+    ctx.forward(serve)
+
+
 # ---- vault commands ----------------------------------------------------------
 
 

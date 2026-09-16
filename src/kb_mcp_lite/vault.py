@@ -647,6 +647,147 @@ class VaultManager:
 
         return "\n".join(output_lines)
 
+    def git_log(self, name: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
+        """Return the recent Git commit history for the vault's sync repository."""
+        import subprocess
+
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        if not (git_dir / ".git").exists():
+            return []
+
+        # Format: hash%x1fshort_hash%x1fauthor_name%x1fauthor_email%x1fauthor_date_iso%x1fauthor_date_relative%x1fsubject
+        fmt = "%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%ar%x1f%s"
+        res = subprocess.run(
+            ["git", "log", f"-n{limit}", f"--pretty=format:{fmt}", "--date=iso"],
+            cwd=str(git_dir),
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode != 0:
+            return []
+        commits = []
+        for line in res.stdout.strip().splitlines():
+            if not line:
+                continue
+            parts = line.split("\x1f")
+            if len(parts) >= 7:
+                commits.append({
+                    "hash": parts[0],
+                    "short_hash": parts[1],
+                    "author": parts[2],
+                    "email": parts[3],
+                    "date": parts[4],
+                    "relative_date": parts[5],
+                    "message": parts[6],
+                })
+        return commits
+
+    def git_status_info(self, name: str | None = None) -> dict[str, Any]:
+        """Return structured Git and pending export status for the vault."""
+        import subprocess
+        from kb_mcp_lite.md_io import pending_export
+        from kb_mcp_lite.store.sqlite import SqliteStore
+
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        vault_name = name or self.get_current()
+        is_git = (git_dir / ".git").exists()
+
+        store = SqliteStore(self.resolve_path(name))
+        try:
+            pending = pending_export(store, self._sync_dir(name))
+        finally:
+            store.close()
+
+        pending_dict = {
+            "total": pending.total,
+            "added": pending.added,
+            "modified": pending.modified,
+            "deleted": pending.deleted,
+        }
+
+        if not is_git:
+            return {
+                "vault_name": vault_name,
+                "git_dir": str(git_dir),
+                "is_git": False,
+                "branch": "",
+                "status_raw": "Git sync not initialized for this vault.",
+                "pending_export": pending_dict,
+                "staged": [],
+                "unstaged": [],
+                "untracked": [],
+                "ahead": 0,
+                "behind": 0,
+            }
+
+        # Branch
+        res_b = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=str(git_dir),
+            capture_output=True,
+            text=True,
+        )
+        branch = res_b.stdout.strip() if res_b.returncode == 0 else "unknown"
+
+        # Raw status
+        res_s = subprocess.run(
+            ["git", "status"],
+            cwd=str(git_dir),
+            capture_output=True,
+            text=True,
+        )
+        status_raw = res_s.stdout.strip() if res_s.returncode == 0 else ""
+
+        # Porcelain status for structured staged/unstaged/untracked
+        res_p = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-b"],
+            cwd=str(git_dir),
+            capture_output=True,
+            text=True,
+        )
+        staged, unstaged, untracked = [], [], []
+        ahead, behind = 0, 0
+        if res_p.returncode == 0:
+            lines = res_p.stdout.splitlines()
+            for line in lines:
+                if line.startswith("##"):
+                    if "[ahead " in line:
+                        try:
+                            ahead = int(line.split("[ahead ")[1].split("]")[0].split(",")[0])
+                        except Exception:
+                            pass
+                    if "behind " in line:
+                        try:
+                            behind = int(line.split("behind ")[1].split("]")[0])
+                        except Exception:
+                            pass
+                    continue
+                if len(line) >= 3:
+                    x, y, path = line[0], line[1], line[3:]
+                    if x == "?" and y == "?":
+                        untracked.append(path)
+                    else:
+                        if x not in (" ", "?"):
+                            staged.append({"status": x, "path": path})
+                        if y not in (" ", "?"):
+                            unstaged.append({"status": y, "path": path})
+
+        return {
+            "vault_name": vault_name,
+            "git_dir": str(git_dir),
+            "is_git": True,
+            "branch": branch,
+            "status_raw": status_raw,
+            "pending_export": pending_dict,
+            "staged": staged,
+            "unstaged": unstaged,
+            "untracked": untracked,
+            "ahead": ahead,
+            "behind": behind,
+        }
+
 
 __all__ = [
     "VaultManager",

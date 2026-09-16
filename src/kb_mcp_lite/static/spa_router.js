@@ -169,6 +169,7 @@ const SPA = {
         '/links': 'Links',
         '/graph': 'Graph',
         '/imports': 'Imports',
+        '/git': 'Git',
         '/settings': 'Settings',
         '/scheduler': 'Scheduler'
       };
