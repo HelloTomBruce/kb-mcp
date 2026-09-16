@@ -111,7 +111,7 @@ _TYPE_PREFIX = {
 }
 
 
-def slugify(title: str) -> str:
+def slugify(title: str, max_length: int = 32) -> str:
     """Convert ``title`` to a URL-safe ASCII-first slug.
 
     Lowercase, replace runs of non-alphanumeric with ``-``, strip
@@ -119,6 +119,8 @@ def slugify(title: str) -> str:
     characters that cannot be represented in ASCII (e.g. CJK characters)
     are dropped, which keeps IDs compatible with the
     ``^[a-z0-9][a-z0-9/_-]*$`` validation regex.
+    Overly long ASCII prefixes are truncated to ``max_length`` characters
+    at word boundaries.
 
     >>> slugify("Use SQLite FTS5!")
     'use-sqlite-fts5'
@@ -158,6 +160,15 @@ def slugify(title: str) -> str:
 
     h = hashlib.sha1(title.encode("utf-8")).hexdigest()[:8]
 
+    # Truncate overly long ASCII prefixes at word boundaries
+    if len(s_ascii) > max_length:
+        truncated = s_ascii[:max_length].rstrip("-")
+        if "-" in truncated:
+            last_dash = truncated.rfind("-")
+            if last_dash > 0:
+                truncated = truncated[:last_dash]
+        s_ascii = truncated
+
     if s_ascii and not s_ascii.replace("-", "").isdigit():
         if has_dropped_non_ascii:
             return f"{s_ascii}-{h}"
@@ -167,22 +178,17 @@ def slugify(title: str) -> str:
 
 
 def make_id(doc_type: str, title: str) -> str:
-    """Return ``<prefix>/<slug>`` for a built-in type, ``<type>/<slug>``
-    otherwise.
+    """Return a flat, slugified document ID without directory prefixes.
 
-    The prefix keeps related documents clustered in listings and lets the
-    CLI hint at type from the id alone.
+    Ensures 1:1 isomorphism with Git filenames ({id}.md) and avoids
+    path traversal/directory mismatch issues during import/export.
 
     >>> make_id("project", "kb-mcp")
-    'proj/kb-mcp'
+    'kb-mcp'
     >>> make_id("custom-type", "Hello World")
-    'custom-type/hello-world'
+    'hello-world'
     """
-    try:
-        prefix = _TYPE_PREFIX[DocumentType(doc_type)]
-    except (ValueError, KeyError):
-        prefix = doc_type
-    return f"{prefix}/{slugify(title)}"
+    return slugify(title)
 
 
 # ---------------------------------------------------------------------------

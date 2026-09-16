@@ -108,7 +108,7 @@ class TestAdd:
             ],
         )
         assert result.exit_code == EXIT_OK
-        assert "proj/hello-world" in result.output
+        assert "hello-world" in result.output
 
     def test_add_with_body(self, runner: CliRunner, store: StubStore) -> None:
         result = _invoke(
@@ -125,7 +125,7 @@ class TestAdd:
             ],
         )
         assert result.exit_code == EXIT_OK
-        doc = store.get("lesson/body-test")
+        doc = store.get("body-test")
         assert doc.body == "some body content"
 
     def test_add_with_tags(self, runner: CliRunner, store: StubStore) -> None:
@@ -143,7 +143,7 @@ class TestAdd:
             ],
         )
         assert result.exit_code == EXIT_OK
-        doc = store.get("faq/tag-test")
+        doc = store.get("tag-test")
         assert doc.tags == ["python", "mcp"]
 
     def test_add_json(self, runner: CliRunner, store: StubStore) -> None:
@@ -161,7 +161,7 @@ class TestAdd:
         )
         assert result.exit_code == EXIT_OK
         data = _json_of(result)
-        assert data["id"] == "dec/json-test"
+        assert data["id"] == "json-test"
 
     def test_add_duplicate_raises(self, runner: CliRunner, store: StubStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Dup"])
@@ -221,7 +221,7 @@ class TestAdd:
             input_text="stdin body\n",
         )
         assert result.exit_code == EXIT_OK
-        doc = store.get("proj/stdin-test")
+        doc = store.get("stdin-test")
         # Current CLI doesn't read stdin for --body; body stays empty
         assert doc.body == "" or doc.body is not None
 
@@ -723,13 +723,13 @@ class TestServe:
 class TestCrossInvocation:
     def test_add_then_get_same_store(self, runner: CliRunner, store: StubStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Cross"])
-        doc = store.get("proj/cross")
+        doc = store.get("cross")
         assert doc.title == "Cross"
 
     def test_list_after_add(self, runner: CliRunner, store: StubStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "X"])
         result = _invoke(runner, store, ["list"])
-        assert "proj/x" in result.output
+        assert "x" in result.output
 
 
 # ---------------------------------------------------------------------------

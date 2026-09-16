@@ -54,12 +54,21 @@ def test_slugify_empty_falls_back():
 
 
 def test_make_id_with_cjk_fallback():
-    """make_id composes prefix with the (possibly fallback) slug."""
-    assert make_id("reference", "项目概述") == "reference/cjk-cb580c2c"
-    assert make_id("reference", "1. 概述") == "reference/cjk-8247761e"
+    """make_id returns flat slug without slash prefix."""
+    assert make_id("reference", "项目概述") == "cjk-cb580c2c"
+    assert make_id("reference", "1. 概述") == "cjk-8247761e"
 
 
 def test_make_id_ascii_unchanged():
-    """ASCII titles still get the prefix-based id."""
-    assert make_id("project", "kb-mcp") == "proj/kb-mcp"
-    assert make_id("reference", "use-sqlite-fts5") == "reference/use-sqlite-fts5"
+    """ASCII titles produce flat id without prefix."""
+    assert make_id("project", "kb-mcp") == "kb-mcp"
+    assert make_id("reference", "use-sqlite-fts5") == "use-sqlite-fts5"
+
+
+def test_slugify_long_title_truncated():
+    """Overly long titles are truncated at word boundaries."""
+    title = "项目公共组件实战指南 (ChartContainer / ExportModal / FileImportModal / InfiniteSelect / VirtualTable)"
+    s = slugify(title)
+    assert s == "chartcontainer-exportmodal-4f4a1fa1"
+    assert len(s) <= 40
+

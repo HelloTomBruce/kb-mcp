@@ -32,10 +32,13 @@ import frontmatter
 
 from kb_mcp_lite.schema import (
     Document,
+    DocumentType,
     ImportReport,
     Link,
     ValidationError,
+    _TYPE_PREFIX,
     make_id,
+    slugify,
 )
 
 if TYPE_CHECKING:
@@ -446,11 +449,18 @@ def import_dir(store: Store, dir: Path, *, dry_run: bool = False) -> ImportRepor
     report = store.import_many(docs)
 
     # Build old-ID → new-ID mapping for imported docs. Links exported by
-    # older versions used make_id(type, title) targets; after the switch to
-    # filename-based IDs those old targets are stale. Map them to the new ID
+    # older versions used prefix/slug (e.g. "dec/beta"); after the switch to
+    # filename/flat-based IDs those old targets are stale. Map them to the new ID
     # so cross-doc links survive re-import.
     old_id_map: dict[str, str] = {}
     for doc in docs:
+        try:
+            prefix = _TYPE_PREFIX[DocumentType(doc.type)]
+        except (ValueError, KeyError):
+            prefix = doc.type
+        legacy_id = f"{prefix}/{slugify(doc.title)}"
+        if legacy_id != doc.id:
+            old_id_map[legacy_id] = doc.id
         old_id = make_id(doc.type, doc.title)
         if old_id != doc.id:
             old_id_map[old_id] = doc.id

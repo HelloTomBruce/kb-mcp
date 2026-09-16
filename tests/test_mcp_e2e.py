@@ -276,7 +276,7 @@ class TestKbAdd:
         """Minimal add returns a new id."""
         resp = _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "Hello MCP"})
         data = _extract_result(resp)
-        assert data["id"] == "proj/hello-mcp"
+        assert data["id"] == "hello-mcp"
 
     def test_add_with_body_and_tags(self, mcp_proc: subprocess.Popen) -> None:
         """Add with all optional fields."""
@@ -292,7 +292,7 @@ class TestKbAdd:
             },
         )
         data = _extract_result(resp)
-        assert data["id"] == "lesson/body-test"
+        assert data["id"] == "body-test"
 
     def test_add_duplicate(self, mcp_proc: subprocess.Popen) -> None:
         """Adding the same (type, title) twice returns error -32005."""
@@ -365,7 +365,7 @@ class TestKbSearch:
         data = _extract_result(resp)
         assert isinstance(data, dict), f"Expected dict, got: {type(data)}"
         assert data["count"] >= 1, f"Expected >=1 hit, got {data['count']}"
-        assert data["hits"][0]["id"] == "proj/searchable"
+        assert data["hits"][0]["id"] == "searchable"
 
     def test_search_no_results(self, mcp_proc: subprocess.Popen) -> None:
         """Search with no match returns empty hits."""
@@ -399,7 +399,7 @@ class TestKbLink:
         resp = _call_tool(
             mcp_proc,
             "kb_link",
-            {"from_id": "proj/from-doc", "to_id": "proj/to-doc"},
+            {"from_id": "from-doc", "to_id": "to-doc"},
         )
         data = _extract_result(resp)
         assert data["ok"] is True
@@ -477,9 +477,9 @@ class TestDiagnostics:
     def test_similar(self, mcp_proc: subprocess.Popen) -> None:
         """kb_similar returns an empty result set when no embedder is enabled."""
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "SimilarSource"})
-        resp = _call_tool(mcp_proc, "kb_similar", {"id": "proj/similarsource"})
+        resp = _call_tool(mcp_proc, "kb_similar", {"id": "similarsource"})
         data = _extract_result(resp)
-        assert data["id"] == "proj/similarsource"
+        assert data["id"] == "similarsource"
         assert data["results"] == []
         assert data["count"] == 0
 
@@ -522,14 +522,14 @@ class TestResources:
         template_resources = resp["result"].get("resourceTemplates", [])
         template_uris = {r["uriTemplate"] for r in template_resources}
         assert template_uris == {
-            "kb://doc/{type}/{slug}",
-            "kb://links/{type}/{slug}",
-            "kb://graph/{type}/{slug}",
-            "kb://graph/{type}/{slug}/{depth}",
+            "kb://doc/{id}",
+            "kb://links/{id}",
+            "kb://graph/{id}",
+            "kb://graph/{id}/{depth}",
             "kb://list/{type}",
-            "kb://history/{type}/{slug}",
+            "kb://history/{id}",
             "kb://search/{query}",
-            "kb://export/{type}/{slug}",
+            "kb://export/{id}",
             "kb://help/{doc}",
         }
         assert len(static_uris | template_uris) == 13
@@ -547,7 +547,7 @@ class TestResources:
                 "jsonrpc": "2.0",
                 "id": rid,
                 "method": "resources/read",
-                "params": {"uri": "kb://doc/proj/resourcedoc"},
+                "params": {"uri": "kb://doc/resourcedoc"},
             },
         )
         resp = _recv_until_id(mcp_proc, rid)
@@ -556,7 +556,7 @@ class TestResources:
         assert contents, f"Expected contents, got: {resp}"
         text = contents[0].get("text", "")
         doc = json.loads(text)
-        assert doc.get("id") == "proj/resourcedoc", f"Unexpected: {text[:300]}"
+        assert doc.get("id") == "resourcedoc", f"Unexpected: {text[:300]}"
         assert doc.get("title") == "ResourceDoc", f"Missing title: {text[:300]}"
         assert doc.get("body") == "body here", f"Missing body: {text[:300]}"
 
@@ -569,7 +569,7 @@ class TestResources:
                 "jsonrpc": "2.0",
                 "id": rid,
                 "method": "resources/read",
-                "params": {"uri": "kb://doc/nonexistent/slug"},
+                "params": {"uri": "kb://doc/nonexistent"},
             },
         )
         resp = _recv_until_id(mcp_proc, rid)
@@ -604,7 +604,7 @@ class TestResources:
         # Add two docs and link them
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "LinkA"})
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "LinkB"})
-        _call_tool(mcp_proc, "kb_link", {"from_id": "proj/linka", "to_id": "proj/linkb"})
+        _call_tool(mcp_proc, "kb_link", {"from_id": "linka", "to_id": "linkb"})
 
         rid = _next_id()
         _send(
@@ -613,7 +613,7 @@ class TestResources:
                 "jsonrpc": "2.0",
                 "id": rid,
                 "method": "resources/read",
-                "params": {"uri": "kb://links/proj/linka"},
+                "params": {"uri": "kb://links/linka"},
             },
         )
         resp = _recv_until_id(mcp_proc, rid)
@@ -621,7 +621,7 @@ class TestResources:
         contents = resp["result"].get("contents", [{}])
         text = contents[0].get("text", "")
         data = json.loads(text)
-        assert data.get("doc_id") == "proj/linka", f"Unexpected: {text[:300]}"
+        assert data.get("doc_id") == "linka", f"Unexpected: {text[:300]}"
         assert len(data.get("outlinks", [])) == 1
 
     def test_read_stats_resource(self, mcp_proc: subprocess.Popen) -> None:
@@ -662,7 +662,7 @@ class TestResources:
         _call_tool(
             mcp_proc,
             "kb_link",
-            {"from_id": "proj/exportdoc", "to_id": "proj/exporttarget"},
+            {"from_id": "exportdoc", "to_id": "exporttarget"},
         )
 
         rid = _next_id()
@@ -672,7 +672,7 @@ class TestResources:
                 "jsonrpc": "2.0",
                 "id": rid,
                 "method": "resources/read",
-                "params": {"uri": "kb://export/proj/exportdoc"},
+                "params": {"uri": "kb://export/exportdoc"},
             },
         )
         resp = _recv_until_id(mcp_proc, rid)
@@ -682,7 +682,7 @@ class TestResources:
         fm, body = parse_frontmatter(text)
         assert fm["title"] == "ExportDoc"
         assert fm["aliases"] == ["export-alias"]
-        assert fm["links"][0]["to"] == "proj/exporttarget"
+        assert fm["links"][0]["to"] == "exporttarget"
         assert body == "# Body"
 
     def test_read_help_resource(self, mcp_proc: subprocess.Popen) -> None:
@@ -760,8 +760,8 @@ class TestKbHistory:
     def test_history_happy_path(self, mcp_proc: subprocess.Popen) -> None:
         """kb_history returns version entries for a document."""
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "HistDoc"})
-        _call_tool(mcp_proc, "kb_update", {"id": "proj/histdoc", "title": "HistDoc Updated"})
-        resp = _call_tool(mcp_proc, "kb_history", {"id": "proj/histdoc"})
+        _call_tool(mcp_proc, "kb_update", {"id": "histdoc", "title": "HistDoc Updated"})
+        resp = _call_tool(mcp_proc, "kb_history", {"id": "histdoc"})
         data = _extract_result(resp)
         assert isinstance(data, dict), f"Expected dict, got: {type(data)}"
         assert data["count"] >= 2, f"Expected >=2 versions, got {data['count']}"
@@ -769,14 +769,14 @@ class TestKbHistory:
     def test_restore_happy_path(self, mcp_proc: subprocess.Popen) -> None:
         """kb_restore restores a document to a previous version."""
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "RestDoc", "body": "v1 body"})
-        _call_tool(mcp_proc, "kb_update", {"id": "proj/restdoc", "body": "v2 body"})
-        hist_resp = _call_tool(mcp_proc, "kb_history", {"id": "proj/restdoc"})
+        _call_tool(mcp_proc, "kb_update", {"id": "restdoc", "body": "v2 body"})
+        hist_resp = _call_tool(mcp_proc, "kb_history", {"id": "restdoc"})
         hist = _extract_result(hist_resp)
         assert isinstance(hist, dict)
         versions = hist.get("history", [])
         if len(versions) >= 2:
             v1 = versions[1]["version_id"]
-            resp = _call_tool(mcp_proc, "kb_restore", {"id": "proj/restdoc", "version": v1})
+            resp = _call_tool(mcp_proc, "kb_restore", {"id": "restdoc", "version": v1})
             data = _extract_result(resp)
             assert isinstance(data, dict)
             assert data.get("ok") is True
@@ -784,8 +784,8 @@ class TestKbHistory:
     def test_diff_happy_path(self, mcp_proc: subprocess.Popen) -> None:
         """kb_diff returns field-level diff between versions."""
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "DiffDoc", "body": "original"})
-        _call_tool(mcp_proc, "kb_update", {"id": "proj/diffdoc", "title": "DiffDoc V2"})
-        hist_resp = _call_tool(mcp_proc, "kb_history", {"id": "proj/diffdoc"})
+        _call_tool(mcp_proc, "kb_update", {"id": "diffdoc", "title": "DiffDoc V2"})
+        hist_resp = _call_tool(mcp_proc, "kb_history", {"id": "diffdoc"})
         hist = _extract_result(hist_resp)
         assert isinstance(hist, dict)
         versions = hist.get("history", [])
@@ -793,7 +793,7 @@ class TestKbHistory:
             v1 = versions[1]["version_id"]
             v2 = versions[0]["version_id"]
             resp = _call_tool(
-                mcp_proc, "kb_diff", {"id": "proj/diffdoc", "version_a": v1, "version_b": v2}
+                mcp_proc, "kb_diff", {"id": "diffdoc", "version_a": v1, "version_b": v2}
             )
             data = _extract_result(resp)
             assert isinstance(data, dict)
@@ -802,14 +802,14 @@ class TestKbHistory:
     def test_restore_deleted_happy_path(self, mcp_proc: subprocess.Popen) -> None:
         """kb_restore_deleted restores a soft-deleted document."""
         _call_tool(mcp_proc, "kb_add", {"type": "project", "title": "DelRestore"})
-        _call_tool(mcp_proc, "kb_delete", {"id": "proj/delrestore"})
-        resp = _call_tool(mcp_proc, "kb_restore_deleted", {"id": "proj/delrestore"})
+        _call_tool(mcp_proc, "kb_delete", {"id": "delrestore"})
+        resp = _call_tool(mcp_proc, "kb_restore_deleted", {"id": "delrestore"})
         data = _extract_result(resp)
         assert isinstance(data, dict)
         assert data.get("ok") is True
-        get_resp = _call_tool(mcp_proc, "kb_get", {"id": "proj/delrestore"})
+        get_resp = _call_tool(mcp_proc, "kb_get", {"id": "delrestore"})
         get_data = _extract_result(get_resp)
-        assert get_data["id"] == "proj/delrestore"
+        assert get_data["id"] == "delrestore"
 
 
 # ---------------------------------------------------------------------------

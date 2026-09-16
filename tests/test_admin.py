@@ -65,7 +65,7 @@ def test_document_create_and_update(tmp_path: Path) -> None:
     )
 
     assert create_response.status_code == 303
-    created_id = "faq/how-do-we-ship"
+    created_id = "how-do-we-ship"
     assert store.get(created_id).title == "How do we ship?"
 
     update_response = client.post(

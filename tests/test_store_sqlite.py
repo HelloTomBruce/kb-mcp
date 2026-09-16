@@ -145,7 +145,7 @@ def test_document_history_and_audit_log(store: SqliteStore) -> None:
 def test_add_empty_id_generated(store: SqliteStore) -> None:
     d = _doc(id="", type="project", title="Auto ID")
     new_id = store.add(d)
-    assert new_id == "proj/auto-id"
+    assert new_id == "auto-id"
     assert store.get(new_id).title == "Auto ID"
 
 

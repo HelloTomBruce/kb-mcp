@@ -6,10 +6,10 @@ Exposes tools, Resources, and Prompts over stdio transport:
 kb_delete, kb_unlink, kb_history, kb_restore, kb_diff, kb_restore_deleted,
 kb_doctor, kb_similar, kb_duplicates, kb_diff_check, kb_query_relations
 
-**Resources (13):** kb://doc/{type}/{slug}, kb://links/{type}/{slug},
-kb://types, kb://stats, kb://graph/{type}/{slug}/{depth},
-kb://list[/{type}], kb://changes, kb://history/{type}/{slug},
-kb://search/{query}, kb://export/{type}/{slug}, kb://help/{doc}
+**Resources (13):** kb://doc/{id}, kb://links/{id},
+kb://types, kb://stats, kb://graph/{id}[/{depth}],
+kb://list[/{type}], kb://changes, kb://history/{id},
+kb://search/{query}, kb://export/{id}, kb://help/{doc}
 
 **Prompts (7):** new-doc(type), link-analysis(id), search-guide, import-docs,
 doctor, maintenance, onboarding
@@ -1627,55 +1627,51 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- Resources -------------------------------------------------------
 
     @mcp.resource(
-        "kb://doc/{type}/{slug}",
+        "kb://doc/{id}",
         name="doc",
-        description="Full document by id (JSON); type=prefix (e.g. proj), slug=rest of id",
+        description="Full document by id (JSON)",
         mime_type="application/json",
     )
-    def kb_resource_doc(type: str, slug: str) -> str:
+    def kb_resource_doc(id: str) -> str:
         """Return the full document as JSON.
 
         Args:
-            type: Document type prefix (e.g. "proj", "dec", "lesson").
-            slug: Remainder of the document id after the ``/``.
+            id: Document ID.
 
         Returns:
             JSON string of the full document.
         """
-        doc_id = f"{type}/{slug}"
-        logger.info("resource kb://doc/%s", doc_id)
+        logger.info("resource kb://doc/%s", id)
         try:
-            doc = store.get(doc_id)
+            doc = store.get(id)
             return json.dumps(doc.model_dump(mode="json"), ensure_ascii=False)
         except NotFoundError:
-            return json.dumps({"error": "not_found", "id": doc_id})
+            return json.dumps({"error": "not_found", "id": id})
         except (ValidationError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
-        "kb://links/{type}/{slug}",
+        "kb://links/{id}",
         name="links",
         description="Backlinks and outlinks for a document (JSON)",
         mime_type="application/json",
     )
-    def kb_resource_links(type: str, slug: str) -> str:
+    def kb_resource_links(id: str) -> str:
         """Return the links (inbound + outbound) for a document.
 
         Args:
-            type: Document type prefix (e.g. "proj").
-            slug: Remainder of the document id.
+            id: Document ID.
 
         Returns:
             JSON object with backlinks and outlinks arrays.
         """
-        doc_id = f"{type}/{slug}"
-        logger.info("resource kb://links/%s", doc_id)
+        logger.info("resource kb://links/%s", id)
         try:
-            backlinks = store.backlinks(doc_id)
-            outlinks = store.outlinks(doc_id)
+            backlinks = store.backlinks(id)
+            outlinks = store.outlinks(id)
             return json.dumps(
                 {
-                    "doc_id": doc_id,
+                    "doc_id": id,
                     "backlinks": [{"from_id": lnk.from_id, "rel": lnk.rel} for lnk in backlinks],
                     "outlinks": [{"to_id": lnk.to_id, "rel": lnk.rel} for lnk in outlinks],
                 },
@@ -1748,53 +1744,49 @@ def _make_server(vault: str | None = None) -> Any:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
-        "kb://graph/{type}/{slug}",
+        "kb://graph/{id}",
         name="graph",
         description="Subgraph centred on a document (depth 2); JSON with nodes and edges",
         mime_type="application/json",
     )
-    def kb_resource_graph(type: str, slug: str) -> str:
+    def kb_resource_graph(id: str) -> str:
         """Return the subgraph (depth 2) centred on a document.
 
         Args:
-            type: Document type prefix (e.g. "proj").
-            slug: Remainder of the document id.
+            id: Document ID.
 
         Returns:
             JSON string with node ids and edges.
         """
-        doc_id = f"{type}/{slug}"
-        logger.info("resource kb://graph/%s", doc_id)
+        logger.info("resource kb://graph/%s", id)
         try:
-            sub = store.subgraph(doc_id, depth=2)
+            sub = store.subgraph(id, depth=2)
             return json.dumps(sub, ensure_ascii=False)
         except (ValidationError, NotFoundError, IntegrityError) as e:
             return json.dumps({"error": str(e)})
 
     @mcp.resource(
-        "kb://graph/{type}/{slug}/{depth}",
+        "kb://graph/{id}/{depth}",
         name="graph-depth",
         description="Subgraph centred on a document at a given depth; JSON with nodes and edges",
         mime_type="application/json",
     )
-    def kb_resource_graph_depth(type: str, slug: str, depth: str) -> str:
+    def kb_resource_graph_depth(id: str, depth: str) -> str:
         """Return the subgraph at a custom depth centred on a document.
 
         Args:
-            type: Document type prefix (e.g. "proj").
-            slug: Remainder of the document id.
+            id: Document ID.
             depth: Traversal depth (1, 2, 3, …).
 
         Returns:
             JSON string with node ids and edges.
         """
-        doc_id = f"{type}/{slug}"
-        logger.info("resource kb://graph/%s depth=%s", doc_id, depth)
+        logger.info("resource kb://graph/%s depth=%s", id, depth)
         try:
             n = int(depth)
             if n < 1 or n > 8:
                 return json.dumps({"error": f"depth must be 1..8 (got {depth})"})
-            sub = store.subgraph(doc_id, depth=n)
+            sub = store.subgraph(id, depth=n)
             return json.dumps(sub, ensure_ascii=False)
         except ValueError:
             return json.dumps({"error": f"invalid depth {depth!r}"})
@@ -1887,19 +1879,18 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- Resource: kb://history --------------------------------------------
 
     @mcp.resource(
-        "kb://history/{type}/{slug}",
+        "kb://history/{id}",
         name="history",
         description="Version history for a document (JSON)",
         mime_type="application/json",
     )
-    def kb_resource_history(type: str, slug: str) -> str:
+    def kb_resource_history(id: str) -> str:
         """Return the version history for a document."""
-        doc_id = f"{type}/{slug}"
-        logger.info("resource kb://history id=%r", doc_id)
+        logger.info("resource kb://history id=%r", id)
         try:
-            history = store.document_history(doc_id)
+            history = store.document_history(id)
             return json.dumps(
-                {"id": doc_id, "history": history, "count": len(history)},
+                {"id": id, "history": history, "count": len(history)},
                 ensure_ascii=False,
             )
         except (ValidationError, NotFoundError, IntegrityError) as e:
@@ -1941,20 +1932,19 @@ def _make_server(vault: str | None = None) -> Any:
     # ---- Resource: kb://export ---------------------------------------------
 
     @mcp.resource(
-        "kb://export/{type}/{slug}",
+        "kb://export/{id}",
         name="export",
         description="Full document body as Markdown",
         mime_type="text/markdown",
     )
-    def kb_resource_export(type: str, slug: str) -> str:
+    def kb_resource_export(id: str) -> str:
         """Return the document rendered as round-trippable Markdown."""
-        doc_id = f"{type}/{slug}"
-        logger.info("resource kb://export id=%r", doc_id)
+        logger.info("resource kb://export id=%r", id)
         try:
-            doc = store.get(doc_id)
-            return render_document(doc, outlinks=store.outlinks(doc_id))
+            doc = store.get(id)
+            return render_document(doc, outlinks=store.outlinks(id))
         except (ValidationError, NotFoundError, IntegrityError) as e:
-            return f"# Error\n\nCould not export document {doc_id!r}: {e}"
+            return f"# Error\n\nCould not export document {id!r}: {e}"
 
     # ---- Resource: kb://help -----------------------------------------------
 
@@ -2063,8 +2053,8 @@ def _make_server(vault: str | None = None) -> Any:
             '- Filter by `type` (e.g. `"decision"`, `"project"`) to narrow down.\n'
             "- Filter by `tags` to focus on a specific domain.\n"
             "- For browsing, use **`kb_list`** tool or the `kb://list/` resource.\n"
-            "- For reading a single document, use the `kb://doc/{type}/{slug}` resource.\n"
-            "- To walk the link graph, use `kb://graph/{type}/{slug}/{depth}`.\n"
+            "- For reading a single document, use the `kb://doc/{id}` resource.\n"
+            "- To walk the link graph, use `kb://graph/{id}/{depth}`.\n"
             "- To understand available document types, read `kb://types`.\n\n"
             "### When to use what\n"
             "- **I know the exact id** → `kb://doc/...` resource or `kb_get` tool\n"
@@ -2208,8 +2198,8 @@ def _make_server(vault: str | None = None) -> Any:
             "2. Read `kb://types` to see the full field schemas.\n"
             "3. List documents: `kb://list/` or `kb://list/{type}`.\n"
             "4. Search: `kb://search/{query}` resource or `kb_search` tool.\n"
-            "5. Read a document: `kb://doc/{type}/{slug}` resource or `kb_get` tool.\n"
-            "6. Explore relationships: `kb://graph/{type}/{slug}/{depth}`.\n"
+            "5. Read a document: `kb://doc/{id}` resource or `kb_get` tool.\n"
+            "6. Explore relationships: `kb://graph/{id}/{depth}`.\n"
             "7. Check recent changes: `kb://changes` resource.\n\n"
             "### Key Capabilities\n"
             "- **Full-text search** with lexical, fuzzy, semantic, and hybrid modes\n"

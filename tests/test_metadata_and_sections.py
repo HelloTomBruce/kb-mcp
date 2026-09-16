@@ -156,7 +156,7 @@ def test_metadata_markdown_roundtrip():
         "affected_components": ["auth", "gateway"],
     }
     doc = Document(
-        id="lesson/auth-token-leak",
+        id="auth-token-leak",
         type="lesson",
         title="Auth Token Leak",
         body="# Root Cause\nMisconfigured header.",

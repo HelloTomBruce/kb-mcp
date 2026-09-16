@@ -90,7 +90,7 @@ class TestAdd:
             ],
         )
         assert result.exit_code == EXIT_OK
-        doc = store.get("proj/integration-test")
+        doc = store.get("integration-test")
         assert doc.title == "Integration Test"
 
     def test_add_with_all_options(self, runner: CliRunner, store: SqliteStore) -> None:
@@ -110,7 +110,7 @@ class TestAdd:
             ],
         )
         assert result.exit_code == EXIT_OK
-        doc = store.get("dec/use-sqlite")
+        doc = store.get("use-sqlite")
         assert doc.body == "SQLite is great for local-first apps"
         assert "sqlite" in doc.tags
 
@@ -129,7 +129,7 @@ class TestAdd:
 class TestGet:
     def test_get_by_id(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Get Test"])
-        result = _invoke(runner, store, ["get", "proj/get-test"])
+        result = _invoke(runner, store, ["get", "get-test"])
         assert result.exit_code == EXIT_OK
         assert "Get Test" in result.output
 
@@ -149,10 +149,10 @@ class TestGet:
                 "test",
             ],
         )
-        result = _invoke(runner, store, ["get", "lesson/json-get", "--json"])
+        result = _invoke(runner, store, ["get", "json-get", "--json"])
         assert result.exit_code == EXIT_OK
         data = json.loads(result.output)
-        assert data["id"] == "lesson/json-get"
+        assert data["id"] == "json-get"
         assert data["body"] == "body content"
         assert "test" in data["tags"]
 
@@ -174,31 +174,31 @@ class TestUpdateDeleteRestore:
             store,
             [
                 "update",
-                "proj/original",
+                "original",
                 "--title",
                 "Updated Title",
             ],
         )
         assert result.exit_code == EXIT_OK
-        doc = store.get("proj/original")
+        doc = store.get("original")
         assert doc.title == "Updated Title"
 
     def test_delete_soft(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "To Delete"])
-        result = _invoke(runner, store, ["delete", "proj/to-delete"])
+        result = _invoke(runner, store, ["delete", "to-delete"])
         assert result.exit_code == EXIT_OK
         with pytest.raises(Exception):
-            store.get("proj/to-delete")
+            store.get("to-delete")
         # Still in DB with deleted_at set
-        tombstone = store.get("proj/to-delete", include_deleted=True)
+        tombstone = store.get("to-delete", include_deleted=True)
         assert tombstone.deleted_at is not None
 
     def test_restore_after_delete(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "To Restore"])
-        _invoke(runner, store, ["delete", "proj/to-restore"])
-        result = _invoke(runner, store, ["restore", "proj/to-restore"])
+        _invoke(runner, store, ["delete", "to-restore"])
+        result = _invoke(runner, store, ["restore", "to-restore"])
         assert result.exit_code == EXIT_OK
-        doc = store.get("proj/to-restore")
+        doc = store.get("to-restore")
         assert doc.title == "To Restore"
 
 
@@ -255,16 +255,16 @@ class TestList:
         _invoke(runner, store, ["add", "--type", "decision", "--title", "B"])
         result = _invoke(runner, store, ["list"])
         assert result.exit_code == EXIT_OK
-        assert "proj/a" in result.output
-        assert "dec/b" in result.output
+        assert "a" in result.output
+        assert "b" in result.output
 
     def test_list_type_filter(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "P1"])
         _invoke(runner, store, ["add", "--type", "decision", "--title", "D1"])
         result = _invoke(runner, store, ["list", "--type", "decision"])
         assert result.exit_code == EXIT_OK
-        assert "dec/d1" in result.output
-        assert "proj/p1" not in result.output
+        assert "d1" in result.output
+        assert "p1" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -282,15 +282,15 @@ class TestLink:
             [
                 "link",
                 "--from",
-                "proj/src",
+                "src",
                 "--to",
-                "dec/dst",
+                "dst",
             ],
         )
         assert result.exit_code == EXIT_OK
-        links = store.outgoing_links("proj/src")
+        links = store.outgoing_links("src")
         assert len(links) == 1
-        assert links[0].to_id == "dec/dst"
+        assert links[0].to_id == "dst"
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +301,7 @@ class TestLink:
 class TestCrossInvocation:
     def test_add_then_get_different_invocation(self, runner: CliRunner, store: SqliteStore) -> None:
         _invoke(runner, store, ["add", "--type", "project", "--title", "Cross"])
-        doc = store.get("proj/cross")
+        doc = store.get("cross")
         assert doc.title == "Cross"
 
     def test_add_then_search(self, runner: CliRunner, store: SqliteStore) -> None:
@@ -322,7 +322,7 @@ class TestCrossInvocation:
         assert result.exit_code == EXIT_OK
         data = json.loads(result.output)
         ids = [d["id"] for d in data]
-        assert "proj/json-list" in ids
+        assert "json-list" in ids
 
 
 # ---------------------------------------------------------------------------
