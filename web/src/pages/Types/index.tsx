@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Input,
@@ -25,6 +26,7 @@ import { toast } from 'sonner';
 import { DocTypeInfo } from '../../types';
 
 export const TypesPage: React.FC = () => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -53,9 +55,9 @@ export const TypesPage: React.FC = () => {
       setName('');
       setLabel('');
       setDescription('');
-      toast.success('Document type created successfully.');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Failed to create type: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const updateMutation = useMutation({
@@ -68,18 +70,18 @@ export const TypesPage: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['types'] });
       setEditingName(null);
-      toast.success('Document type updated.');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Failed to update type: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (typeName: string) => api.deleteType(typeName),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['types'] });
-      toast.success('Document type deleted.');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Failed to delete type: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const handleStartEdit = (t: DocTypeInfo) => {
@@ -92,7 +94,7 @@ export const TypesPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Loading schema types..." />
+        <Spinner size="lg" label={t('common.loading')} />
       </div>
     );
   }
@@ -107,10 +109,10 @@ export const TypesPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
             <Layers className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-            Document Types Management
+            {t('types.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Configure metadata taxonomies, system schemas, and document classification tags
+            {t('types.subtitle')}
           </p>
         </div>
 
@@ -120,29 +122,29 @@ export const TypesPage: React.FC = () => {
           size="sm"
           className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
         >
-          Add Custom Type
+          {t('types.createType')}
         </Button>
       </div>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs">
-          <div className="text-[11px] font-medium text-zinc-500 uppercase">Total Types</div>
+          <div className="text-[11px] font-medium text-zinc-500 uppercase">{t('types.title')}</div>
           <div className="text-xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">{stats.total}</div>
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs">
-          <div className="text-[11px] font-medium text-zinc-500 uppercase">Built-in Types</div>
+          <div className="text-[11px] font-medium text-zinc-500 uppercase">{t('types.builtIn')}</div>
           <div className="text-xl font-bold text-zinc-700 dark:text-zinc-300 mt-1 font-mono">{stats.builtin}</div>
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs">
-          <div className="text-[11px] font-medium text-zinc-500 uppercase">Custom Types</div>
+          <div className="text-[11px] font-medium text-zinc-500 uppercase">{t('types.custom')}</div>
           <div className="text-xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">{stats.custom}</div>
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs">
-          <div className="text-[11px] font-medium text-zinc-500 uppercase">Total Docs</div>
+          <div className="text-[11px] font-medium text-zinc-500 uppercase">{t('types.docCount')}</div>
           <div className="text-xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">{stats.total_docs}</div>
         </div>
       </div>
@@ -153,12 +155,12 @@ export const TypesPage: React.FC = () => {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-white/[0.08] text-zinc-500 text-left bg-zinc-50/50 dark:bg-white/[0.02]">
-                <th className="p-4 font-medium uppercase text-[11px]">IDENTIFIER</th>
-                <th className="p-4 font-medium uppercase text-[11px]">DISPLAY NAME</th>
-                <th className="p-4 font-medium uppercase text-[11px]">COLOR</th>
-                <th className="p-4 font-medium uppercase text-[11px]">DOCUMENTS</th>
-                <th className="p-4 font-medium uppercase text-[11px]">NATURE</th>
-                <th className="p-4 font-medium uppercase text-[11px] text-right">ACTIONS</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('types.typeName')}</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('types.typeLabel')}</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('types.typeColor')}</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('types.docCount')}</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('types.typeDesc')}</th>
+                <th className="p-4 font-medium uppercase text-[11px] text-right">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-white/[0.04]">
@@ -346,11 +348,11 @@ export const TypesPage: React.FC = () => {
         <ModalContent>
           <ModalHeader className="font-bold text-base text-zinc-900 dark:text-white flex items-center gap-2">
             <Plus className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-            Add Custom Document Type
+            {t('types.createType')}
           </ModalHeader>
           <ModalBody className="space-y-3 py-4 text-xs">
             <div className="space-y-1">
-              <label className="text-zinc-600 dark:text-zinc-400 font-medium">Type Identifier (Slug)</label>
+              <label className="text-zinc-600 dark:text-zinc-400 font-medium">{t('types.typeName')}</label>
               <Input
                 size="sm"
                 variant="bordered"
@@ -362,11 +364,10 @@ export const TypesPage: React.FC = () => {
                   inputWrapper: 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] rounded-xl',
                 }}
               />
-              <span className="text-[10px] text-zinc-500">Lowercase letters, numbers, and dashes only</span>
             </div>
 
             <div className="space-y-1">
-              <label className="text-zinc-600 dark:text-zinc-400 font-medium">Display Name (Label)</label>
+              <label className="text-zinc-600 dark:text-zinc-400 font-medium">{t('types.typeLabel')}</label>
               <Input
                 size="sm"
                 variant="bordered"
@@ -380,7 +381,7 @@ export const TypesPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-zinc-600 dark:text-zinc-400 font-medium">Description</label>
+              <label className="text-zinc-600 dark:text-zinc-400 font-medium">{t('types.typeDesc')}</label>
               <Input
                 size="sm"
                 variant="bordered"
@@ -394,7 +395,7 @@ export const TypesPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-zinc-600 dark:text-zinc-400 font-medium">Theme Color</label>
+              <label className="text-zinc-600 dark:text-zinc-400 font-medium">{t('types.typeColor')}</label>
               <div className="flex items-center gap-3">
                 <input
                   type="color"
@@ -422,7 +423,7 @@ export const TypesPage: React.FC = () => {
               onPress={onClose}
               className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white rounded-full text-xs"
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               size="sm"
@@ -431,7 +432,7 @@ export const TypesPage: React.FC = () => {
               onPress={() => createMutation.mutate()}
               className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 px-4"
             >
-              Create Type
+              {t('common.create')}
             </Button>
           </ModalFooter>
         </ModalContent>

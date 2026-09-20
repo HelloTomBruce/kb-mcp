@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Input,
@@ -33,6 +34,7 @@ const STANDARD_RELATIONS = [
 ];
 
 export const LinksPage: React.FC = () => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [filterDocId, setFilterDocId] = useState('');
   const [filterRel, setFilterRel] = useState('');
@@ -55,24 +57,24 @@ export const LinksPage: React.FC = () => {
       setIsCreating(false);
       setFromId('');
       setToId('');
-      toast.success('Relation link created.');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Failed to add link: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (link: LinkItem) => api.deleteLink(link),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['links'] });
-      toast.success('Relation link removed.');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Failed to remove link: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Loading relationship graph..." />
+        <Spinner size="lg" label={t('common.loading')} />
       </div>
     );
   }
@@ -96,10 +98,10 @@ export const LinksPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
             <Link2 className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-            Knowledge Relationships (Links)
+            {t('links.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Explicit and derived dependency edges, precedence rules, and cross-document associations
+            {t('links.subtitle')}
           </p>
         </div>
 
@@ -109,7 +111,7 @@ export const LinksPage: React.FC = () => {
           size="sm"
           className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
         >
-          Create Link Edge
+          {t('links.createLink')}
         </Button>
       </div>
 
@@ -123,7 +125,7 @@ export const LinksPage: React.FC = () => {
             onClear={() => setFilterDocId('')}
             value={filterDocId}
             onValueChange={setFilterDocId}
-            placeholder="Filter by Source or Target Document ID..."
+            placeholder={t('links.filterPlaceholder')}
             startContent={<Search className="w-4 h-4 text-zinc-400" />}
             className="flex-1 font-mono text-xs"
             classNames={{
@@ -155,11 +157,11 @@ export const LinksPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Inline Create Box */}
+              {/* Inline Create Box */}
         {isCreating && (
           <div className="mt-3 p-4 bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.08] rounded-xl space-y-3">
             <div className="flex items-center justify-between text-xs font-semibold text-zinc-900 dark:text-white">
-              <span className="flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Add New Relation Link Edge</span>
+              <span className="flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> {t('links.addRelationEdge')}</span>
               <button
                 type="button"
                 onClick={() => setIsCreating(false)}
@@ -173,8 +175,8 @@ export const LinksPage: React.FC = () => {
               <Input
                 size="sm"
                 variant="bordered"
-                label="Source ID (From)"
-                placeholder="e.g. decision/auth-jwt"
+                label={t('links.sourceIdLabel')}
+                placeholder={t('links.sourceIdPlaceholder')}
                 value={fromId}
                 onValueChange={setFromId}
                 className="font-mono text-xs"
@@ -188,7 +190,7 @@ export const LinksPage: React.FC = () => {
               <div>
                 <Select
                   size="sm"
-                  label="Relation Verb"
+                  label={t('links.relationVerb')}
                   selectedKeys={[rel]}
                   onChange={(e) => setRel(e.target.value || 'relates-to')}
                   variant="bordered"
@@ -210,8 +212,8 @@ export const LinksPage: React.FC = () => {
               <Input
                 size="sm"
                 variant="bordered"
-                label="Target ID (To)"
-                placeholder="e.g. proj/my-service"
+                label={t('links.targetIdLabel')}
+                placeholder={t('links.targetIdPlaceholder')}
                 value={toId}
                 onValueChange={setToId}
                 className="font-mono text-xs"
@@ -230,7 +232,7 @@ export const LinksPage: React.FC = () => {
                 onPress={() => setIsCreating(false)}
                 className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white rounded-full text-xs"
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 size="sm"
@@ -239,7 +241,7 @@ export const LinksPage: React.FC = () => {
                 onPress={() => createMutation.mutate()}
                 className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 px-4"
               >
-                Create Edge
+                {t('links.createEdgeButton')}
               </Button>
             </div>
           </div>
@@ -249,17 +251,17 @@ export const LinksPage: React.FC = () => {
       {/* Table Container */}
       <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs overflow-hidden">
         <div className="px-5 py-3 bg-zinc-50 dark:bg-white/[0.02] text-xs font-medium text-zinc-500 flex items-center justify-between">
-          <span>Relationship Edges ({filteredLinks.length})</span>
+          <span>{t('links.edgesCount', { count: filteredLinks.length })}</span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs font-mono">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-white/[0.08] text-zinc-500 text-left bg-zinc-50 dark:bg-white/[0.02]">
-                <th className="p-4 font-medium uppercase text-[11px]">SOURCE (FROM)</th>
-                <th className="p-4 font-medium uppercase text-[11px]">RELATION</th>
-                <th className="p-4 font-medium uppercase text-[11px]">TARGET (TO)</th>
-                <th className="p-4 font-medium uppercase text-[11px] text-right">ACTIONS</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('links.sourceCol')}</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('links.relationCol')}</th>
+                <th className="p-4 font-medium uppercase text-[11px]">{t('links.targetCol')}</th>
+                <th className="p-4 font-medium uppercase text-[11px] text-right">{t('links.actionsCol')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-white/[0.04]">
@@ -305,7 +307,7 @@ export const LinksPage: React.FC = () => {
                         isLoading={deleteMutation.isPending && (deleteMutation.variables as any) === link}
                         onPress={() => deleteMutation.mutate(link)}
                         className="text-zinc-400 hover:text-red-500 rounded-full w-7 h-7"
-                        title="Delete Link"
+                        title={t('links.deleteLink')}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -315,7 +317,7 @@ export const LinksPage: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={4} className="p-12 text-center text-xs text-zinc-500 font-sans">
-                    No matching relationship links found.
+                    {t('links.noLinks')}
                   </td>
                 </tr>
               )}

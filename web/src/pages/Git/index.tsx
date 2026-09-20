@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Input,
@@ -37,6 +38,7 @@ interface DiffTarget {
 }
 
 export const GitPage: React.FC = () => {
+  const { t } = useTranslation();
   const [commitMessage, setCommitMessage] = useState('');
   const [syncDir, setSyncDir] = useState('');
   const [remoteBranch, setRemoteBranch] = useState('main');
@@ -80,9 +82,9 @@ export const GitPage: React.FC = () => {
       setCommitMessage('');
       setSelectedDiffTarget(null);
       refreshAll();
-      toast.success(`Commit successful: ${data.output || 'OK'}`);
+      toast.success(`${t('common.success')}: ${data.output || 'OK'}`);
     },
-    onError: (err: any) => toast.error(`Commit failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const syncMutation = useMutation({
@@ -90,9 +92,9 @@ export const GitPage: React.FC = () => {
     onSuccess: (data) => {
       setSelectedDiffTarget(null);
       refreshAll();
-      toast.success(`Git sync completed: ${data.output || 'OK'}`);
+      toast.success(`${t('common.success')}: ${data.output || 'OK'}`);
     },
-    onError: (err: any) => toast.error(`Git sync failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const pullMutation = useMutation({
@@ -100,9 +102,9 @@ export const GitPage: React.FC = () => {
       api.gitPull(remoteName.trim() || 'origin', (branchToPull || remoteBranch).trim() || 'main'),
     onSuccess: (data) => {
       refreshAll();
-      toast.success(`Git pull successful: ${data?.output || 'Up to date'}`);
+      toast.success(`${t('common.success')}: ${data?.output || 'Up to date'}`);
     },
-    onError: (err: any) => toast.error(`Git pull failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const pushMutation = useMutation({
@@ -110,18 +112,18 @@ export const GitPage: React.FC = () => {
       api.gitPush(remoteName.trim() || 'origin', (branchToPush || remoteBranch).trim() || 'main'),
     onSuccess: (data) => {
       refreshAll();
-      toast.success(`Git push successful: ${data?.output || 'OK'}`);
+      toast.success(`${t('common.success')}: ${data?.output || 'OK'}`);
     },
-    onError: (err: any) => toast.error(`Git push failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const initMutation = useMutation({
     mutationFn: () => api.gitInit(syncDir || undefined),
     onSuccess: () => {
       refreshAll();
-      toast.success('Git repository initialized successfully');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Git init failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const isLoading = isStatusLoading || isHistoryLoading;
@@ -147,7 +149,7 @@ export const GitPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Checking git repository status..." />
+        <Spinner size="lg" label={t('git.checkingStatus')} />
       </div>
     );
   }
@@ -159,10 +161,10 @@ export const GitPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
             <GitBranch className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-            Git Version Control & Sync
+            {t('git.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Automated bidirectional synchronization between local Markdown files and Git remote repository
+            {t('git.subtitle')}
           </p>
         </div>
 
@@ -173,7 +175,7 @@ export const GitPage: React.FC = () => {
             variant="light"
             onPress={refreshAll}
             className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-full w-8 h-8"
-            title="Refresh Git Status"
+            title={t('git.refreshStatus')}
           >
             <RefreshCw className="w-4 h-4" />
           </Button>
@@ -186,7 +188,7 @@ export const GitPage: React.FC = () => {
             onPress={() => syncMutation.mutate()}
             className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
           >
-            One-Click Sync
+            {t('git.oneClickSync')}
           </Button>
         </div>
       </div>
@@ -195,10 +197,10 @@ export const GitPage: React.FC = () => {
         <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs p-6 space-y-4">
           <div className="flex items-center gap-3 text-zinc-800 dark:text-zinc-200 font-semibold text-sm">
             <FolderGit2 className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
-            <span>Git Repository not initialized for this vault sync directory</span>
+            <span>{t('git.notInitTitle')}</span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Initialize a Git repository to enable automatic change tracking, version history, and team remote collaboration.
+            {t('git.notInitDesc')}
           </p>
           <div className="flex items-center gap-3 pt-2">
             <Input
@@ -206,7 +208,7 @@ export const GitPage: React.FC = () => {
               variant="bordered"
               value={syncDir}
               onValueChange={setSyncDir}
-              placeholder="Optional custom sync directory (defaults to vault dir)"
+              placeholder={t('git.initPlaceholder')}
               className="max-w-md font-mono text-xs"
               classNames={{
                 inputWrapper: 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/20 rounded-xl min-h-9',
@@ -218,7 +220,7 @@ export const GitPage: React.FC = () => {
               onPress={() => initMutation.mutate()}
               className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-9 px-4"
             >
-              Initialize Git Repo
+              {t('git.initRepo')}
             </Button>
           </div>
         </div>
@@ -228,7 +230,7 @@ export const GitPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs flex items-center justify-between">
               <div>
-                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Active Branch</div>
+                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">{t('git.activeBranch')}</div>
                 <div className="text-base font-bold text-zinc-900 dark:text-white mt-1 font-mono flex items-center gap-1.5">
                   <GitBranch className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
                   {gitStatus?.branch || 'main'}
@@ -237,11 +239,11 @@ export const GitPage: React.FC = () => {
               <div>
                 {isClean ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
-                    <CheckCircle2 className="w-3 h-3" /> Clean
+                    <CheckCircle2 className="w-3 h-3" /> {t('common.clean')}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
-                    <AlertCircle className="w-3 h-3" /> Changes Pending ({totalPendingChanges})
+                    <AlertCircle className="w-3 h-3" /> {t('git.changesPending', { count: totalPendingChanges })}
                   </span>
                 )}
               </div>
@@ -249,7 +251,7 @@ export const GitPage: React.FC = () => {
 
             <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs flex items-center justify-between">
               <div>
-                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Sync Directory</div>
+                <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">{t('git.syncDir')}</div>
                 <div className="text-xs font-mono text-zinc-700 dark:text-zinc-300 mt-1 truncate max-w-[240px]" title={gitStatus?.sync_dir || gitStatus?.git_dir}>
                   {gitStatus?.sync_dir || gitStatus?.git_dir || '—'}
                 </div>
@@ -260,13 +262,13 @@ export const GitPage: React.FC = () => {
             <div className="sm:col-span-2 p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-4">
                 <div>
-                  <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Remote Tracking</div>
+                  <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">{t('git.remoteTracking')}</div>
                   <div className="text-xs font-mono text-zinc-800 dark:text-zinc-200 mt-1 flex items-center gap-3">
                     <span className="flex items-center gap-1 text-zinc-700 dark:text-zinc-300 font-semibold">
-                      <ArrowUp className="w-3.5 h-3.5 text-zinc-400" /> Ahead: {gitStatus?.ahead ?? 0}
+                      <ArrowUp className="w-3.5 h-3.5 text-zinc-400" /> {t('git.ahead', { count: gitStatus?.ahead ?? 0 })}
                     </span>
                     <span className="flex items-center gap-1 text-zinc-700 dark:text-zinc-300 font-semibold">
-                      <ArrowDown className="w-3.5 h-3.5 text-zinc-400" /> Behind: {gitStatus?.behind ?? 0}
+                      <ArrowDown className="w-3.5 h-3.5 text-zinc-400" /> {t('git.behind', { count: gitStatus?.behind ?? 0 })}
                     </span>
                   </div>
                 </div>
@@ -279,7 +281,7 @@ export const GitPage: React.FC = () => {
                     <Input
                       size="sm"
                       variant="bordered"
-                      label="Remote"
+                      label={t('git.remoteLabel')}
                       value={remoteName}
                       onValueChange={setRemoteName}
                       placeholder="origin"
@@ -294,7 +296,7 @@ export const GitPage: React.FC = () => {
                     <Input
                       size="sm"
                       variant="bordered"
-                      label="Branch"
+                      label={t('git.branchLabel')}
                       value={remoteBranch}
                       onValueChange={setRemoteBranch}
                       placeholder="main"
@@ -316,7 +318,7 @@ export const GitPage: React.FC = () => {
                   onPress={() => pullMutation.mutate(remoteBranch)}
                   className="bg-zinc-100 hover:bg-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-white/[0.08] text-xs font-semibold rounded-full h-8 px-3.5"
                 >
-                  Pull ({remoteBranch})
+                  {t('git.pull')} ({remoteBranch})
                 </Button>
                 <Button
                   size="sm"
@@ -325,7 +327,7 @@ export const GitPage: React.FC = () => {
                   onPress={() => pushMutation.mutate(remoteBranch)}
                   className="bg-zinc-100 hover:bg-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-white/[0.08] text-xs font-semibold rounded-full h-8 px-3.5"
                 >
-                  Push ({remoteBranch})
+                  {t('git.push')} ({remoteBranch})
                 </Button>
               </div>
             </div>
@@ -337,10 +339,10 @@ export const GitPage: React.FC = () => {
               <div>
                 <h3 className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
                   <FileCode className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-                  Changes Inspector & Working Tree
+                  {t('git.inspectorTitle')}
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
-                  Click any document or file to inspect its unified diff comparison
+                  {t('git.inspectorSubtitle')}
                 </p>
               </div>
 
@@ -353,7 +355,7 @@ export const GitPage: React.FC = () => {
                       if (selectedDiffTarget?.type === 'all') {
                         setSelectedDiffTarget(null);
                       } else {
-                        setSelectedDiffTarget({ type: 'all', label: 'All Working Tree Changes' });
+                        setSelectedDiffTarget({ type: 'all', label: t('git.viewFullDiff') });
                       }
                     }}
                     className={`text-xs font-medium rounded-full h-8 px-3.5 ${
@@ -362,7 +364,7 @@ export const GitPage: React.FC = () => {
                         : 'bg-zinc-100 hover:bg-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-white/[0.08]'
                     }`}
                   >
-                    {selectedDiffTarget?.type === 'all' ? 'Hide Diff' : 'View Full Diff'}
+                    {selectedDiffTarget?.type === 'all' ? t('git.hideDiff') : t('git.viewFullDiff')}
                   </Button>
                 </div>
               )}
@@ -371,7 +373,7 @@ export const GitPage: React.FC = () => {
             {isClean ? (
               <div className="flex items-center gap-2.5 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 text-xs font-medium border border-emerald-200 dark:border-emerald-800/30">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                <span>Working tree and SQLite database are in sync with Git. No pending changes detected.</span>
+                <span>{t('git.allInSync')}</span>
               </div>
             ) : (
               <div className="space-y-4">
@@ -382,7 +384,7 @@ export const GitPage: React.FC = () => {
                     title={
                       <div className="flex items-center gap-1.5">
                         <Database className="w-3.5 h-3.5" />
-                        <span>Database Pending Export</span>
+                        <span>{t('git.dbPendingTab')}</span>
                         <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-100 dark:bg-white/10 text-zinc-600 dark:text-zinc-300">
                           {pendingExport.total}
                         </span>
@@ -392,14 +394,14 @@ export const GitPage: React.FC = () => {
                     <div className="pt-3 space-y-3">
                       {pendingExport.total === 0 ? (
                         <div className="text-xs text-zinc-500 italic py-2">
-                          All SQLite database records are fully exported to Markdown files.
+                          {t('git.dbAllExported')}
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           {/* Added */}
                           <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06] space-y-2">
                             <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-                              <span className="flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Added in DB</span>
+                              <span className="flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> {t('git.addedInDb')}</span>
                               <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">{pendingExport.added.length}</span>
                             </div>
                             <div className="space-y-1 max-h-36 overflow-y-auto">
@@ -419,14 +421,14 @@ export const GitPage: React.FC = () => {
                                   <Eye className="w-3 h-3 shrink-0 opacity-60" />
                                 </button>
                               ))}
-                              {pendingExport.added.length === 0 && <span className="text-xs text-zinc-500 italic">None</span>}
+                              {pendingExport.added.length === 0 && <span className="text-xs text-zinc-500 italic">{t('common.none')}</span>}
                             </div>
                           </div>
 
                           {/* Modified */}
                           <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06] space-y-2">
                             <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-between">
-                              <span className="flex items-center gap-1"><Edit3 className="w-3.5 h-3.5" /> Modified in DB</span>
+                              <span className="flex items-center gap-1"><Edit3 className="w-3.5 h-3.5" /> {t('git.modifiedInDb')}</span>
                               <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">{pendingExport.modified.length}</span>
                             </div>
                             <div className="space-y-1 max-h-36 overflow-y-auto">
@@ -446,14 +448,14 @@ export const GitPage: React.FC = () => {
                                   <Eye className="w-3 h-3 shrink-0 opacity-60" />
                                 </button>
                               ))}
-                              {pendingExport.modified.length === 0 && <span className="text-xs text-zinc-500 italic">None</span>}
+                              {pendingExport.modified.length === 0 && <span className="text-xs text-zinc-500 italic">{t('common.none')}</span>}
                             </div>
                           </div>
 
                           {/* Deleted */}
                           <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06] space-y-2">
                             <div className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center justify-between">
-                              <span className="flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Deleted in DB</span>
+                              <span className="flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> {t('git.deletedInDb')}</span>
                               <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800/40">{pendingExport.deleted.length}</span>
                             </div>
                             <div className="space-y-1 max-h-36 overflow-y-auto">
@@ -473,7 +475,7 @@ export const GitPage: React.FC = () => {
                                   <Eye className="w-3 h-3 shrink-0 opacity-60" />
                                 </button>
                               ))}
-                              {pendingExport.deleted.length === 0 && <span className="text-xs text-zinc-500 italic">None</span>}
+                              {pendingExport.deleted.length === 0 && <span className="text-xs text-zinc-500 italic">{t('common.none')}</span>}
                             </div>
                           </div>
                         </div>
@@ -487,7 +489,7 @@ export const GitPage: React.FC = () => {
                     title={
                       <div className="flex items-center gap-1.5">
                         <FolderGit2 className="w-3.5 h-3.5" />
-                        <span>Git Working Tree</span>
+                        <span>{t('git.gitTreeTab')}</span>
                         <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-100 dark:bg-white/10 text-zinc-600 dark:text-zinc-300">
                           {staged.length + unstaged.length + untracked.length}
                         </span>
@@ -497,14 +499,14 @@ export const GitPage: React.FC = () => {
                     <div className="pt-3 space-y-3">
                       {staged.length === 0 && unstaged.length === 0 && untracked.length === 0 ? (
                         <div className="text-xs text-zinc-500 italic py-2">
-                          No modified, staged, or untracked files in Git working tree.
+                          {t('git.gitTreeClean')}
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           {/* Staged */}
                           <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06] space-y-2">
                             <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-                              <span>Staged ({staged.length})</span>
+                              <span>{t('git.staged')} ({staged.length})</span>
                             </div>
                             <div className="space-y-1 max-h-36 overflow-y-auto">
                               {staged.map((item) => (
@@ -523,14 +525,14 @@ export const GitPage: React.FC = () => {
                                   <Eye className="w-3 h-3 shrink-0 opacity-60" />
                                 </button>
                               ))}
-                              {staged.length === 0 && <span className="text-xs text-zinc-500 italic">None</span>}
+                              {staged.length === 0 && <span className="text-xs text-zinc-500 italic">{t('common.none')}</span>}
                             </div>
                           </div>
 
                           {/* Unstaged Modified */}
                           <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06] space-y-2">
                             <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-between">
-                              <span>Unstaged Modified ({unstaged.length})</span>
+                              <span>{t('git.unstaged')} ({unstaged.length})</span>
                             </div>
                             <div className="space-y-1 max-h-36 overflow-y-auto">
                               {unstaged.map((item) => (
@@ -549,14 +551,14 @@ export const GitPage: React.FC = () => {
                                   <Eye className="w-3 h-3 shrink-0 opacity-60" />
                                 </button>
                               ))}
-                              {unstaged.length === 0 && <span className="text-xs text-zinc-500 italic">None</span>}
+                              {unstaged.length === 0 && <span className="text-xs text-zinc-500 italic">{t('common.none')}</span>}
                             </div>
                           </div>
 
                           {/* Untracked */}
                           <div className="p-3 rounded-xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06] space-y-2">
                             <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
-                              <span>Untracked Files ({untracked.length})</span>
+                              <span>{t('git.untracked')} ({untracked.length})</span>
                             </div>
                             <div className="space-y-1 max-h-36 overflow-y-auto">
                               {untracked.map((path) => (
@@ -575,7 +577,7 @@ export const GitPage: React.FC = () => {
                                   <Eye className="w-3 h-3 shrink-0 opacity-60" />
                                 </button>
                               ))}
-                              {untracked.length === 0 && <span className="text-xs text-zinc-500 italic">None</span>}
+                              {untracked.length === 0 && <span className="text-xs text-zinc-500 italic">{t('common.none')}</span>}
                             </div>
                           </div>
                         </div>
@@ -590,9 +592,9 @@ export const GitPage: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 dark:text-white">
                         <Code2 className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-                        <span>Diff Preview:</span>
+                        <span>{t('git.diffPreview')}</span>
                         <span className="font-mono text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-white/[0.05] border border-zinc-200 dark:border-white/[0.08] px-2 py-0.5 rounded-md">
-                          {selectedDiffTarget.label || selectedDiffTarget.name || 'All Working Tree Changes'}
+                          {selectedDiffTarget.label || selectedDiffTarget.name || t('git.viewFullDiff')}
                         </span>
                       </div>
                       <Button
@@ -601,7 +603,7 @@ export const GitPage: React.FC = () => {
                         isIconOnly
                         onPress={() => setSelectedDiffTarget(null)}
                         className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-full w-7 h-7"
-                        title="Close Diff View"
+                        title={t('common.close')}
                       >
                         <EyeOff className="w-3.5 h-3.5" />
                       </Button>
@@ -609,7 +611,7 @@ export const GitPage: React.FC = () => {
 
                     {isDiffLoading ? (
                       <div className="flex items-center justify-center py-8">
-                        <Spinner size="sm" label="Loading diff output..." />
+                        <Spinner size="sm" label={t('git.loadingDiff')} />
                       </div>
                     ) : (
                       <div className="max-h-96 overflow-y-auto rounded-xl border border-zinc-200 dark:border-white/[0.08]">
@@ -628,7 +630,7 @@ export const GitPage: React.FC = () => {
                 variant="bordered"
                 value={commitMessage}
                 onValueChange={setCommitMessage}
-                placeholder="Commit message (e.g. export docs and sync changes)..."
+                placeholder={t('git.commitPlaceholder')}
                 className="flex-1"
                 classNames={{
                   inputWrapper: 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/20 rounded-xl min-h-10 text-xs shadow-2xs',
@@ -642,7 +644,7 @@ export const GitPage: React.FC = () => {
                 onPress={() => commitMutation.mutate(commitMessage || 'admin commit')}
                 className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-10 px-5 shadow-sm shrink-0"
               >
-                Export & Commit
+                {t('git.exportAndCommit')}
               </Button>
             </div>
           </div>
@@ -651,7 +653,7 @@ export const GitPage: React.FC = () => {
           <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs p-5 space-y-4">
             <h3 className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
               <GitCommit className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-              Recent Commit History
+              {t('git.recentCommits')}
             </h3>
 
             <div className="divide-y divide-zinc-100 dark:divide-white/[0.06] font-mono text-xs">
@@ -663,8 +665,7 @@ export const GitPage: React.FC = () => {
                         {c.message}
                       </div>
                       <div className="text-[11px] text-zinc-400 dark:text-zinc-500 font-sans">
-                        by <span className="text-zinc-700 dark:text-zinc-300 font-medium">{c.author}</span> on{' '}
-                        {c.date}
+                        {t('git.byAuthor', { author: c.author, date: c.date })}
                       </div>
                     </div>
                     <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-white/[0.04] text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-white/[0.08] font-bold shrink-0">
@@ -673,7 +674,7 @@ export const GitPage: React.FC = () => {
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-zinc-500 py-4">No commit history found.</div>
+                <div className="text-xs text-zinc-500 py-4">{t('git.noCommits')}</div>
               )}
             </div>
           </div>

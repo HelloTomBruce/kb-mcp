@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface TypeBadgeProps {
   type: string;
@@ -43,8 +44,9 @@ const TYPE_STYLES: Record<string, string> = {
 };
 
 export const TypeBadge: React.FC<TypeBadgeProps> = ({ type, className = '', size = 'sm' }) => {
+  const { t } = useTranslation();
   const normalized = type.toLowerCase();
-  const label = TYPE_SHORT_LABELS[normalized] || type;
+  const label = t(`typeNames.${normalized}`, { defaultValue: TYPE_SHORT_LABELS[normalized] || type });
   const styleClass = TYPE_STYLES[normalized] || 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800';
   const sizeClass = size === 'lg' ? 'text-xs px-2.5 py-1' : size === 'md' ? 'text-[11px] px-2 py-0.5' : 'text-[10px] px-2 py-0.5';
 

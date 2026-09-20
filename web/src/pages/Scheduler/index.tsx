@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Switch,
@@ -16,6 +17,8 @@ import { api } from '../../api/client';
 import { toast } from 'sonner';
 
 export const SchedulerPage: React.FC = () => {
+  const { t } = useTranslation();
+
   const { isLoading: isStatusLoading } = useQuery({
     queryKey: ['scheduler-status'],
     queryFn: () => api.getSchedulerStatus(),
@@ -37,12 +40,12 @@ export const SchedulerPage: React.FC = () => {
       refetchTasks();
       refetchHistory();
       if (data.status === 'ok') {
-        toast.success(`Task [${data.task_name}] executed (${data.duration_ms}ms)`);
+        toast.success(`${t('common.success')}: [${data.task_name}] (${data.duration_ms}ms)`);
       } else {
-        toast.error(`Task [${data.task_name}] failed: ${data.error || 'Unknown error'}`);
+        toast.error(`${t('common.failed')}: [${data.task_name}] ${data.error || ''}`);
       }
     },
-    onError: (err: any) => toast.error(`Task run failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const toggleMutation = useMutation({
@@ -55,9 +58,9 @@ export const SchedulerPage: React.FC = () => {
     },
     onSuccess: () => {
       refetchTasks();
-      toast.success('Task schedule state updated.');
+      toast.success(t('common.success'));
     },
-    onError: (err: any) => toast.error(`Toggle failed: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const isLoading = isStatusLoading || isTasksLoading || isHistoryLoading;
@@ -65,7 +68,7 @@ export const SchedulerPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Loading scheduler tasks..." />
+        <Spinner size="lg" label={t('scheduler.loadingTasks')} />
       </div>
     );
   }
@@ -80,10 +83,10 @@ export const SchedulerPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
             <Clock className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-            Background Task Scheduler
+            {t('scheduler.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Manage autonomous knowledge maintenance, automatic git sync, vector embeddings, and integrity self-healing
+            {t('scheduler.subtitle')}
           </p>
         </div>
 
@@ -96,7 +99,7 @@ export const SchedulerPage: React.FC = () => {
           }}
           className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
         >
-          Refresh
+          {t('scheduler.refresh')}
         </Button>
       </div>
 
@@ -104,10 +107,10 @@ export const SchedulerPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-medium">Scheduler Engine</div>
+            <div className="text-[11px] text-zinc-500 uppercase font-medium">{t('scheduler.engine')}</div>
             <div className="text-base font-bold text-zinc-900 dark:text-white mt-1 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Running</span>
+              <span>{t('scheduler.running')}</span>
             </div>
           </div>
           <Activity className="w-5 h-5 text-zinc-400" />
@@ -115,9 +118,9 @@ export const SchedulerPage: React.FC = () => {
 
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-medium">Active Jobs</div>
+            <div className="text-[11px] text-zinc-500 uppercase font-medium">{t('scheduler.activeJobs')}</div>
             <div className="text-2xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">
-              {tasksList.filter((t) => t.enabled).length} / {tasksList.length}
+              {tasksList.filter((tItem) => tItem.enabled).length} / {tasksList.length}
             </div>
           </div>
           <Clock className="w-5 h-5 text-zinc-400" />
@@ -125,7 +128,7 @@ export const SchedulerPage: React.FC = () => {
 
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-medium">Recorded Executions</div>
+            <div className="text-[11px] text-zinc-500 uppercase font-medium">{t('scheduler.recordedExecutions')}</div>
             <div className="text-2xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">
               {historyList.length}
             </div>
@@ -138,19 +141,19 @@ export const SchedulerPage: React.FC = () => {
       <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs p-5 space-y-4">
         <h2 className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
           <Clock className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-          Scheduled Maintenance Tasks
+          {t('scheduler.taskList')}
         </h2>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-white/[0.08] text-zinc-500 text-left bg-zinc-50 dark:bg-white/[0.02]">
-                <th className="p-3.5 font-medium uppercase text-[11px]">STATUS</th>
-                <th className="p-3.5 font-medium uppercase text-[11px]">TASK</th>
-                <th className="p-3.5 font-medium uppercase text-[11px]">CADENCE</th>
-                <th className="p-3.5 font-medium uppercase text-[11px]">LAST RUN</th>
-                <th className="p-3.5 font-medium uppercase text-[11px]">NEXT RUN</th>
-                <th className="p-3.5 font-medium uppercase text-[11px] text-right">ACTION</th>
+                <th className="p-3.5 font-medium uppercase text-[11px]">{t('scheduler.statusCol')}</th>
+                <th className="p-3.5 font-medium uppercase text-[11px]">{t('scheduler.taskCol')}</th>
+                <th className="p-3.5 font-medium uppercase text-[11px]">{t('scheduler.cadenceCol')}</th>
+                <th className="p-3.5 font-medium uppercase text-[11px]">{t('scheduler.lastRunCol')}</th>
+                <th className="p-3.5 font-medium uppercase text-[11px]">{t('scheduler.nextRunCol')}</th>
+                <th className="p-3.5 font-medium uppercase text-[11px] text-right">{t('scheduler.actionCol')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-white/[0.04]">
@@ -177,7 +180,7 @@ export const SchedulerPage: React.FC = () => {
                     )}
                   </td>
                   <td className="p-3.5 font-mono text-zinc-700 dark:text-zinc-300">
-                    {task.cron || (task.interval_seconds ? `${task.interval_seconds}s` : 'Manual')}
+                    {task.cron || (task.interval_seconds ? `${task.interval_seconds}s` : t('scheduler.manual'))}
                   </td>
                   <td className="p-3.5">
                     {task.last_run ? (
@@ -185,9 +188,9 @@ export const SchedulerPage: React.FC = () => {
                         <div className="text-zinc-800 dark:text-zinc-300 font-mono">{task.last_run.split('T')[0]} {task.last_run.split('T')[1]?.slice(0, 8)}</div>
                         <div className="flex items-center gap-1.5 text-[10px]">
                           {task.last_status === 'ok' ? (
-                            <span className="text-emerald-600 dark:text-emerald-400">Success</span>
+                            <span className="text-emerald-600 dark:text-emerald-400">{t('common.success')}</span>
                           ) : (
-                            <span className="text-red-600 dark:text-red-400">Failed</span>
+                            <span className="text-red-600 dark:text-red-400">{t('common.failed')}</span>
                           )}
                           {task.last_duration_ms !== undefined && (
                             <span className="text-zinc-500">({task.last_duration_ms}ms)</span>
@@ -195,7 +198,7 @@ export const SchedulerPage: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <span className="text-zinc-500 font-mono text-xs">Never</span>
+                      <span className="text-zinc-500 font-mono text-xs">{t('common.never')}</span>
                     )}
                   </td>
                   <td className="p-3.5 text-zinc-500 dark:text-zinc-400 font-mono">
@@ -209,7 +212,7 @@ export const SchedulerPage: React.FC = () => {
                       onPress={() => runMutation.mutate(task.name)}
                       className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] dark:text-zinc-200 dark:border-white/[0.08] text-xs font-semibold rounded-full h-7 px-3"
                     >
-                      Run Now
+                      {t('scheduler.runNow')}
                     </Button>
                   </td>
                 </tr>
@@ -223,18 +226,18 @@ export const SchedulerPage: React.FC = () => {
       <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs p-5 space-y-4">
         <h2 className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
           <History className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-          Execution Log
+          {t('scheduler.executionLog')}
         </h2>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs font-mono">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-white/[0.08] text-zinc-500 text-left">
-                <th className="pb-3 font-medium uppercase text-[11px]">Time</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Task Name</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Status</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Duration</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Error/Notes</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('scheduler.timeCol')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('scheduler.taskNameCol')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('scheduler.statusCol2')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('scheduler.durationCol')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('scheduler.errorNotesCol')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-white/[0.04]">
@@ -261,7 +264,7 @@ export const SchedulerPage: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-zinc-500">
-                    No execution logs recorded yet.
+                    {t('scheduler.noLogs')}
                   </td>
                 </tr>
               )}

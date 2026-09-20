@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="8" fill="#09090b"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke="#27272a"/>
+  <!-- Grok / Antigravity styled knowledge diamond -->
+  <path d="M16 6L26 16L16 26L6 16Z" fill="url(#grad)" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/>
+  <circle cx="16" cy="16" r="3" fill="#ffffff"/>
+  <defs>
+    <linearGradient id="grad" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+</svg>

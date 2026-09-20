@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Input,
   Button,
@@ -31,6 +32,7 @@ const DOC_TYPES = [
 ];
 
 export const SearchPage: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'hybrid' | 'lexical' | 'semantic' | 'fuzzy'>('hybrid');
@@ -76,12 +78,12 @@ export const SearchPage: React.FC = () => {
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
-          <SearchIcon className="w-6 h-6 text-zinc-400" />
-          Multi-Channel Search
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
+          <SearchIcon className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
+          {t('search.title')}
         </h1>
-        <p className="text-xs text-zinc-400 mt-1">
-          Explore hybrid fusion search (BM25 + Semantic vec0 + Fuzzy Trigram) and graph neighbor expansions
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+          {t('search.subtitle')}
         </p>
       </div>
 
@@ -93,7 +95,7 @@ export const SearchPage: React.FC = () => {
             onClear={() => setQuery('')}
             value={query}
             onValueChange={setQuery}
-            placeholder="Ask a question or enter query terms..."
+            placeholder={t('search.inputPlaceholder')}
             startContent={<SearchIcon className="w-4 h-4 text-zinc-400" />}
             size="md"
             variant="bordered"
@@ -108,14 +110,14 @@ export const SearchPage: React.FC = () => {
             size="md"
             className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 h-11 px-5 shadow-sm shrink-0"
           >
-            Search
+            {t('common.search')}
           </Button>
         </form>
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-3 border-t border-zinc-100 dark:border-white/[0.06] text-xs">
           {/* Mode Select */}
           <div className="flex items-center gap-2">
-            <span className="text-zinc-500 font-medium">Scoring:</span>
+            <span className="text-zinc-500 font-medium">{t('search.scoring')}:</span>
             <div className="flex items-center p-0.5 rounded-full bg-zinc-100 dark:bg-white/[0.03] border border-zinc-200 dark:border-white/[0.08]">
               {(['hybrid', 'lexical', 'semantic', 'fuzzy'] as const).map((m) => {
                 const isActive = mode === m;
@@ -143,8 +145,8 @@ export const SearchPage: React.FC = () => {
             <div className="w-56">
               <Select
                 size="sm"
-                aria-label="Filter Type"
-                placeholder="All Types"
+                aria-label={t('types.typeName')}
+                placeholder={t('documents.allTypes')}
                 selectedKeys={selectedType ? [selectedType] : []}
                 onChange={(e) => setSelectedType(e.target.value)}
                 variant="bordered"
@@ -168,7 +170,7 @@ export const SearchPage: React.FC = () => {
               onValueChange={setExpandGraph}
               classNames={{ label: 'text-xs text-zinc-600 dark:text-zinc-400' }}
             >
-              Expand Graph (+1 hop)
+              {t('search.expandGraph')}
             </Checkbox>
           </div>
         </div>
@@ -177,13 +179,13 @@ export const SearchPage: React.FC = () => {
       {/* Results Feed */}
       {isLoading ? (
         <div className="flex items-center justify-center py-24">
-          <Spinner size="lg" label="Fusing multi-channel search results..." />
+          <Spinner size="lg" label={t('common.loading')} />
         </div>
       ) : isSearchActive ? (
         <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs overflow-hidden divide-y divide-zinc-100 dark:divide-white/[0.06]">
           <div className="px-5 py-3 bg-zinc-50 dark:bg-white/[0.02] text-xs font-medium text-zinc-500 flex items-center justify-between">
-            <span>Search Results ({hits.length})</span>
-            <span className="font-mono text-[11px] text-zinc-500">Mode: {mode}</span>
+            <span>{t('search.title')} ({hits.length})</span>
+            <span className="font-mono text-[11px] text-zinc-500">{t('search.scoring')}: {mode}</span>
           </div>
 
           {hits.length > 0 ? (
@@ -202,7 +204,7 @@ export const SearchPage: React.FC = () => {
                       </h3>
                       {hit.score !== undefined && (
                         <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-white/[0.04] text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-white/[0.08]">
-                          Score: {hit.score.toFixed(3)}
+                          {t('search.score')}: {hit.score.toFixed(3)}
                         </span>
                       )}
                       {hit.channel && (
@@ -229,7 +231,7 @@ export const SearchPage: React.FC = () => {
 
                     {hit.neighbors && hit.neighbors.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-white/[0.06] text-xs">
-                        <span className="text-zinc-500 font-medium">1-hop Graph Neighbors: </span>
+                        <span className="text-zinc-500 font-medium">{t('search.neighbors')}: </span>
                         <div className="inline-flex gap-2 flex-wrap pt-1">
                           {hit.neighbors.map((n: any, nIdx: number) => (
                             <span key={nIdx} className="font-mono text-[11px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:border-zinc-800">
@@ -247,16 +249,16 @@ export const SearchPage: React.FC = () => {
             ))
           ) : (
             <div className="p-16 text-center text-xs text-zinc-500">
-              No matching knowledge records found for "{query}".
+              {t('search.noResults', { query })}
             </div>
           )}
         </div>
       ) : (
         <div className="p-16 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs text-center space-y-2">
           <Sparkles className="w-8 h-8 text-zinc-400 dark:text-zinc-600 mx-auto" />
-          <h3 className="font-semibold text-sm text-zinc-800 dark:text-zinc-300">Start Searching</h3>
+          <h3 className="font-semibold text-sm text-zinc-800 dark:text-zinc-300">{t('search.startSearching')}</h3>
           <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-            Type keywords, concepts, or technical terms in the box above to perform hybrid vector + lexical search.
+            {t('search.startSearchingDesc')}
           </p>
         </div>
       )}

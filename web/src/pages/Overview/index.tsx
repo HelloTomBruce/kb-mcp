@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Spinner,
@@ -23,6 +24,7 @@ import { toast } from 'sonner';
 import { TypeBadge, TagBadge } from '../../components/Badge';
 
 export const OverviewPage: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['stats'],
@@ -33,16 +35,16 @@ export const OverviewPage: React.FC = () => {
     try {
       await api.fixDoctor();
       refetch();
-      toast.success('Knowledge base integrity auto-repair executed successfully.');
+      toast.success(t('common.success'));
     } catch (err: any) {
-      toast.error(`Auto-repair failed: ${err.message}`);
+      toast.error(`${t('common.failed')}: ${err.message}`);
     }
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Spinner size="lg" label="Loading knowledge metrics..." />
+        <Spinner size="lg" label={t('common.loading')} />
       </div>
     );
   }
@@ -50,7 +52,7 @@ export const OverviewPage: React.FC = () => {
   if (isError) {
     return (
       <div className="p-6 rounded-2xl border border-red-500/20 bg-red-950/20 text-red-300">
-        <h3 className="font-semibold text-base mb-1">Failed to load overview data</h3>
+        <h3 className="font-semibold text-base mb-1">{t('common.failed')}</h3>
         <p className="text-xs text-red-400">{(error as Error)?.message || 'Unknown error occurred'}</p>
       </div>
     );
@@ -66,10 +68,10 @@ export const OverviewPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
-            Knowledge Overview
+            {t('overview.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Real-time status, semantic vectors, and graph topology analysis
+            {t('overview.subtitle')}
           </p>
         </div>
 
@@ -91,7 +93,7 @@ export const OverviewPage: React.FC = () => {
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/[0.15] shadow-xs transition-all flex items-center justify-between">
           <div>
             <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">
-              Documents
+              {t('overview.totalDocs')}
             </div>
             <div className="text-2xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">
               {stats.documents ?? stats.docs ?? 0}
@@ -106,7 +108,7 @@ export const OverviewPage: React.FC = () => {
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/[0.15] shadow-xs transition-all flex items-center justify-between">
           <div>
             <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">
-              Relations (Links)
+              {t('overview.activeRelations')}
             </div>
             <div className="text-2xl font-bold text-zinc-900 dark:text-white mt-1 font-mono">
               {stats.links ?? 0}
@@ -121,17 +123,17 @@ export const OverviewPage: React.FC = () => {
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/[0.15] shadow-xs transition-all flex items-center justify-between">
           <div>
             <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">
-              Semantic Vectors
+              {t('overview.vectorEmbeddings')}
             </div>
             <div className="mt-1.5 flex items-center">
               {data?.embed_enabled ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40 font-mono">
                   <Sparkles className="w-3 h-3" />
-                  Active {data.embed_dim && data.embed_dim > 0 ? `(${data.embed_dim}d)` : '(Ready)'}
+                  {t('common.active')} {data.embed_dim && data.embed_dim > 0 ? `(${data.embed_dim}d)` : ''}
                 </span>
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 font-mono">
-                  FTS-only mode
+                  FTS
                 </span>
               )}
             </div>
@@ -145,18 +147,18 @@ export const OverviewPage: React.FC = () => {
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/[0.15] shadow-xs transition-all flex items-center justify-between">
           <div>
             <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">
-              Integrity Status
+              {t('health.doctorStatus')}
             </div>
             <div className="mt-1.5 flex items-center">
               {doctorReport?.ok ? (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
                   <CheckCircle2 className="w-3 h-3" />
-                  Healthy
+                  {t('health.allPassed')}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
                   <AlertTriangle className="w-3 h-3" />
-                  Attention Needed
+                  {t('health.issuesDetected')}
                 </span>
               )}
             </div>
@@ -174,7 +176,7 @@ export const OverviewPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
               <Clock className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-              Recently Updated Documents
+              {t('overview.recentDocs')}
             </h2>
             <Button
               as={Link}
@@ -184,7 +186,7 @@ export const OverviewPage: React.FC = () => {
               endContent={<ArrowUpRight className="w-3.5 h-3.5" />}
               className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-full h-7 px-3"
             >
-              View All
+              {t('overview.viewAll')}
             </Button>
           </div>
 
@@ -221,7 +223,7 @@ export const OverviewPage: React.FC = () => {
               ))
             ) : (
               <div className="p-8 text-center text-xs text-zinc-500">
-                No documents found.
+                {t('documents.noDocs')}
               </div>
             )}
           </div>
@@ -233,7 +235,7 @@ export const OverviewPage: React.FC = () => {
           <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] p-5 space-y-3 shadow-xs">
             <div className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
               <Layers className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-              Document Types
+              {t('overview.typeDistribution')}
             </div>
             <div className="space-y-1.5 pt-1">
               {data?.type_counts && data.type_counts.length > 0 ? (
@@ -250,7 +252,7 @@ export const OverviewPage: React.FC = () => {
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-zinc-500">No types recorded.</div>
+                <div className="text-xs text-zinc-500">{t('common.noData')}</div>
               )}
             </div>
           </div>
@@ -259,7 +261,7 @@ export const OverviewPage: React.FC = () => {
           <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] p-5 space-y-3 shadow-xs">
             <div className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
               <TagIcon className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-              Tags
+              {t('overview.popularTags')}
             </div>
             <div className="flex flex-wrap gap-1.5 pt-1">
               {data?.tag_counts && data.tag_counts.length > 0 ? (
@@ -274,7 +276,7 @@ export const OverviewPage: React.FC = () => {
                   </button>
                 ))
               ) : (
-                <div className="text-xs text-zinc-500">No tags recorded.</div>
+                <div className="text-xs text-zinc-500">{t('overview.noTags')}</div>
               )}
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Input,
   Button,
@@ -17,6 +18,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '../../api/client';
 import { DocumentItem, DocTypeInfo } from '../../types';
 import { TypeBadge, TagBadge, TYPE_LABELS } from '../../components/Badge';
@@ -34,6 +36,7 @@ const DOC_TYPES = [
 ];
 
 export const DocumentsPage: React.FC = () => {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -59,37 +62,49 @@ export const DocumentsPage: React.FC = () => {
       if (newTag) params.set('tag', newTag);
       else params.delete('tag');
     }
-    setSearchParams(params, { replace: true });
+    setSearchParams(params);
   };
 
-  const isSearchActive = queryText.trim().length > 0;
-
-  const { data: searchResults, isLoading: isSearchLoading } = useQuery({
-    queryKey: ['search', queryText, searchMode, activeType, expandGraph],
-    queryFn: () =>
-      api.search({
-        q: queryText,
-        mode: searchMode,
-        type: activeType || undefined,
-        expand_graph: expandGraph,
-      }),
-    enabled: isSearchActive,
-  });
+  const handleCopy = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    toast.success(t('common.copied'));
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const { data: typesData } = useQuery<{ types: DocTypeInfo[] }>({
     queryKey: ['types'],
     queryFn: () => api.getTypes(),
   });
 
-  const availableTypes = typesData?.types?.map((t) => ({
-    name: t.name,
-    label: t.label ? `${t.label} (${t.name})` : (TYPE_LABELS[t.name] || t.name),
-  })) || DOC_TYPES.map((t) => ({
-    name: t,
-    label: TYPE_LABELS[t] || t,
-  }));
+  const availableTypes: { name: string; label: string }[] =
+    typesData?.types && typesData.types.length > 0
+      ? typesData.types.map((td) => ({ name: td.name, label: td.label || td.name }))
+      : DOC_TYPES.map((t) => ({ name: t, label: TYPE_LABELS[t] || t }));
 
-  const { data: listResults, isLoading: isListLoading } = useQuery({
+  const isSearchActive = queryText.trim().length > 0;
+
+  const {
+    data: searchResults,
+    isLoading: isSearchLoading,
+  } = useQuery({
+    queryKey: ['search', queryText, searchMode, activeType, expandGraph],
+    queryFn: () =>
+      api.search({
+        q: queryText,
+        mode: searchMode,
+        type: activeType || undefined,
+        limit: 50,
+        expand_graph: expandGraph,
+      }),
+    enabled: isSearchActive,
+  });
+
+  const {
+    data: listResults,
+    isLoading: isListLoading,
+  } = useQuery({
     queryKey: ['docs', activeType, activeTag, includeDeleted],
     queryFn: () =>
       api.getDocs({
@@ -100,13 +115,6 @@ export const DocumentsPage: React.FC = () => {
     enabled: !isSearchActive,
   });
 
-  const handleCopy = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(id);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1500);
-  };
-
   const isLoading = isSearchActive ? isSearchLoading : isListLoading;
 
   return (
@@ -114,9 +122,11 @@ export const DocumentsPage: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Documents</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">
+            {t('documents.title')}
+          </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Browse, search, and manage your agent knowledge records
+            {t('documents.subtitle')}
           </p>
         </div>
 
@@ -126,7 +136,7 @@ export const DocumentsPage: React.FC = () => {
           size="sm"
           className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
         >
-          Create Document
+          {t('common.create')}
         </Button>
       </div>
 
@@ -138,7 +148,7 @@ export const DocumentsPage: React.FC = () => {
             onClear={() => updateFilters('', undefined, undefined)}
             value={queryText}
             onValueChange={(val) => updateFilters(val, undefined, undefined)}
-            placeholder="Search knowledge by keyword, meaning or ID..."
+            placeholder={t('documents.searchPlaceholder')}
             startContent={<Search className="w-4 h-4 text-zinc-400" />}
             size="sm"
             variant="bordered"
@@ -178,7 +188,7 @@ export const DocumentsPage: React.FC = () => {
               <Select
                 size="sm"
                 aria-label="Filter by Type"
-                placeholder="All Types"
+                placeholder={t('documents.allTypes')}
                 selectedKeys={activeType ? [activeType] : []}
                 onChange={(e) => updateFilters(undefined, e.target.value, undefined)}
                 variant="bordered"
@@ -219,7 +229,7 @@ export const DocumentsPage: React.FC = () => {
                 onValueChange={setExpandGraph}
                 classNames={{ label: 'text-xs text-zinc-600 dark:text-zinc-400' }}
               >
-                Expand Graph (+1 hop)
+                {t('search.expandGraph')}
               </Checkbox>
             )}
 
@@ -229,7 +239,7 @@ export const DocumentsPage: React.FC = () => {
               onValueChange={setIncludeDeleted}
               classNames={{ label: 'text-xs text-zinc-600 dark:text-zinc-400' }}
             >
-              Include Deleted
+              {t('documents.includeDeleted')}
             </Checkbox>
           </div>
         </div>
@@ -238,15 +248,15 @@ export const DocumentsPage: React.FC = () => {
       {/* Results List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-24">
-          <Spinner size="lg" label="Searching documents..." />
+          <Spinner size="lg" label={t('common.loading')} />
         </div>
       ) : (
         <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] overflow-hidden divide-y divide-zinc-100 dark:divide-white/[0.06] shadow-xs">
           <div className="px-5 py-3 bg-zinc-50/50 dark:bg-white/[0.02] text-xs font-medium text-zinc-500 flex items-center justify-between">
             <span>
               {isSearchActive
-                ? `Search Hits: ${searchResults?.items.length ?? 0}`
-                : `Total Documents: ${listResults?.items.length ?? 0}`}
+                ? `${t('search.score')}: ${searchResults?.items.length ?? 0}`
+                : `${t('overview.totalDocs')}: ${listResults?.items.length ?? 0}`}
             </span>
           </div>
 
@@ -265,10 +275,10 @@ export const DocumentsPage: React.FC = () => {
                 />
               ))
             ) : (
-              <div className="p-12 text-center text-xs text-zinc-500">No matching documents found.</div>
+              <div className="p-12 text-center text-xs text-zinc-500">{t('documents.noDocs')}</div>
             )
           ) : listResults?.items && listResults.items.length > 0 ? (
-            listResults.items.map((doc) => (
+            listResults.items.map((doc: DocumentItem) => (
               <DocListItem
                 key={doc.id}
                 doc={doc}
@@ -278,7 +288,7 @@ export const DocumentsPage: React.FC = () => {
               />
             ))
           ) : (
-            <div className="p-12 text-center text-xs text-zinc-500">No documents found.</div>
+            <div className="p-12 text-center text-xs text-zinc-500">{t('documents.noDocs')}</div>
           )}
         </div>
       )}
@@ -305,6 +315,7 @@ const DocListItem: React.FC<DocListItemProps> = ({
   isCopied,
   onSelect,
 }) => {
+  const { t } = useTranslation();
   return (
     <div
       onClick={onSelect}
@@ -321,7 +332,7 @@ const DocListItem: React.FC<DocListItemProps> = ({
             </h3>
             {doc.deleted_at && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800/40">
-                Deleted
+                {t('documents.deletedBadge')}
               </span>
             )}
           </div>
@@ -332,7 +343,7 @@ const DocListItem: React.FC<DocListItemProps> = ({
               <button
                 type="button"
                 onClick={onCopy}
-                title="Copy ID"
+                title={t('common.copy')}
                 className="hover:text-black dark:hover:text-white p-0.5"
               >
                 {isCopied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
@@ -341,13 +352,13 @@ const DocListItem: React.FC<DocListItemProps> = ({
 
             {score !== undefined && (
               <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                Score: {score.toFixed(3)} ({channel})
+                {t('documents.scoreLabel', { score: score.toFixed(3), channel })}
               </span>
             )}
 
             {doc.source && (
               <span className="text-zinc-400 dark:text-zinc-500 font-sans truncate max-w-xs">
-                from: {doc.source}
+                {t('documents.fromSource', { source: doc.source })}
               </span>
             )}
           </div>
@@ -368,7 +379,7 @@ const DocListItem: React.FC<DocListItemProps> = ({
 
           {neighbors && neighbors.length > 0 && (
             <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-white/[0.06] text-xs">
-              <span className="text-zinc-400 dark:text-zinc-500 font-medium">1-hop Neighbors: </span>
+              <span className="text-zinc-400 dark:text-zinc-500 font-medium">{t('documents.hopNeighbors')}: </span>
               <div className="inline-flex gap-2 flex-wrap">
                 {neighbors.map((n, idx) => (
                   <span key={idx} className="font-mono text-[11px] px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">

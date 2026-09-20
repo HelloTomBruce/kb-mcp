@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Spinner,
@@ -18,6 +19,7 @@ import { api } from '../../api/client';
 import { toast } from 'sonner';
 
 export const HealthPage: React.FC = () => {
+  const { t } = useTranslation();
   const { data: healthData, isLoading, refetch } = useQuery({
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
@@ -32,16 +34,16 @@ export const HealthPage: React.FC = () => {
     try {
       await api.fixDoctor();
       refetch();
-      toast.success('Knowledge integrity check & auto-repair completed.');
+      toast.success(t('health.repairSuccess'));
     } catch (err: any) {
-      toast.error(`Auto-repair failed: ${err.message}`);
+      toast.error(`${t('common.failed')}: ${err.message}`);
     }
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Running health diagnostic checks..." />
+        <Spinner size="lg" label={t('health.runningChecks')} />
       </div>
     );
   }
@@ -53,10 +55,10 @@ export const HealthPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
             <Activity className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-            System Health & Audit
+            {t('health.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Knowledge integrity diagnostics, schema versioning, and operation audit trail
+            {t('health.subtitle')}
           </p>
         </div>
 
@@ -66,7 +68,7 @@ export const HealthPage: React.FC = () => {
           onPress={handleFixDoctor}
           className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
         >
-          Run Doctor Auto-Repair
+          {t('health.runRepair')}
         </Button>
       </div>
 
@@ -74,7 +76,7 @@ export const HealthPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs space-y-2">
           <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5" /> Database Path
+            <Database className="w-3.5 h-3.5" /> {t('health.dbPath')}
           </div>
           <div className="text-xs font-mono text-zinc-700 dark:text-zinc-300 break-all bg-zinc-50 dark:bg-white/[0.03] border border-zinc-200 dark:border-white/[0.06] p-2.5 rounded-xl">
             {healthData?.db_path}
@@ -83,7 +85,7 @@ export const HealthPage: React.FC = () => {
 
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs space-y-2">
           <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-            <FileCode className="w-3.5 h-3.5" /> Schema Version
+            <FileCode className="w-3.5 h-3.5" /> {t('health.schemaVersion')}
           </div>
           <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-white">
             v{healthData?.schema_version}
@@ -92,16 +94,16 @@ export const HealthPage: React.FC = () => {
 
         <div className="p-5 rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs space-y-2">
           <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5" /> Doctor Status
+            <ShieldCheck className="w-3.5 h-3.5" /> {t('health.doctorStatus')}
           </div>
           <div className="text-base font-bold flex items-center gap-2 mt-1">
             {healthData?.ok ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40">
-                <CheckCircle2 className="w-3.5 h-3.5" /> All Checks Passed
+                <CheckCircle2 className="w-3.5 h-3.5" /> {t('health.allPassed')}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/40">
-                <AlertTriangle className="w-3.5 h-3.5" /> Issues Detected
+                <AlertTriangle className="w-3.5 h-3.5" /> {t('health.issuesDetected')}
               </span>
             )}
           </div>
@@ -112,7 +114,7 @@ export const HealthPage: React.FC = () => {
       <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs p-5 space-y-4">
         <h2 className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-          Integrity Checks
+          {t('health.integrityChecks')}
         </h2>
         <div className="divide-y divide-zinc-100 dark:divide-white/[0.06]">
           {healthData?.checks && healthData.checks.length > 0 ? (
@@ -133,13 +135,13 @@ export const HealthPage: React.FC = () => {
                 </div>
                 {check.auto_fixable && (
                   <span className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200 dark:bg-white/[0.04] dark:text-zinc-300 dark:border-white/[0.08] shrink-0">
-                    Auto-fixable
+                    {t('health.autoFixable')}
                   </span>
                 )}
               </div>
             ))
           ) : (
-            <div className="text-xs text-zinc-500 py-4">No check results available.</div>
+            <div className="text-xs text-zinc-500 py-4">{t('health.noChecks')}</div>
           )}
         </div>
       </div>
@@ -148,16 +150,16 @@ export const HealthPage: React.FC = () => {
       <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs p-5 space-y-4">
         <h2 className="font-semibold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
           <Clock className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-          Recent Audit Log
+          {t('health.auditLog')}
         </h2>
         <div className="overflow-x-auto">
           <table className="w-full text-xs font-mono">
             <thead>
               <tr className="border-b border-zinc-200 dark:border-white/[0.08] text-zinc-500 text-left">
-                <th className="pb-3 font-medium uppercase text-[11px]">Timestamp</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Action</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Target</th>
-                <th className="pb-3 font-medium uppercase text-[11px]">Details</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('health.timestampCol')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('health.actionCol')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('health.targetCol')}</th>
+                <th className="pb-3 font-medium uppercase text-[11px]">{t('health.detailsCol')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-white/[0.04]">
@@ -177,7 +179,7 @@ export const HealthPage: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={4} className="py-8 text-center text-zinc-500">
-                    No recent audit logs.
+                    {t('health.noAuditLogs')}
                   </td>
                 </tr>
               )}

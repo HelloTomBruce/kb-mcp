@@ -30,6 +30,7 @@ import { DocTypeInfo } from '../../types';
 import { MarkdownRenderer } from '../../components/MarkdownRenderer';
 import { DiffViewer } from '../../components/DiffViewer';
 import { TypeBadge, TagBadge, TYPE_LABELS } from '../../components/Badge';
+import { useTranslation } from 'react-i18next';
 
 const STANDARD_RELATIONS = [
   'relates-to',
@@ -57,6 +58,7 @@ const DOC_TYPES = [
 ];
 
 export const DocDetailPage: React.FC = () => {
+  const { t } = useTranslation();
   const { docId } = useParams<{ docId: string }>();
   const isNew = docId === 'new' || !docId;
   const navigate = useNavigate();
@@ -311,7 +313,7 @@ export const DocDetailPage: React.FC = () => {
                   }}
                   className="bg-zinc-100 hover:bg-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-zinc-800 dark:text-zinc-300 border border-zinc-200 dark:border-white/[0.08] text-xs rounded-full h-9 px-4"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               ) : (
                 <Button
@@ -323,7 +325,7 @@ export const DocDetailPage: React.FC = () => {
                   }}
                   className="bg-zinc-100 hover:bg-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-white/[0.08] text-xs font-semibold rounded-full h-9 px-4"
                 >
-                  Edit
+                  {t('common.edit')}
                 </Button>
               )}
 
@@ -331,12 +333,12 @@ export const DocDetailPage: React.FC = () => {
                 isIconOnly
                 size="sm"
                 onPress={() => {
-                  if (confirm('Are you sure you want to delete this document?')) {
+                  if (confirm(t('documents.deleteConfirm'))) {
                     deleteMutation.mutate();
                   }
                 }}
                 className="text-zinc-400 hover:text-red-500 rounded-full w-8 h-8"
-                title="Delete Document"
+                title={t('common.delete')}
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
@@ -352,7 +354,7 @@ export const DocDetailPage: React.FC = () => {
               onPress={() => saveMutation.mutate()}
               className="bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
             >
-              {isNew ? 'Create Document' : 'Save Changes'}
+              {isNew ? t('common.create') : t('docDetail.saveChanges')}
             </Button>
           )}
         </div>
@@ -374,7 +376,7 @@ export const DocDetailPage: React.FC = () => {
             title={
               <div className="flex items-center space-x-2">
                 <FileCode className="w-4 h-4" />
-                <span>Content & Markdown</span>
+                <span>{t('docDetail.metadata')}</span>
               </div>
             }
           />
@@ -383,7 +385,7 @@ export const DocDetailPage: React.FC = () => {
             title={
               <div className="flex items-center space-x-2">
                 <Network className="w-4 h-4" />
-                <span>Graph Relations ({outboundLinks.length + inboundLinks.length})</span>
+                <span>{t('docDetail.relations')} ({outboundLinks.length + inboundLinks.length})</span>
               </div>
             }
           />
@@ -392,7 +394,7 @@ export const DocDetailPage: React.FC = () => {
             title={
               <div className="flex items-center space-x-2">
                 <History className="w-4 h-4" />
-                <span>Version History</span>
+                <span>{t('docDetail.history')}</span>
               </div>
             }
           />
@@ -407,7 +409,7 @@ export const DocDetailPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                  Document Type
+                  {t('docDetail.docType')}
                 </label>
                 {isEditing || isNew ? (
                   <Select
@@ -437,7 +439,7 @@ export const DocDetailPage: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                  Document ID
+                  {t('docDetail.docId')}
                 </label>
                 {isNew ? (
                   <Input
@@ -460,7 +462,7 @@ export const DocDetailPage: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                  Tags (comma-separated)
+                  {t('docDetail.docTags')}
                 </label>
                 {isEditing || isNew ? (
                   <Input
@@ -511,7 +513,7 @@ export const DocDetailPage: React.FC = () => {
 
               <div className="md:col-span-2 lg:col-span-4">
                 <label className="block text-[11px] font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                  Document Title
+                  {t('docDetail.docTitle')}
                 </label>
                 {isEditing || isNew ? (
                   <Input
@@ -519,7 +521,7 @@ export const DocDetailPage: React.FC = () => {
                     variant="bordered"
                     value={titleValue}
                     onValueChange={setTitleValue}
-                    placeholder="Title of this knowledge item..."
+                    placeholder={t('docDetail.docTitle')}
                     className="font-semibold"
                     classNames={{
                       inputWrapper: 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] rounded-xl min-h-9 text-xs',
@@ -538,11 +540,17 @@ export const DocDetailPage: React.FC = () => {
           {isEditing && (
             <div className="rounded-2xl bg-white dark:bg-[#0d0d11]/80 backdrop-blur-md border border-zinc-200 dark:border-white/[0.08] shadow-xs px-4 py-2.5 flex items-center justify-between">
               <span className="font-semibold text-zinc-500 uppercase tracking-wider text-[11px]">
-                Markdown Content Editor
+                {t('docDetail.editorPlaceholder')}
               </span>
               <div className="flex items-center p-0.5 rounded-full bg-zinc-100 dark:bg-white/[0.03] border border-zinc-200 dark:border-white/[0.08]">
                 {(['edit', 'split', 'preview'] as const).map((m) => {
                   const isActive = editorMode === m;
+                  const label =
+                    m === 'edit'
+                      ? t('docDetail.editMode')
+                      : m === 'split'
+                      ? t('docDetail.previewMode')
+                      : t('docDetail.readMode');
                   return (
                     <button
                       key={m}
@@ -554,7 +562,7 @@ export const DocDetailPage: React.FC = () => {
                           : 'text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-zinc-100'
                       }`}
                     >
-                      {m}
+                      {label}
                     </button>
                   );
                 })}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Select, SelectItem, Button } from '@heroui/react';
+import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
   FileText,
@@ -22,12 +23,12 @@ import { api } from '../api/client';
 import { toast } from 'sonner';
 
 export const Layout: React.FC = () => {
+  const { t, i18n } = useTranslation();
   const [isDark, setIsDark] = useState<boolean>(() => {
-    return (
-      localStorage.getItem('kb_theme') === 'dark' ||
-      (!('kb_theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches) ||
-      true // Default to dark for Grok aesthetic
-    );
+    const saved = localStorage.getItem('kb_theme');
+    if (saved === 'dark') return true;
+    if (saved === 'light') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   const [currentVault, setCurrentVault] = useState<string>('default');
@@ -44,6 +45,13 @@ export const Layout: React.FC = () => {
       localStorage.setItem('kb_theme', 'light');
     }
   }, [isDark]);
+
+  const toggleLanguage = () => {
+    const currentLang = i18n.language || 'zh-CN';
+    const nextLang = currentLang.startsWith('zh') ? 'en-US' : 'zh-CN';
+    i18n.changeLanguage(nextLang);
+    localStorage.setItem('kb_locale', nextLang);
+  };
 
   const loadVaults = async () => {
     try {
@@ -73,17 +81,17 @@ export const Layout: React.FC = () => {
   };
 
   const navItems = [
-    { to: '/', label: 'Overview', icon: LayoutDashboard },
-    { to: '/docs', label: 'Documents', icon: FileText },
-    { to: '/types', label: 'Types', icon: Tag },
-    { to: '/search', label: 'Search', icon: Search },
-    { to: '/links', label: 'Links', icon: Link2 },
-    { to: '/graph', label: 'Graph', icon: Network },
-    { to: '/imports', label: 'Imports', icon: FolderInput },
-    { to: '/git', label: 'Git Sync', icon: GitBranch },
-    { to: '/scheduler', label: 'Scheduler', icon: Clock },
-    { to: '/health', label: 'Health & Audit', icon: Activity },
-    { to: '/settings', label: 'Settings', icon: Settings },
+    { to: '/', label: t('nav.overview'), icon: LayoutDashboard },
+    { to: '/docs', label: t('nav.documents'), icon: FileText },
+    { to: '/types', label: t('nav.types'), icon: Tag },
+    { to: '/search', label: t('nav.search'), icon: Search },
+    { to: '/links', label: t('nav.links'), icon: Link2 },
+    { to: '/graph', label: t('nav.graph'), icon: Network },
+    { to: '/imports', label: t('nav.imports'), icon: FolderInput },
+    { to: '/git', label: t('nav.git'), icon: GitBranch },
+    { to: '/scheduler', label: t('nav.scheduler'), icon: Clock },
+    { to: '/health', label: t('nav.health'), icon: Activity },
+    { to: '/settings', label: t('nav.settings'), icon: Settings },
   ];
 
   return (
@@ -106,22 +114,37 @@ export const Layout: React.FC = () => {
             </div>
           </div>
 
-          <Button
-            isIconOnly
-            size="sm"
-            variant="light"
-            onPress={() => setIsDark(!isDark)}
-            className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-full w-8 h-8"
-            title="Toggle Theme"
-          >
-            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-zinc-700" />}
-          </Button>
+          <div className="flex items-center gap-1">
+            {/* Language Switcher Pill */}
+            <Button
+              isIconOnly
+              size="sm"
+              variant="light"
+              onPress={toggleLanguage}
+              className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-full w-8 h-8 font-mono text-[11px] font-semibold"
+              title={t('nav.language')}
+            >
+              {i18n.language?.startsWith('zh') ? 'EN' : '中'}
+            </Button>
+
+            {/* Theme Switcher Button */}
+            <Button
+              isIconOnly
+              size="sm"
+              variant="light"
+              onPress={() => setIsDark(!isDark)}
+              className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-full w-8 h-8"
+              title={t('nav.toggleTheme')}
+            >
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-zinc-700" />}
+            </Button>
+          </div>
         </div>
 
         {/* Vault Switcher */}
         <div className="px-3.5 py-3 border-b border-zinc-200 dark:border-white/[0.07] bg-zinc-50/50 dark:bg-white/[0.01]">
           <div className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1 px-1">
-            Active Vault
+            {t('nav.switchVault')}
           </div>
           <Select
             size="sm"
@@ -176,7 +199,7 @@ export const Layout: React.FC = () => {
             startContent={<Plus className="w-3.5 h-3.5" />}
             className="w-full bg-black dark:bg-white text-white dark:text-black font-semibold text-xs hover:bg-zinc-800 dark:hover:bg-zinc-200 rounded-full h-9 shadow-sm"
           >
-            New Document
+            {t('nav.newDoc')}
           </Button>
 
           <div className="flex items-center justify-between px-2 pt-1 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono">

@@ -2,10 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/app/favicon.svg" />
+    <link rel="alternate icon" href="/app/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kb-mcp Console</title>
-    <script type="module" crossorigin src="/app/assets/index-Ch5sdbFl.js"></script>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('kb_theme');
+          var isDark =
+            theme === 'dark' ||
+            (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/app/assets/index-BhVGTmK9.js"></script>
     <link rel="stylesheet" crossorigin href="/app/assets/index-xHU8vpT3.css">
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">

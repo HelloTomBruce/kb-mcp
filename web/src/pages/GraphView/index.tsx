@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Network as VisNetwork } from 'vis-network';
 import {
   Input,
@@ -21,6 +22,7 @@ import { GraphNode } from '../../types';
 import { TypeBadge, TagBadge, TYPE_LABELS } from '../../components/Badge';
 
 export const GraphViewPage: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<VisNetwork | null>(null);
@@ -186,7 +188,7 @@ export const GraphViewPage: React.FC = () => {
   if (isGraphLoading || isTypesLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Rendering knowledge graph topology..." />
+        <Spinner size="lg" label={t('graph.rendering')} />
       </div>
     );
   }
@@ -200,10 +202,10 @@ export const GraphViewPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
             <Network className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-            Graph Topology
+            {t('graph.title')}
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Interactive multi-hop network of decisions, projects, and cross-document links
+            {t('graph.subtitle')}
           </p>
         </div>
 
@@ -215,7 +217,7 @@ export const GraphViewPage: React.FC = () => {
             onClear={() => handleSearchNode('')}
             value={searchQuery}
             onValueChange={handleSearchNode}
-            placeholder="Focus node..."
+            placeholder={t('graph.focusNodePlaceholder')}
             startContent={<Search className="w-3.5 h-3.5 text-zinc-400" />}
             className="w-48 font-mono text-xs"
             classNames={{
@@ -228,7 +230,7 @@ export const GraphViewPage: React.FC = () => {
             <Select
               size="sm"
               aria-label="Filter Type"
-              placeholder="All Types"
+              placeholder={t('graph.allTypes')}
               selectedKeys={filterType ? [filterType] : []}
               onChange={(e) => setFilterType(e.target.value)}
               variant="bordered"
@@ -238,11 +240,12 @@ export const GraphViewPage: React.FC = () => {
                 value: 'text-xs text-zinc-800 dark:text-zinc-300 font-medium',
               }}
             >
-              {allTypes.map((t) => {
-                const info = typeMap.get(t.toLowerCase());
+              {allTypes.map((tName) => {
+                const info = typeMap.get(tName.toLowerCase());
+                const localizedLabel = t(`typeNames.${tName.toLowerCase()}`, { defaultValue: info?.label || TYPE_LABELS[tName] || tName });
                 return (
-                  <SelectItem key={t} textValue={info?.label || TYPE_LABELS[t] || t} className="text-xs">
-                    {info?.label || TYPE_LABELS[t] || t}
+                  <SelectItem key={tName} textValue={localizedLabel} className="text-xs">
+                    {localizedLabel}
                   </SelectItem>
                 );
               })}
@@ -254,7 +257,7 @@ export const GraphViewPage: React.FC = () => {
             isIconOnly
             onPress={handleFit}
             className="bg-zinc-100 hover:bg-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-white/[0.08] rounded-full w-8 h-8"
-            title="Reset View Fit"
+            title={t('graph.fitView')}
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </Button>
@@ -268,18 +271,21 @@ export const GraphViewPage: React.FC = () => {
         {/* Legend Overlay */}
         <div className="absolute top-4 left-4 p-3 bg-white/90 dark:bg-black/80 backdrop-blur-md rounded-xl border border-zinc-200 dark:border-white/[0.08] text-[11px] space-y-2 pointer-events-none max-h-[calc(100%-2rem)] overflow-y-auto shadow-sm">
           <div className="font-semibold text-zinc-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider">
-            Node Types
+            {t('graph.legendTitle')}
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-            {typesList.map((t) => (
-              <div key={t.name} className="flex items-center gap-1.5">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0 border border-zinc-300 dark:border-white/20"
-                  style={{ backgroundColor: t.color || '#71717a' }}
-                />
-                <span className="text-zinc-700 dark:text-zinc-300 truncate max-w-[100px]">{t.label || t.name}</span>
-              </div>
-            ))}
+            {typesList.map((tItem) => {
+              const localizedLabel = t(`typeNames.${tItem.name.toLowerCase()}`, { defaultValue: tItem.label || tItem.name });
+              return (
+                <div key={tItem.name} className="flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 border border-zinc-300 dark:border-white/20"
+                    style={{ backgroundColor: tItem.color || '#71717a' }}
+                  />
+                  <span className="text-zinc-700 dark:text-zinc-300 truncate max-w-[100px]">{localizedLabel}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -308,8 +314,8 @@ export const GraphViewPage: React.FC = () => {
 
             {selectedNode.tags && selectedNode.tags.length > 0 && (
               <div className="flex flex-wrap gap-1">
-                {selectedNode.tags.map((t) => (
-                  <TagBadge key={t} tag={t} />
+                {selectedNode.tags.map((tTag) => (
+                  <TagBadge key={tTag} tag={tTag} />
                 ))}
               </div>
             )}
@@ -320,7 +326,7 @@ export const GraphViewPage: React.FC = () => {
               onPress={() => navigate(`/docs/${encodeURIComponent(selectedNode.id)}`)}
               className="w-full bg-black dark:bg-white text-white dark:text-black font-semibold text-xs rounded-full hover:bg-zinc-800 dark:hover:bg-zinc-200 h-8"
             >
-              Open Document
+              {t('graph.openDoc')}
             </Button>
           </div>
         )}

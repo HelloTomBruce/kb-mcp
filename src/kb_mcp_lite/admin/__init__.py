@@ -68,6 +68,26 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
         app.mount("/app/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_app_assets")
         app.mount("/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_assets")
 
+    @app.get("/app/favicon.ico")
+    @app.get("/favicon.ico")
+    def serve_favicon_ico() -> Any:
+        ico_file = STATIC_APP_DIR / "favicon.ico"
+        if not ico_file.exists():
+            ico_file = STATIC_DIR / "favicon.ico"
+        if ico_file.exists():
+            return FileResponse(str(ico_file), media_type="image/x-icon")
+        return HTMLResponse("", status_code=404)
+
+    @app.get("/app/favicon.svg")
+    @app.get("/favicon.svg")
+    def serve_favicon_svg() -> Any:
+        svg_file = STATIC_APP_DIR / "favicon.svg"
+        if not svg_file.exists():
+            svg_file = STATIC_DIR / "favicon.svg"
+        if svg_file.exists():
+            return FileResponse(str(svg_file), media_type="image/svg+xml")
+        return HTMLResponse("", status_code=404)
+
     @app.get("/app/{full_path:path}")
     @app.get("/app")
     def serve_spa(full_path: str = "") -> Any:

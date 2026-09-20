@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Input,
@@ -18,6 +19,7 @@ import { api } from '../../api/client';
 import { toast } from 'sonner';
 
 export const SettingsPage: React.FC = () => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [newVaultName, setNewVaultName] = useState('');
   const [configContent, setConfigContent] = useState('');
@@ -46,13 +48,13 @@ export const SettingsPage: React.FC = () => {
       queryClient.invalidateQueries();
       window.location.reload();
     },
-    onError: (err: any) => toast.error(`Failed to switch vault: ${err.message}`),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const saveConfigMutation = useMutation({
     mutationFn: () => api.saveConfig(configContent),
-    onSuccess: () => toast.success('Configuration file saved successfully.'),
-    onError: (err: any) => toast.error(`Failed to save configuration: ${err.message}`),
+    onSuccess: () => toast.success(t('settings.saveConfigSuccess')),
+    onError: (err: any) => toast.error(`${t('common.failed')}: ${err.message}`),
   });
 
   const handleCreateVault = async (e: React.FormEvent) => {
@@ -66,9 +68,9 @@ export const SettingsPage: React.FC = () => {
       });
       setNewVaultName('');
       queryClient.invalidateQueries({ queryKey: ['vaults'] });
-      toast.success(`Vault "${newVaultName}" created.`);
+      toast.success(t('common.success'));
     } catch (err: any) {
-      toast.error(`Create vault failed: ${err.message}`);
+      toast.error(`${t('common.failed')}: ${err.message}`);
     }
   };
 
@@ -77,12 +79,12 @@ export const SettingsPage: React.FC = () => {
       const res = await fetch('/api/vaults/embed', { method: 'POST' });
       const data = await res.json();
       if (data.ok) {
-        toast.success(`Embeddings reindexed. Total processed: ${data.reindexed}, Failed: ${data.failed}`);
+        toast.success(t('settings.reindexSuccess', { reindexed: data.reindexed, failed: data.failed }));
       } else {
         toast.error(`Embeddings error: ${data.error}`);
       }
     } catch (err: any) {
-      toast.error(`Reindex failed: ${err.message}`);
+      toast.error(`${t('common.failed')}: ${err.message}`);
     }
   };
 
@@ -91,7 +93,7 @@ export const SettingsPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" label="Loading system settings..." />
+        <Spinner size="lg" label={t('settings.loadingSettings')} />
       </div>
     );
   }
@@ -105,10 +107,10 @@ export const SettingsPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white flex items-center gap-2.5">
           <Settings className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
-          Settings & Vaults
+          {t('settings.title')}
         </h1>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-          Manage isolated knowledge repositories (Multi-Vault), vector indices, and system config file
+          {t('settings.subtitle')}
         </p>
       </div>
 
@@ -118,10 +120,10 @@ export const SettingsPage: React.FC = () => {
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <Database className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-              Active Knowledge Vaults
+              {t('settings.vaultsTitle')}
             </h2>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              Each vault operates as an isolated single-file SQLite database with its own FTS and semantic vectors.
+              {t('settings.vaultsDesc')}
             </p>
           </div>
 
@@ -131,7 +133,7 @@ export const SettingsPage: React.FC = () => {
             onPress={handleReindexEmbeddings}
             className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border-zinc-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] dark:text-zinc-200 dark:border-white/[0.08] text-xs font-semibold rounded-full h-8 px-4"
           >
-            Reindex Vector Embeddings
+            {t('settings.reindex')}
           </Button>
         </div>
 
@@ -157,10 +159,10 @@ export const SettingsPage: React.FC = () => {
                   </span>
                   {isActive ? (
                     <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40">
-                      <Check className="w-3 h-3" /> Active
+                      <Check className="w-3 h-3" /> {t('settings.activeBadge')}
                     </span>
                   ) : (
-                    <span className="text-[10px] text-zinc-500 font-mono">Switch</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">{t('settings.switchBadge')}</span>
                   )}
                 </div>
                 <div className="text-[11px] text-zinc-500 font-mono truncate">
@@ -178,7 +180,7 @@ export const SettingsPage: React.FC = () => {
             variant="bordered"
             value={newVaultName}
             onValueChange={setNewVaultName}
-            placeholder="Create new isolated vault (e.g. personal, devops)..."
+            placeholder={t('settings.vaultPlaceholder')}
             className="flex-1 font-mono text-xs"
             classNames={{
               inputWrapper: 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] hover:border-zinc-300 dark:hover:border-white/20 rounded-xl min-h-10 text-xs shadow-2xs',
@@ -191,7 +193,7 @@ export const SettingsPage: React.FC = () => {
             startContent={<Plus className="w-4 h-4" />}
             className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 h-10 px-5 shadow-sm shrink-0"
           >
-            Create Vault
+            {t('settings.createVault')}
           </Button>
         </form>
       </div>
@@ -202,7 +204,7 @@ export const SettingsPage: React.FC = () => {
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <FileCode className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-              Global Settings Configuration
+              {t('settings.globalConfig')}
             </h2>
             <div className="text-xs font-mono text-zinc-500 mt-1">
               File: {configPath || '~/.config/kb/config.yaml'}
@@ -216,7 +218,7 @@ export const SettingsPage: React.FC = () => {
             onPress={() => saveConfigMutation.mutate()}
             className="bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black font-semibold text-xs rounded-full dark:hover:bg-zinc-200 h-9 px-4 shadow-sm"
           >
-            Save Configuration
+            {t('settings.saveConfig')}
           </Button>
         </div>
 
