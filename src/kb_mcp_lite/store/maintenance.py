@@ -128,30 +128,6 @@ class MaintenanceMixin:
                 )
             )
 
-            # 7. No orphan documents (not linked to any project)
-            n_orphan_docs = self._conn.execute("""
-                SELECT COUNT(DISTINCT d.id) FROM documents d
-                WHERE d.deleted_at IS NULL
-                  AND d.type != 'project'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM links l
-                    WHERE l.from_id = d.id AND l.to_id LIKE 'proj/%'
-                       OR l.to_id = d.id AND l.from_id LIKE 'proj/%'
-                  )
-            """).fetchone()[0]
-            detail = (
-                f"{n_orphan_docs} documents not linked to any project"
-                if n_orphan_docs
-                else "all documents are linked to a project"
-            )
-            checks.append(
-                DoctorCheck(
-                    name="no_orphan_documents",
-                    ok=n_orphan_docs == 0,
-                    detail=detail,
-                )
-            )
-
         return DoctorReport(ok=all(c.ok for c in checks), checks=checks)
 
     def prune(self, older_than: timedelta = timedelta(days=30)) -> int:

@@ -75,6 +75,20 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                 }
             )
 
+    @app.post("/api/doctor/fix")
+    def api_doctor_fix() -> JSONResponse:
+        with open_store(app) as store:
+            from kb_mcp_lite.graph_query import doctor_fix_hygiene
+            res = doctor_fix_hygiene(store)
+            doctor_report = store.doctor()
+            return JSONResponse(
+                {
+                    "ok": doctor_report.ok,
+                    "checks": [check.model_dump(mode="json") for check in doctor_report.checks],
+                    "fix_result": res,
+                }
+            )
+
     @app.get("/api/audit")
     def api_audit(limit: int = 100) -> JSONResponse:
         with open_store(app) as store:
@@ -179,7 +193,11 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
     # ── Overview ───────────────────────────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)
-    def overview(request: Request) -> HTMLResponse:
+    def overview(request: Request) -> Any:
+        if request.query_params.get("legacy") != "1":
+            from kb_mcp_lite.admin import STATIC_APP_DIR
+            if STATIC_APP_DIR.exists() and (STATIC_APP_DIR / "index.html").exists():
+                return RedirectResponse(url="/app", status_code=302)
         with open_store(app) as store:
             payload = overview_payload(store)
             return render(
@@ -351,6 +369,51 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             },
             status_code=400 if errors else 200,
         )
+
+    @app.post("/api/imports/upload")
+    async def api_imports_upload(
+        archive: UploadFile = File(...),
+        dry_run: bool = Form(default=False),
+    ) -> JSONResponse:
+        try:
+            with open_store(app) as store:
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmp_path = Path(tmp)
+                    payload = await archive.read()
+                    zip_path = tmp_path / (archive.filename or "import.zip")
+                    zip_path.write_bytes(payload)
+                    import zipfile
+                    from kb_mcp_lite.md_io import import_dir
+                    with zipfile.ZipFile(zip_path) as zf:
+                        zf.extractall(tmp_path / "vault")
+                    report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
+                    return JSONResponse({"ok": True, "report": report})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/exports/download")
+    def api_exports_download() -> Any:
+        try:
+            with open_store(app) as store:
+                from kb_mcp_lite.md_io import export_dir
+                import zipfile
+                import io
+                from fastapi.responses import Response
+
+                tmp_export = Path(tempfile.mkdtemp(prefix="kb-export-"))
+                export_dir(store, tmp_export, force=True)
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for f in tmp_export.rglob("*.md"):
+                        zf.write(f, arcname=str(f.relative_to(tmp_export)))
+                buf.seek(0)
+                return Response(
+                    content=buf.getvalue(),
+                    media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="kb-vault-export.zip"'},
+                )
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
     # ── Settings ───────────────────────────────────────────────────────
 
@@ -559,6 +622,25 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             return JSONResponse({"ok": True, "commits": commits, "count": len(commits)})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/git/diff")
+    def api_git_diff(
+        path: str | None = None,
+        staged: bool = False,
+        doc_id: str | None = None,
+    ) -> JSONResponse:
+        mgr = VaultManager()
+        try:
+            diff_text = mgr.git_diff(path=path, staged=staged)
+            pending_diffs = mgr.pending_export_diff(doc_id=doc_id)
+            return JSONResponse({
+                "ok": True,
+                "diff": diff_text,
+                "pending_diffs": pending_diffs,
+            })
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 
     @app.post("/api/git/commit")
     def api_git_commit(payload: dict[str, Any]) -> JSONResponse:

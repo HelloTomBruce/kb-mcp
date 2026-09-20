@@ -562,8 +562,8 @@ def _make_server(vault: str | None = None) -> Any:
     ) -> Any:
         """Create a new document.
 
-        CRITICAL RULE FOR AI AGENTS:
-        Immediately after successfully adding a document, you MUST identify related documents (especially a "project" document) and call the 'kb_link' tool to link them together. Do not leave the new document orphaned.
+        BEST PRACTICE FOR AI AGENTS:
+        After creating a document, if there are relevant related documents (e.g. a related project, decision, or topic), call the 'kb_link' tool to link them together to maintain graph connectivity.
 
         Args:
             type: Document type (e.g. "project", "decision").

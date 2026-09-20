@@ -774,19 +774,140 @@ class VaultManager:
                         if y not in (" ", "?"):
                             unstaged.append({"status": y, "path": path})
 
+        is_clean = (
+            len(staged) == 0
+            and len(unstaged) == 0
+            and len(untracked) == 0
+            and pending_dict["total"] == 0
+        )
+
         return {
             "vault_name": vault_name,
             "git_dir": str(git_dir),
             "is_git": True,
             "branch": branch,
+            "clean": is_clean,
             "status_raw": status_raw,
             "pending_export": pending_dict,
             "staged": staged,
             "unstaged": unstaged,
             "untracked": untracked,
+            "modified": [u["path"] for u in unstaged if u.get("status") == "M"],
             "ahead": ahead,
             "behind": behind,
         }
+
+    def git_diff(
+        self,
+        name: str | None = None,
+        path: str | None = None,
+        staged: bool = False,
+    ) -> str:
+        """Return git diff output for the sync repository."""
+        import subprocess
+
+        sync_root = self._sync_dir(name)
+        git_dir = sync_root.parent if sync_root != self.md_dir(name) else self.vault_dir(name)
+        if not (git_dir / ".git").exists():
+            return ""
+
+        cmd = ["git", "diff"]
+        if staged:
+            cmd.append("--cached")
+        if path:
+            cmd.extend(["--", path])
+
+        res = subprocess.run(
+            cmd,
+            cwd=str(git_dir),
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode != 0:
+            return ""
+
+        diff_out = res.stdout
+        # If specific untracked file, generate unified diff against /dev/null
+        if not diff_out and path and not staged:
+            target_p = git_dir / path
+            if target_p.is_file():
+                res_untracked = subprocess.run(
+                    ["git", "diff", "--no-index", "--", "/dev/null", path],
+                    cwd=str(git_dir),
+                    capture_output=True,
+                    text=True,
+                )
+                if res_untracked.stdout:
+                    diff_out = res_untracked.stdout
+        return diff_out
+
+    def pending_export_diff(
+        self,
+        doc_id: str | None = None,
+        name: str | None = None,
+    ) -> dict[str, str]:
+        """Return unified diffs for pending export documents (Database vs on-disk Markdown)."""
+        import difflib
+        from kb_mcp_lite.md_io import _export_candidate, _same_export_content, render_document
+        from kb_mcp_lite.store.sqlite import SqliteStore
+
+        store = SqliteStore(self.resolve_path(name))
+        diffs: dict[str, str] = {}
+        try:
+            base = self._sync_dir(name).resolve()
+            all_docs = store.export_all(include_deleted=True)
+            for doc in all_docs:
+                if doc_id and doc.id != doc_id:
+                    continue
+                if doc.deleted_at is not None:
+                    if doc.source:
+                        candidate = _export_candidate(base, doc)
+                        if candidate.is_file():
+                            old_lines = candidate.read_text(encoding="utf-8").splitlines(keepends=True)
+                            d = "".join(
+                                difflib.unified_diff(
+                                    old_lines,
+                                    [],
+                                    fromfile=f"a/{candidate.name}",
+                                    tofile="/dev/null",
+                                )
+                            )
+                            if d:
+                                diffs[doc.id] = d
+                    continue
+
+                candidate = _export_candidate(base, doc)
+                rendered = render_document(doc, outlinks=store.outlinks(doc.id))
+                rendered_lines = rendered.splitlines(keepends=True)
+
+                if not candidate.is_file():
+                    d = "".join(
+                        difflib.unified_diff(
+                            [],
+                            rendered_lines,
+                            fromfile="/dev/null",
+                            tofile=f"b/{candidate.name}",
+                        )
+                    )
+                    if d:
+                        diffs[doc.id] = d
+                else:
+                    disk_text = candidate.read_text(encoding="utf-8")
+                    if not _same_export_content(disk_text, rendered):
+                        old_lines = disk_text.splitlines(keepends=True)
+                        d = "".join(
+                            difflib.unified_diff(
+                                old_lines,
+                                rendered_lines,
+                                fromfile=f"a/{candidate.name}",
+                                tofile=f"b/{candidate.name}",
+                            )
+                        )
+                        if d:
+                            diffs[doc.id] = d
+        finally:
+            store.close()
+        return diffs
 
 
 __all__ = [

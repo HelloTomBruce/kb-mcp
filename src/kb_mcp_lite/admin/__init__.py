@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -23,6 +24,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 PACKAGE_DIR = _THIS_DIR.parent  # kb_mcp_lite/
 TEMPLATES_DIR = PACKAGE_DIR / "templates" / "admin"
 STATIC_DIR = PACKAGE_DIR / "static"
+STATIC_APP_DIR = STATIC_DIR / "app"
 
 
 class ApiDocCreate(BaseModel):
@@ -50,8 +52,31 @@ class ApiLinkWrite(BaseModel):
 
 def create_app(store: SqliteStore | None = None) -> FastAPI:
     app = FastAPI(title="kb-mcp admin", version="0.1")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    if (STATIC_APP_DIR / "assets").exists():
+        app.mount("/app/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_app_assets")
+        app.mount("/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_assets")
+
+    @app.get("/app/{full_path:path}")
+    @app.get("/app")
+    def serve_spa(full_path: str = "") -> Any:
+        index_file = STATIC_APP_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        return HTMLResponse(
+            "<h1>SPA not built yet. Run 'cd web && npm run build'</h1>", status_code=404
+        )
 
     app.state.store_path = str((store or create_default_store()).path)
 

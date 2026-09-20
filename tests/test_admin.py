@@ -40,8 +40,12 @@ def test_overview_renders(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
 
-    response = client.get("/")
+    # Root redirects to SPA when SPA exists
+    res_root = client.get("/", follow_redirects=False)
+    assert res_root.status_code == 302
 
+    # Legacy view renders old template
+    response = client.get("/?legacy=1")
     assert response.status_code == 200
     assert "有效文档" in response.text
     assert "Sample Project" in response.text
@@ -441,4 +445,29 @@ def test_type_display_labels_in_ui(tmp_path: Path) -> None:
     assert "项目/规划 (project)" in detail_res.text
 
 
+def test_spa_routes(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    client = TestClient(create_app(store=store))
 
+    # Check SPA index route
+    app_res = client.get("/app")
+    assert app_res.status_code == 200
+    assert "kb-mcp Console" in app_res.text
+    assert "root" in app_res.text
+
+    # Check SPA sub-route
+    sub_res = client.get("/app/docs")
+    assert sub_res.status_code == 200
+    assert "kb-mcp Console" in sub_res.text
+
+
+def test_git_diff_api(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    client = TestClient(create_app(store=store))
+
+    diff_res = client.get("/api/git/diff")
+    assert diff_res.status_code == 200
+    payload = diff_res.json()
+    assert payload["ok"] is True
+    assert "diff" in payload
+    assert "pending_diffs" in payload

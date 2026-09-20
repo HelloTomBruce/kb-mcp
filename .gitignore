@@ -19,3 +19,5 @@ build/
 .reasonix
 .claude
 .dsh-browser
+web/node_modules/
+web/dist/
