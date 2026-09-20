@@ -40,7 +40,7 @@ from kb_mcp_lite.reranker import (
     make_reranker,
 )
 
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 
 __all__ = [
     "__version__",
