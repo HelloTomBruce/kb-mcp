@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
+from kb_mcp_lite.admin import ApiLinkWrite
 from kb_mcp_lite.admin._helpers import (
     json_error,
     list_links,
@@ -22,9 +23,8 @@ from kb_mcp_lite.admin._helpers import (
     schema_version,
     serialize_link,
 )
-from kb_mcp_lite.admin import ApiLinkWrite
 from kb_mcp_lite.admin._helpers import serialize_doc as _serialize_doc
-from kb_mcp_lite.schema import ValidationError, NotFoundError, DuplicateError, IntegrityError
+from kb_mcp_lite.schema import DuplicateError, IntegrityError, NotFoundError, ValidationError
 from kb_mcp_lite.store.sqlite import SqliteStore
 from kb_mcp_lite.vault import (
     VaultAlreadyExistsError,
@@ -83,6 +83,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
     def api_doctor_fix() -> JSONResponse:
         with open_store(app) as store:
             from kb_mcp_lite.graph_query import doctor_fix_hygiene
+
             res = doctor_fix_hygiene(store)
             doctor_report = store.doctor()
             return JSONResponse(
@@ -200,6 +201,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
     def overview(request: Request) -> Any:
         if request.query_params.get("legacy") != "1":
             from kb_mcp_lite.admin import STATIC_APP_DIR
+
             if STATIC_APP_DIR.exists() and (STATIC_APP_DIR / "index.html").exists():
                 return RedirectResponse(url="/app", status_code=302)
         with open_store(app) as store:
@@ -318,17 +320,16 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         import_report = None
         export_report = None
         try:
-            with open_store(app) as store:
-                with tempfile.TemporaryDirectory() as tmp:
-                    tmp_path = Path(tmp)
-                    payload = await archive.read()
-                    zip_path = tmp_path / (archive.filename or "import.zip")
-                    zip_path.write_bytes(payload)
-                    import zipfile
+            with open_store(app) as store, tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                payload = await archive.read()
+                zip_path = tmp_path / (archive.filename or "import.zip")
+                zip_path.write_bytes(payload)
+                import zipfile
 
-                    with zipfile.ZipFile(zip_path) as zf:
-                        zf.extractall(tmp_path / "vault")
-                    import_report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
+                with zipfile.ZipFile(zip_path) as zf:
+                    zf.extractall(tmp_path / "vault")
+                import_report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
         except (ValidationError, DuplicateError) as exc:
             errors.append(str(exc))
         except (NotFoundError, IntegrityError) as exc:
@@ -380,18 +381,19 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         dry_run: bool = Form(default=False),
     ) -> JSONResponse:
         try:
-            with open_store(app) as store:
-                with tempfile.TemporaryDirectory() as tmp:
-                    tmp_path = Path(tmp)
-                    payload = await archive.read()
-                    zip_path = tmp_path / (archive.filename or "import.zip")
-                    zip_path.write_bytes(payload)
-                    import zipfile
-                    from kb_mcp_lite.md_io import import_dir
-                    with zipfile.ZipFile(zip_path) as zf:
-                        zf.extractall(tmp_path / "vault")
-                    report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
-                    return JSONResponse({"ok": True, "report": report})
+            with open_store(app) as store, tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                payload = await archive.read()
+                zip_path = tmp_path / (archive.filename or "import.zip")
+                zip_path.write_bytes(payload)
+                import zipfile
+
+                from kb_mcp_lite.md_io import import_dir
+
+                with zipfile.ZipFile(zip_path) as zf:
+                    zf.extractall(tmp_path / "vault")
+                report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
+                return JSONResponse({"ok": True, "report": report})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
@@ -399,10 +401,12 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
     def api_exports_download() -> Any:
         try:
             with open_store(app) as store:
-                from kb_mcp_lite.md_io import export_dir
-                import zipfile
                 import io
+                import zipfile
+
                 from fastapi.responses import Response
+
+                from kb_mcp_lite.md_io import export_dir
 
                 tmp_export = Path(tempfile.mkdtemp(prefix="kb-export-"))
                 export_dir(store, tmp_export, force=True)
@@ -477,7 +481,6 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                 return JSONResponse({"ok": True, "retried": retried})
             except Exception as e:
                 return json_error(str(e), status_code=500)
-
 
     # ── Vault management ───────────────────────────────────────────────
 
@@ -561,7 +564,9 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
     @app.post("/api/vaults/embed")
     async def api_vault_embed(request: Request) -> Any:
         accept_header = request.headers.get("accept", "")
-        stream_mode = "text/event-stream" in accept_header or request.query_params.get("stream") == "1"
+        stream_mode = (
+            "text/event-stream" in accept_header or request.query_params.get("stream") == "1"
+        )
 
         store_path = getattr(app.state, "store_path", None)
         if not store_path:
@@ -594,31 +599,38 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             def run_reindex():
                 store = SqliteStore(store_path)
                 try:
+
                     def on_progress(processed: int, total: int, doc_id: str, is_ok: bool):
-                        event_q.put({
-                            "type": "progress",
-                            "processed": processed,
-                            "total": total,
-                            "doc_id": doc_id,
-                            "status": "ok" if is_ok else "failed",
-                        })
+                        event_q.put(
+                            {
+                                "type": "progress",
+                                "processed": processed,
+                                "total": total,
+                                "doc_id": doc_id,
+                                "status": "ok" if is_ok else "failed",
+                            }
+                        )
 
                     n = store.reindex_embeddings(progress_callback=on_progress)
                     report = getattr(store, "last_reindex_report", {}) or {}
-                    event_q.put({
-                        "type": "complete",
-                        "ok": True,
-                        "reindexed": n,
-                        "failed": report.get("failed", 0),
-                        "dim": report.get("dim", 0),
-                        "total": report.get("total", 0),
-                    })
+                    event_q.put(
+                        {
+                            "type": "complete",
+                            "ok": True,
+                            "reindexed": n,
+                            "failed": report.get("failed", 0),
+                            "dim": report.get("dim", 0),
+                            "total": report.get("total", 0),
+                        }
+                    )
                 except Exception as exc:
-                    event_q.put({
-                        "type": "error",
-                        "ok": False,
-                        "error": str(exc),
-                    })
+                    event_q.put(
+                        {
+                            "type": "error",
+                            "ok": False,
+                            "error": str(exc),
+                        }
+                    )
                 finally:
                     store.close()
                     event_q.put(None)  # Sentinel to end stream
@@ -706,18 +718,23 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         try:
             diff_text = mgr.git_diff(path=path, staged=staged)
             pending_diffs = mgr.pending_export_diff(doc_id=doc_id)
-            return JSONResponse({
-                "ok": True,
-                "diff": diff_text,
-                "pending_diffs": pending_diffs,
-            })
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "diff": diff_text,
+                    "pending_diffs": pending_diffs,
+                }
+            )
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-
     @app.post("/api/git/commit")
     def api_git_commit(payload: dict[str, Any]) -> JSONResponse:
-        message = payload.get("message", "admin commit").strip() if isinstance(payload, dict) else "admin commit"
+        message = (
+            payload.get("message", "admin commit").strip()
+            if isinstance(payload, dict)
+            else "admin commit"
+        )
         if not message:
             message = "admin commit"
         full = bool(payload.get("full", False)) if isinstance(payload, dict) else False
@@ -1032,5 +1049,3 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
 
         save_custom_types(new_list)
         return JSONResponse({"ok": True, "deleted": type_name})
-
-

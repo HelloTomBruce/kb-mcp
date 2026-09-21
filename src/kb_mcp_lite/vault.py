@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -672,20 +671,23 @@ class VaultManager:
                 continue
             parts = line.split("\x1f")
             if len(parts) >= 7:
-                commits.append({
-                    "hash": parts[0],
-                    "short_hash": parts[1],
-                    "author": parts[2],
-                    "email": parts[3],
-                    "date": parts[4],
-                    "relative_date": parts[5],
-                    "message": parts[6],
-                })
+                commits.append(
+                    {
+                        "hash": parts[0],
+                        "short_hash": parts[1],
+                        "author": parts[2],
+                        "email": parts[3],
+                        "date": parts[4],
+                        "relative_date": parts[5],
+                        "message": parts[6],
+                    }
+                )
         return commits
 
     def git_status_info(self, name: str | None = None) -> dict[str, Any]:
         """Return structured Git and pending export status for the vault."""
         import subprocess
+
         from kb_mcp_lite.md_io import pending_export
         from kb_mcp_lite.store.sqlite import SqliteStore
 
@@ -848,6 +850,7 @@ class VaultManager:
     ) -> dict[str, str]:
         """Return unified diffs for pending export documents (Database vs on-disk Markdown)."""
         import difflib
+
         from kb_mcp_lite.md_io import _export_candidate, _same_export_content, render_document
         from kb_mcp_lite.store.sqlite import SqliteStore
 
@@ -863,7 +866,9 @@ class VaultManager:
                     if doc.source:
                         candidate = _export_candidate(base, doc)
                         if candidate.is_file():
-                            old_lines = candidate.read_text(encoding="utf-8").splitlines(keepends=True)
+                            old_lines = candidate.read_text(encoding="utf-8").splitlines(
+                                keepends=True
+                            )
                             d = "".join(
                                 difflib.unified_diff(
                                     old_lines,
@@ -911,11 +916,11 @@ class VaultManager:
 
 
 __all__ = [
-    "VaultManager",
-    "VaultInfo",
-    "VaultError",
-    "VaultNotFoundError",
     "VaultAlreadyExistsError",
-    "get_kb_home",
+    "VaultError",
+    "VaultInfo",
+    "VaultManager",
+    "VaultNotFoundError",
     "get_current_vault_name",
+    "get_kb_home",
 ]

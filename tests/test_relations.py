@@ -1,6 +1,5 @@
 """Tests for the typed relation vocabulary and impact analyzer (v0.8 特性 #6)."""
 
-from kb_mcp_lite.schema import Document
 from kb_mcp_lite.relations import (
     STANDARD_RELATIONS,
     ImpactAnalyzer,
@@ -8,8 +7,8 @@ from kb_mcp_lite.relations import (
     resolve_relation,
     supersession_chain,
 )
+from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
-
 
 # ---------------------------------------------------------------------------
 # RelationSpec

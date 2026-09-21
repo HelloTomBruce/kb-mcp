@@ -18,14 +18,13 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterator
 
 import pytest
 
 from kb_mcp_lite.md_io import parse_frontmatter
-
 
 # ---------------------------------------------------------------------------
 # Helpers

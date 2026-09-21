@@ -2,31 +2,31 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 import os
 import re
 import sqlite3
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
-from collections.abc import Iterable, Iterator
 
 from kb_mcp_lite.schema import (
     Document,
-    Link,
-    ImportReport,
-    NotFoundError,
     DuplicateError,
+    ImportReport,
+    Link,
+    NotFoundError,
     ValidationError,
 )
 from kb_mcp_lite.store.connection import make_sqlite_connection, sqlite_row_factory
+from kb_mcp_lite.store.embedding import EmbeddingMixin
 from kb_mcp_lite.store.maintenance import MaintenanceMixin
 from kb_mcp_lite.store.search import SearchMixin
 from kb_mcp_lite.store.versioning import VersioningMixin
-from kb_mcp_lite.store.embedding import EmbeddingMixin
-import builtins
 
 if TYPE_CHECKING:
     from kb_mcp_lite.concurrency import WriteLock
@@ -141,7 +141,6 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
     def init(self) -> None:
         """Initialize a new empty knowledge base."""
         # Already handled by migrations
-        pass
 
     # ---- embedding queue / worker ---------------------------------------
 
@@ -244,7 +243,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
                             break
                         continue
                     break
-                scratch._process_one(entry)  # noqa: SLF001
+                scratch._process_one(entry)
                 processed += 1
         finally:
             # Only stop the worker if we constructed it ourselves. The
@@ -283,7 +282,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
             try:
                 row = self._conn.execute("SELECT COUNT(*) FROM docs_vec").fetchone()
                 n_vec = int(row[0]) if row else 0
-            except Exception:  # noqa: BLE001
+            except Exception:
                 n_vec = 0
         queue = self._embedding_queue.status()
         return {
@@ -323,7 +322,7 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         if worker is not None:
             try:
                 worker.stop()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.debug("error stopping embedding worker", exc_info=True)
             self._embedding_worker = None
         try:
@@ -928,6 +927,6 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
 
 
 # Import make_id at the end to avoid circular import
-from kb_mcp_lite.schema import make_id  # noqa: E402
+from kb_mcp_lite.schema import make_id
 
 __all__ = ["SqliteStore"]

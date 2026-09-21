@@ -65,8 +65,14 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     if (STATIC_APP_DIR / "assets").exists():
-        app.mount("/app/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_app_assets")
-        app.mount("/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_assets")
+        app.mount(
+            "/app/assets",
+            StaticFiles(directory=str(STATIC_APP_DIR / "assets")),
+            name="spa_app_assets",
+        )
+        app.mount(
+            "/assets", StaticFiles(directory=str(STATIC_APP_DIR / "assets")), name="spa_assets"
+        )
 
     @app.get("/app/favicon.ico")
     @app.get("/favicon.ico")
@@ -118,9 +124,7 @@ def create_app(store: SqliteStore | None = None) -> FastAPI:
             current_doc_types = BUILTIN_TYPES
 
         doc_types_map = {
-            t["name"]: t
-            for t in current_doc_types
-            if isinstance(t, dict) and "name" in t
+            t["name"]: t for t in current_doc_types if isinstance(t, dict) and "name" in t
         }
 
         payload = {

@@ -4,12 +4,22 @@ A local-first, schema-first, MCP-native knowledge base for LLM agents.
 See https://github.com/HelloTomBruce/kb-mcp-lite for the full spec.
 """
 
+from kb_mcp_lite.reranker import (
+    HttpReranker,
+    NullReranker,
+    RerankConfig,
+    Reranker,
+    RerankError,
+    RerankItem,
+    load_rerank_config,
+    make_reranker,
+)
 from kb_mcp_lite.schema import (
     Decision,
-    Document,
-    DocumentType,
     DoctorCheck,
     DoctorReport,
+    Document,
+    DocumentType,
     DuplicateError,
     Faq,
     Glossary,
@@ -27,17 +37,6 @@ from kb_mcp_lite.schema import (
     default_registry,
     make_id,
     slugify,
-)
-
-from kb_mcp_lite.reranker import (
-    HttpReranker,
-    NullReranker,
-    RerankConfig,
-    RerankError,
-    RerankItem,
-    Reranker,
-    load_rerank_config,
-    make_reranker,
 )
 
 __version__ = "0.8.7"

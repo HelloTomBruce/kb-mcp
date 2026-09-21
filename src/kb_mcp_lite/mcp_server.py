@@ -40,7 +40,8 @@ import os
 import sys
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
+from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 
 from kb_mcp_lite.md_io import render_document
 from kb_mcp_lite.schema import (
@@ -372,7 +373,7 @@ def _make_server(vault: str | None = None) -> Any:
     @mcp.tool()
     def kb_search(
         query: str,
-        type: str | None = None,  # noqa: A002
+        type: str | None = None,
         tags: list[str] | None = None,
         limit: int = 10,
         mode: str = "hybrid",
@@ -1549,8 +1550,8 @@ def _make_server(vault: str | None = None) -> Any:
         """
         logger.info("kb_schedule_status")
         try:
-            from kb_mcp_lite.scheduler import TaskScheduler
             from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
 
             config = load_config()
             scheduler = TaskScheduler(store, config)
@@ -1574,8 +1575,8 @@ def _make_server(vault: str | None = None) -> Any:
         """
         logger.info("kb_schedule_run task_name=%r", task_name)
         try:
-            from kb_mcp_lite.scheduler import TaskScheduler
             from kb_mcp_lite.config import load_config
+            from kb_mcp_lite.scheduler import TaskScheduler
 
             config = load_config()
             scheduler = TaskScheduler(store, config)
@@ -2243,17 +2244,17 @@ def run(vault: str | None = None) -> None:
 
 
 __all__ = [
-    "run",
-    "KbSearchInput",
-    "KbGetInput",
     "KbAddInput",
+    "KbDeleteInput",
+    "KbDuplicatesInput",
+    "KbGetInput",
     "KbLinkInput",
     "KbListInput",
-    "KbUpdateInput",
-    "KbDeleteInput",
-    "KbUnlinkInput",
+    "KbSearchInput",
     "KbSimilarInput",
-    "KbDuplicatesInput",
+    "KbUnlinkInput",
+    "KbUpdateInput",
+    "run",
 ]
 
 

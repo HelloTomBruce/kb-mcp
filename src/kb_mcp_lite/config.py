@@ -48,7 +48,7 @@ def load_config() -> dict[str, Any]:
         raw = path.read_text(encoding="utf-8")
         data = yaml.safe_load(raw)
         return data if isinstance(data, dict) else {}
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
@@ -204,17 +204,17 @@ def ensure_config() -> Path:
 
 
 __all__ = [
-    "config_path",
-    "load_config",
-    "get_data_dir",
-    "get_embedding_block",
-    "get_embedding_url",
-    "get_embedding_model",
-    "get_embedding_api_key",
-    "get_rerank_block",
-    "get_rerank_url",
-    "get_rerank_model",
-    "get_rerank_api_key",
-    "ensure_config",
     "TEMPLATE",
+    "config_path",
+    "ensure_config",
+    "get_data_dir",
+    "get_embedding_api_key",
+    "get_embedding_block",
+    "get_embedding_model",
+    "get_embedding_url",
+    "get_rerank_api_key",
+    "get_rerank_block",
+    "get_rerank_model",
+    "get_rerank_url",
+    "load_config",
 ]

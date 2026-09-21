@@ -471,16 +471,18 @@ hooks:
 ```python
 from kb_mcp_lite.schema import Document, Field
 
+
 class ApiDoc(Document):
     """API接口文档类型"""
+
     type: str = "api"
     id_prefix: str = "api"
-    
+
     # 自定义字段
     endpoint: str = Field(description="接口路径")
     method: str = Field(description="HTTP方法")
     version: str = Field(description="接口版本")
-    
+
     class Config:
         schema_extra = {
             "example": {
@@ -489,7 +491,7 @@ class ApiDoc(Document):
                 "method": "GET",
                 "version": "v1",
                 "tags": ["user", "api"],
-                "body": "接口返回用户的基本信息..."
+                "body": "接口返回用户的基本信息...",
             }
         }
 ```

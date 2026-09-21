@@ -52,13 +52,13 @@ Callers MUST handle these. Callers MUST NOT catch the generic
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Protocol, runtime_checkable
-from collections.abc import Iterable
 
 from kb_mcp_lite.schema import (
-    Document,
     DoctorReport,
+    Document,
     ImportReport,
     Link,
     SearchHit,

@@ -98,6 +98,7 @@ def get_custom_types() -> list[dict[str, Any]]:
 
 def save_custom_types(custom_types: list[dict[str, Any]]) -> None:
     import yaml
+
     from kb_mcp_lite.config import config_path, load_config
 
     p = config_path()
@@ -109,9 +110,7 @@ def save_custom_types(custom_types: list[dict[str, Any]]) -> None:
 
 def get_all_types(store: SqliteStore | None = None) -> list[dict[str, Any]]:
     # Start with built-in types
-    type_map: dict[str, dict[str, Any]] = {
-        t["name"]: dict(t) for t in BUILTIN_TYPES
-    }
+    type_map: dict[str, dict[str, Any]] = {t["name"]: dict(t) for t in BUILTIN_TYPES}
     # Merge custom types from config
     for ct in get_custom_types():
         name = str(ct.get("name", "")).strip()
@@ -169,7 +168,6 @@ def get_all_types(store: SqliteStore | None = None) -> list[dict[str, Any]]:
 def get_doc_type_names(store: SqliteStore | None = None) -> list[str]:
     all_types = get_all_types(store)
     return [t["name"] for t in all_types]
-
 
 
 def create_default_store() -> SqliteStore:
@@ -381,26 +379,25 @@ __all__ = [
     "BUILTIN_TYPES",
     "DOC_TYPES",
     "SEARCH_MODES",
-    "create_default_store",
-    "open_store",
-    "split_tags",
-    "filtered_documents",
-    "create_document",
-    "patch_document",
-    "doc_row",
-    "doc_form_data",
     "count_links",
-    "list_links",
-    "serialize_doc",
-    "serialize_link",
-    "serialize_hit",
-    "json_error",
+    "create_default_store",
+    "create_document",
+    "doc_form_data",
+    "doc_row",
+    "filtered_documents",
     "flash_url",
-    "overview_payload",
-    "schema_version",
-    "get_custom_types",
-    "save_custom_types",
     "get_all_types",
+    "get_custom_types",
     "get_doc_type_names",
+    "json_error",
+    "list_links",
+    "open_store",
+    "overview_payload",
+    "patch_document",
+    "save_custom_types",
+    "schema_version",
+    "serialize_doc",
+    "serialize_hit",
+    "serialize_link",
+    "split_tags",
 ]
-

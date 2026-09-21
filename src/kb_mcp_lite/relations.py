@@ -153,7 +153,7 @@ def resolve_relation(name: str) -> RelationSpec:
 # Impact analyzer
 # ---------------------------------------------------------------------------
 
-from kb_mcp_lite.schema import Document  # noqa: E402 (avoid circular)
+from kb_mcp_lite.schema import Document
 
 
 @dataclass

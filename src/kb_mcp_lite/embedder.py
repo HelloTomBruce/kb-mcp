@@ -351,11 +351,11 @@ def make_embedder() -> Embedder:
 
 
 __all__ = [
+    "Embedder",
     "EmbeddingConfig",
     "EmbeddingError",
-    "Embedder",
-    "NullEmbedder",
     "HttpEmbedder",
+    "NullEmbedder",
     "load_embedding_config",
     "make_embedder",
 ]

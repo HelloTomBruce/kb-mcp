@@ -32,7 +32,7 @@ class _HashingEmbedder(Embedder):
 
     def embed(self, text: str) -> list[float]:
         out: list[float] = []
-        for i in range(0, max(1, len(text) - 2)):
+        for i in range(max(1, len(text) - 2)):
             h = hashlib.md5(text[i : i + 3].encode("utf-8")).digest()
             out.append((h[0] - 128) / 128.0)
         if not out:
@@ -172,7 +172,6 @@ class TestSuggestTags:
         """Unknown doc should not crash — but suggest_tags relies on
         similar_docs which raises NotFoundError."""
         # Note: the current impl delegates to similar_docs which raises.
-        pass
 
     def test_suggest_tags_handles_untagged_docs(self, store: SqliteStore) -> None:
         """A doc with no tags that is similar to tagged docs still gets suggestions."""

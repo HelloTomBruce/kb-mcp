@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
 

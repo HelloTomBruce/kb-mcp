@@ -1,32 +1,31 @@
 """Command-line interface."""
 
+import functools
+import json
 import os
 import sys
-import json
-import functools
-from pathlib import Path
-from typing import cast, Any, TypeVar
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any, TypeVar, cast
 
 import click
 from pydantic import ValidationError
 
 from kb_mcp_lite import __version__
+from kb_mcp_lite.concurrency import ResourceBusyError
 from kb_mcp_lite.config import load_config as get_config
-from kb_mcp_lite.md_io import import_dir, export_dir
+from kb_mcp_lite.md_io import export_dir, import_dir
 from kb_mcp_lite.schema import (
     Document,
+    DuplicateError,
     KbMcpError,
     NotFoundError,
-    DuplicateError,
 )
-from kb_mcp_lite.concurrency import ResourceBusyError
 from kb_mcp_lite.vault import (
     VaultAlreadyExistsError,
     VaultManager,
     VaultNotFoundError,
 )
-
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -1104,7 +1103,6 @@ def mcp_alias(ctx: click.Context, log_level: str, vault: str | None) -> None:
 @cli.group(name="vault")
 def vault_group() -> None:
     """Manage multiple isolated knowledge bases (vaults)."""
-    pass
 
 
 @vault_group.command(name="list")
@@ -1261,7 +1259,6 @@ def vault_sync(ctx: click.Context, message: str, remote: str, branch: str) -> No
 @cli.group(name="admin")
 def admin_group() -> None:
     """Web administration interface commands."""
-    pass
 
 
 @admin_group.command(name="start")
@@ -1469,12 +1466,12 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "cli",
-    "main",
-    "EXIT_OK",
-    "EXIT_VALIDATION",
-    "EXIT_NOT_FOUND",
     "EXIT_CONFLICT",
     "EXIT_INTERNAL",
+    "EXIT_NOT_FOUND",
+    "EXIT_OK",
     "EXIT_USAGE",
+    "EXIT_VALIDATION",
+    "cli",
+    "main",
 ]

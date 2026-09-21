@@ -43,7 +43,7 @@ class EmbeddingMixin:
                 "SELECT embedding FROM docs_vec WHERE rowid = ?",
                 (row[0],),
             ).fetchone()
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
         if emb_row is None:
             return []
@@ -65,7 +65,7 @@ class EmbeddingMixin:
                 """,
                 (query_vec, row[0], limit),
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
 
         cols = [desc[0] for desc in cursor.description]
@@ -118,7 +118,7 @@ class EmbeddingMixin:
                 emb_row = vec_conn.execute(
                     "SELECT embedding FROM docs_vec WHERE rowid = ?", (rowid_a,)
                 ).fetchone()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
             if emb_row is None:
                 continue
@@ -138,7 +138,7 @@ class EmbeddingMixin:
                     """,
                     (query_vec, rowid_a, threshold, limit - len(results)),
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
             for r in cursor.fetchall():
                 id_b, dist = r[0], float(r[1])
@@ -157,7 +157,7 @@ class EmbeddingMixin:
         try:
             text = f"{doc.title}\n\n{doc.body}".strip()
             vector = emb.embed(text)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logging.getLogger("kb_mcp_lite").warning("embedding failed for %s: %s", doc.id, e)
             return
         try:
@@ -179,7 +179,7 @@ class EmbeddingMixin:
                 "INSERT INTO docs_vec(rowid, embedding) VALUES (?, ?)",
                 (rowid[0], serialize_float32(vector)),
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logging.getLogger("kb_mcp_lite").debug("docs_vec write skipped for %s: %s", doc.id, e)
 
     def _remove_embedding(self, doc_id: str) -> None:
@@ -191,7 +191,7 @@ class EmbeddingMixin:
                 "DELETE FROM docs_vec WHERE rowid = (SELECT rowid FROM documents WHERE id = ?)",
                 (doc_id,),
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def _vec_conn_lazy(self) -> Any:
@@ -205,7 +205,7 @@ class EmbeddingMixin:
             from kb_mcp_lite.store.connection import make_sqlite_connection
 
             conn = make_sqlite_connection(str(self.path))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logging.getLogger("kb_mcp_lite").debug("vec0 connection not available: %s", e)
             self._vec_conn = False
             return None
@@ -222,14 +222,14 @@ class EmbeddingMixin:
             # lexical-only search, as before.
             try:
                 conn.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             self._vec_conn = False
             return None
         self._vec_conn = conn
         try:
             conn.execute("PRAGMA foreign_keys=ON")
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         self._vec_row_is_tuple = True
         return conn
@@ -285,7 +285,7 @@ class EmbeddingMixin:
                 (doc_id,),
             ).fetchone()
             return 1 if r is not None else 0
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0
 
 
@@ -329,7 +329,7 @@ def ensure_vec_table(conn: Any, dim: int) -> bool:
             f"embedding float[{dim}] distance_metric=cosine)"
         )
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         logging.getLogger("kb_mcp_lite.store.embedding").debug(
             "docs_vec table unavailable on %r: ", conn, exc_info=True
         )

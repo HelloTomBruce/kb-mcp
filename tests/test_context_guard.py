@@ -1,7 +1,8 @@
 from pathlib import Path
+
+from kb_mcp_lite.context_guard import ContextGuard
 from kb_mcp_lite.schema import Document
 from kb_mcp_lite.store.sqlite import SqliteStore
-from kb_mcp_lite.context_guard import ContextGuard
 
 
 def test_context_guard_evaluation(tmp_path: Path):

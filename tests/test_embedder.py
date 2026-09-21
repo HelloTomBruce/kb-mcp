@@ -27,7 +27,6 @@ from kb_mcp_lite.embedder import (
     load_embedding_config,
 )
 
-
 # ---------------------------------------------------------------------------
 # NullEmbedder
 # ---------------------------------------------------------------------------
@@ -48,8 +47,9 @@ def test_null_embedder_is_disabled() -> None:
 
 def test_http_embedder_calls_embeddings_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify URL path, body shape, and response parsing."""
-    import httpx
     import json as _json
+
+    import httpx
 
     captured: dict[str, Any] = {}
 

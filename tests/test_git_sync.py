@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from kb_mcp_lite.md_io import parse_frontmatter
 
 

@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from kb_mcp_lite.admin import ApiDocCreate, ApiDocUpdate
 from kb_mcp_lite.admin._helpers import (
     create_document,
     doc_form_data,
@@ -18,17 +19,16 @@ from kb_mcp_lite.admin._helpers import (
     patch_document,
     serialize_doc,
     serialize_hit,
+    serialize_link,
     split_tags,
 )
-from kb_mcp_lite.admin import ApiDocCreate, ApiDocUpdate
-from kb_mcp_lite.admin._helpers import serialize_link
 from kb_mcp_lite.relations import STANDARD_RELATIONS
 from kb_mcp_lite.schema import (
-    SearchHit,
-    ValidationError,
-    NotFoundError,
     DuplicateError,
     IntegrityError,
+    NotFoundError,
+    SearchHit,
+    ValidationError,
 )
 
 

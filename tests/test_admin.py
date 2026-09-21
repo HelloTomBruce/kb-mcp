@@ -3,8 +3,8 @@ from __future__ import annotations
 import io
 import zipfile
 from pathlib import Path
-import pytest
 
+import pytest
 from fastapi.testclient import TestClient
 
 from kb_mcp_lite.admin import create_app

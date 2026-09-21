@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -89,12 +90,17 @@ def test_api_git_init_commit_and_history(tmp_path: Path, monkeypatch: pytest.Mon
 
     # Configure git user in vault git dir for commits in test env
     import subprocess
+
     git_dir = Path(status_data["git_dir"])
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(git_dir), check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(git_dir), check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=str(git_dir), check=True
+    )
 
     # 3. Commit
-    commit_res = client.post("/api/git/commit", json={"message": "feat: initial test commit", "full": True})
+    commit_res = client.post(
+        "/api/git/commit", json={"message": "feat: initial test commit", "full": True}
+    )
     assert commit_res.status_code == 200
     commit_data = commit_res.json()
     assert commit_data["ok"] is True
@@ -124,4 +130,3 @@ def test_api_git_init_commit_and_history(tmp_path: Path, monkeypatch: pytest.Mon
     # 7. Test Sync endpoint
     sync_res = client.post("/api/git/sync", json={"remote": "origin", "branch": "main"})
     assert sync_res.status_code in (200, 500)
-

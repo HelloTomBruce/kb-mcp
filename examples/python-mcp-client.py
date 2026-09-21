@@ -63,48 +63,46 @@ def _server_params() -> StdioServerParameters:
 async def main() -> None:
     params = _server_params()
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            # 1. Handshake.
-            init_result = await session.initialize()
-            print(
-                f"connected to server: {init_result.serverInfo.name} "
-                f"v{init_result.serverInfo.version}",
-                file=sys.stderr,
-            )
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        # 1. Handshake.
+        init_result = await session.initialize()
+        print(
+            f"connected to server: {init_result.serverInfo.name} v{init_result.serverInfo.version}",
+            file=sys.stderr,
+        )
 
-            # 2. List tools (sanity check).
-            tools_resp = await session.list_tools()
-            tool_names = [t.name for t in tools_resp.tools]
-            print(f"available tools: {tool_names}", file=sys.stderr)
+        # 2. List tools (sanity check).
+        tools_resp = await session.list_tools()
+        tool_names = [t.name for t in tools_resp.tools]
+        print(f"available tools: {tool_names}", file=sys.stderr)
 
-            # 3. Create a document with kb_add.
-            add_result: Any = await session.call_tool(
-                "kb_add",
-                {
-                    "type": "glossary",
-                    "title": "MCP",
-                    "body": (
-                        "The Model Context Protocol (MCP) is an open standard "
-                        "that lets LLM-powered agents call external tools and "
-                        "read external context. kb-mcp exposes its knowledge "
-                        "base over MCP so any compliant agent can search and "
-                        "edit it."
-                    ),
-                    "tags": ["protocol", "agents"],
-                },
-            )
-            new_id = _extract_id(add_result)
-            print(f"kb_add → created document id={new_id!r}", file=sys.stderr)
+        # 3. Create a document with kb_add.
+        add_result: Any = await session.call_tool(
+            "kb_add",
+            {
+                "type": "glossary",
+                "title": "MCP",
+                "body": (
+                    "The Model Context Protocol (MCP) is an open standard "
+                    "that lets LLM-powered agents call external tools and "
+                    "read external context. kb-mcp exposes its knowledge "
+                    "base over MCP so any compliant agent can search and "
+                    "edit it."
+                ),
+                "tags": ["protocol", "agents"],
+            },
+        )
+        new_id = _extract_id(add_result)
+        print(f"kb_add → created document id={new_id!r}", file=sys.stderr)
 
-            # 4. Search for it with kb_search.
-            search_result: Any = await session.call_tool(
-                "kb_search",
-                {"query": "model context protocol", "limit": 5},
-            )
-            print("\n--- kb_search results ---")
-            _print_search_results(search_result)
-            print("--- end ---\n")
+        # 4. Search for it with kb_search.
+        search_result: Any = await session.call_tool(
+            "kb_search",
+            {"query": "model context protocol", "limit": 5},
+        )
+        print("\n--- kb_search results ---")
+        _print_search_results(search_result)
+        print("--- end ---\n")
 
 
 def _extract_id(result: Any) -> str:

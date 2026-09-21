@@ -78,16 +78,16 @@ src/kb_mcp_lite/
 
 ```python
 class Document(BaseModel):
-    id: str            # auto-generated if empty (e.g. "decision/use-sqlite")
-    type: str          # "project" | "decision" | "lesson" | "glossary" | ...
+    id: str  # auto-generated if empty (e.g. "decision/use-sqlite")
+    type: str  # "project" | "decision" | "lesson" | "glossary" | ...
     title: str
-    body: str          # Markdown content
+    body: str  # Markdown content
     tags: list[str]
-    aliases: list[str] # alternative IDs
-    source: str        # relative file path (for import tracking)
-    metadata: dict     # arbitrary key-value pairs
-    created_at: str    # ISO 8601
-    updated_at: str    # ISO 8601
+    aliases: list[str]  # alternative IDs
+    source: str  # relative file path (for import tracking)
+    metadata: dict  # arbitrary key-value pairs
+    created_at: str  # ISO 8601
+    updated_at: str  # ISO 8601
     deleted_at: str | None  # soft-delete timestamp
 ```
 
@@ -109,9 +109,9 @@ class Document(BaseModel):
 
 ```python
 class Link(BaseModel):
-    from_id: str    # source document
-    to_id: str      # target document
-    rel: str        # relation type (e.g. "depends-on", "supersedes")
+    from_id: str  # source document
+    to_id: str  # target document
+    rel: str  # relation type (e.g. "depends-on", "supersedes")
     created_at: str
 ```
 
