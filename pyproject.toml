@@ -114,6 +114,9 @@ warn_unused_ignores = true
 module = [
   "pysqlite3",
   "sqlite_vec",
+  "apscheduler",
+  "apscheduler.*",
+  "watchfiles",
 ]
 ignore_missing_imports = true
 
@@ -123,5 +126,8 @@ ignore_missing_imports = true
   "help/*.md",
   "templates/admin/*.html",
   "static/*.css",
+  "static/*.js",
+  "static/*.svg",
+  "static/*.ico",
   "static/app/**/*",
 ]  # Runtime assets
