@@ -263,7 +263,7 @@ class EmbeddingMixin:
                 n_fail += 1
                 failed_ids.append(doc.id)
             if progress_callback:
-                progress_callback(i + 1, total)
+                progress_callback(i + 1, total, doc.id, self._count_vec(doc.id) >= 1)
         self.last_reindex_report = {
             "succeeded": n_ok,
             "failed": n_fail,

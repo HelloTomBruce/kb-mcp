@@ -53,6 +53,21 @@ export const LinksPage: React.FC = () => {
     queryFn: () => api.getLinks(),
   });
 
+  const { data: docsData } = useQuery({
+    queryKey: ['docs-all-titles'],
+    queryFn: () => api.getDocs(),
+  });
+
+  const docTitles = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const doc of docsData?.items || []) {
+      if (doc.id && doc.title) {
+        map.set(doc.id, doc.title);
+      }
+    }
+    return map;
+  }, [docsData]);
+
   const createMutation = useMutation({
     mutationFn: () => api.createLink({ from_id: fromId.trim(), to_id: toId.trim(), rel }),
     onSuccess: () => {
@@ -84,10 +99,15 @@ export const LinksPage: React.FC = () => {
 
   const allLinks = data?.items || [];
   const filteredLinks = allLinks.filter((l) => {
+    const fromTitle = docTitles.get(l.from_id) || '';
+    const toTitle = docTitles.get(l.to_id) || '';
+    const filterLower = filterDocId.toLowerCase();
     const matchDoc =
       !filterDocId ||
-      l.from_id.toLowerCase().includes(filterDocId.toLowerCase()) ||
-      l.to_id.toLowerCase().includes(filterDocId.toLowerCase());
+      l.from_id.toLowerCase().includes(filterLower) ||
+      l.to_id.toLowerCase().includes(filterLower) ||
+      fromTitle.toLowerCase().includes(filterLower) ||
+      toTitle.toLowerCase().includes(filterLower);
     const matchRel = !filterRel || l.rel === filterRel;
     return matchDoc && matchRel;
   });
@@ -279,54 +299,77 @@ export const LinksPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-white/[0.04]">
               {filteredLinks.length > 0 ? (
-                filteredLinks.map((link, idx) => (
-                  <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors">
-                    {/* From */}
-                    <td className="p-4">
-                      <RouterLink
-                        to={`/docs/${encodeURIComponent(link.from_id)}`}
-                        className="text-zinc-800 dark:text-zinc-200 hover:text-black dark:hover:text-white flex items-center gap-1.5 transition-colors group font-semibold"
-                      >
-                        <span className="truncate max-w-xs">{link.from_id}</span>
-                        <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400" />
-                      </RouterLink>
-                    </td>
+                filteredLinks.map((link, idx) => {
+                  const fromTitle = docTitles.get(link.from_id);
+                  const toTitle = docTitles.get(link.to_id);
+                  const relInfo = RELATION_LABELS[link.rel];
+                  const relLabel = relInfo?.label || link.rel;
+                  return (
+                    <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors">
+                      {/* From */}
+                      <td className="p-4 align-middle">
+                        <RouterLink
+                          to={`/docs/${encodeURIComponent(link.from_id)}`}
+                          className="group block space-y-0.5"
+                        >
+                          <div className="font-sans font-semibold text-zinc-900 dark:text-zinc-100 hover:text-black dark:hover:text-white flex items-center gap-1.5 transition-colors">
+                            <span className="truncate max-w-sm">{fromTitle || link.from_id}</span>
+                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 shrink-0" />
+                          </div>
+                          {fromTitle && (
+                            <div className="text-[11px] font-mono text-zinc-400 dark:text-zinc-500 truncate max-w-sm">
+                              {link.from_id}
+                            </div>
+                          )}
+                        </RouterLink>
+                      </td>
 
-                    {/* Rel */}
-                    <td className="p-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-zinc-100 dark:bg-white/[0.04] text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-white/[0.08]">
-                        <ArrowRight className="w-3 h-3 text-zinc-400 dark:text-zinc-500" />
-                        {link.rel}
-                      </span>
-                    </td>
+                      {/* Rel */}
+                      <td className="p-4 align-middle">
+                        <span
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-sans font-medium bg-zinc-100 dark:bg-white/[0.04] text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-white/[0.08]"
+                          title={relInfo?.desc || link.rel}
+                        >
+                          <ArrowRight className="w-3 h-3 text-zinc-400 dark:text-zinc-500 shrink-0" />
+                          <span>{relLabel}</span>
+                        </span>
+                      </td>
 
-                    {/* To */}
-                    <td className="p-4">
-                      <RouterLink
-                        to={`/docs/${encodeURIComponent(link.to_id)}`}
-                        className="text-zinc-800 dark:text-zinc-200 hover:text-black dark:hover:text-white flex items-center gap-1.5 transition-colors group font-semibold"
-                      >
-                        <span className="truncate max-w-xs">{link.to_id}</span>
-                        <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400" />
-                      </RouterLink>
-                    </td>
+                      {/* To */}
+                      <td className="p-4 align-middle">
+                        <RouterLink
+                          to={`/docs/${encodeURIComponent(link.to_id)}`}
+                          className="group block space-y-0.5"
+                        >
+                          <div className="font-sans font-semibold text-zinc-900 dark:text-zinc-100 hover:text-black dark:hover:text-white flex items-center gap-1.5 transition-colors">
+                            <span className="truncate max-w-sm">{toTitle || link.to_id}</span>
+                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 shrink-0" />
+                          </div>
+                          {toTitle && (
+                            <div className="text-[11px] font-mono text-zinc-400 dark:text-zinc-500 truncate max-w-sm">
+                              {link.to_id}
+                            </div>
+                          )}
+                        </RouterLink>
+                      </td>
 
-                    {/* Actions */}
-                    <td className="p-4 text-right">
-                      <Button
-                        isIconOnly
-                        size="sm"
-                        variant="light"
-                        isLoading={deleteMutation.isPending && (deleteMutation.variables as any) === link}
-                        onPress={() => deleteMutation.mutate(link)}
-                        className="text-zinc-400 hover:text-red-500 rounded-full w-7 h-7"
-                        title={t('links.deleteLink')}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                      {/* Actions */}
+                      <td className="p-4 text-right align-middle">
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="light"
+                          isLoading={deleteMutation.isPending && (deleteMutation.variables as any) === link}
+                          onPress={() => deleteMutation.mutate(link)}
+                          className="text-zinc-400 hover:text-red-500 rounded-full w-7 h-7"
+                          title={t('links.deleteLink')}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={4} className="p-12 text-center text-xs text-zinc-500 font-sans">

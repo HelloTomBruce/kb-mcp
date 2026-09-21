@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import queue
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from kb_mcp_lite.admin._helpers import (
     json_error,
@@ -555,26 +559,95 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             return json_error(str(e), status_code=500)
 
     @app.post("/api/vaults/embed")
-    def api_vault_embed() -> JSONResponse:
-        mgr = VaultManager()
-        name = mgr.get_current()
-        store = SqliteStore(mgr.resolve_path(name))
-        try:
-            n = store.reindex_embeddings()
-            report = getattr(store, "last_reindex_report", {}) or {}
-            return JSONResponse(
-                {
-                    "ok": True,
-                    "reindexed": n,
-                    "failed": report.get("failed", 0),
-                    "dim": report.get("dim", 0),
-                    "total": report.get("total", 0),
-                }
-            )
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            return json_error(str(e), status_code=500)
-        finally:
-            store.close()
+    async def api_vault_embed(request: Request) -> Any:
+        accept_header = request.headers.get("accept", "")
+        stream_mode = "text/event-stream" in accept_header or request.query_params.get("stream") == "1"
+
+        store_path = getattr(app.state, "store_path", None)
+        if not store_path:
+            mgr = VaultManager()
+            name = mgr.get_current()
+            store_path = str(mgr.resolve_path(name))
+
+        if not stream_mode:
+            store = SqliteStore(store_path)
+            try:
+                n = store.reindex_embeddings()
+                report = getattr(store, "last_reindex_report", {}) or {}
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "reindexed": n,
+                        "failed": report.get("failed", 0),
+                        "dim": report.get("dim", 0),
+                        "total": report.get("total", 0),
+                    }
+                )
+            except (ValidationError, NotFoundError, DuplicateError, IntegrityError, Exception) as e:
+                return json_error(str(e), status_code=500)
+            finally:
+                store.close()
+
+        async def event_generator():
+            event_q: queue.Queue = queue.Queue()
+
+            def run_reindex():
+                store = SqliteStore(store_path)
+                try:
+                    def on_progress(processed: int, total: int, doc_id: str, is_ok: bool):
+                        event_q.put({
+                            "type": "progress",
+                            "processed": processed,
+                            "total": total,
+                            "doc_id": doc_id,
+                            "status": "ok" if is_ok else "failed",
+                        })
+
+                    n = store.reindex_embeddings(progress_callback=on_progress)
+                    report = getattr(store, "last_reindex_report", {}) or {}
+                    event_q.put({
+                        "type": "complete",
+                        "ok": True,
+                        "reindexed": n,
+                        "failed": report.get("failed", 0),
+                        "dim": report.get("dim", 0),
+                        "total": report.get("total", 0),
+                    })
+                except Exception as exc:
+                    event_q.put({
+                        "type": "error",
+                        "ok": False,
+                        "error": str(exc),
+                    })
+                finally:
+                    store.close()
+                    event_q.put(None)  # Sentinel to end stream
+
+            thread = threading.Thread(target=run_reindex, daemon=True)
+            thread.start()
+
+            while True:
+                # Poll queue without blocking the asyncio event loop
+                try:
+                    item = event_q.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+                    continue
+
+                if item is None:
+                    break
+
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     # ── Config ─────────────────────────────────────────────────────────
 
