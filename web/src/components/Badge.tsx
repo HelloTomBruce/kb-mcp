@@ -77,3 +77,16 @@ export const TagBadge: React.FC<{ tag: string; onClick?: () => void; size?: 'sm'
     </span>
   );
 };
+
+export const RELATION_LABELS: Record<string, { label: string; desc: string }> = {
+  'relates-to': { label: '与...相关 (relates-to)', desc: '通用关联，无特殊依赖语义' },
+  'depends-on': { label: '依赖于 (depends-on)', desc: '本方案/组件依赖目标组件' },
+  'supersedes': { label: '取代了 (supersedes)', desc: '本决策/方案取代废弃了目标旧方案' },
+  'superseded-by': { label: '被...取代 (superseded-by)', desc: '本旧方案已被目标新方案取代' },
+  'governs': { label: '约束/规范 (governs)', desc: '本规范/准则约束了目标的实现方式' },
+  'blocks': { label: '阻塞 (blocks)', desc: '本任务阻塞了目标的执行或推进' },
+  'implements': { label: '实现了 (implements)', desc: '本组件实现了目标的接口或规范' },
+  'derives-from': { label: '衍生自 (derives-from)', desc: '从目标的思想/模版派生而来' },
+  'references': { label: '引用了 (references)', desc: '正文中提及或引用的目标条目' },
+  'is_influence': { label: '产生影响 (is_influence)', desc: '本条目的变更将影响目标条目' },
+};

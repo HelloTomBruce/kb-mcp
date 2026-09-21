@@ -21,6 +21,7 @@ import {
 import { api } from '../../api/client';
 import { toast } from 'sonner';
 import { LinkItem } from '../../types';
+import { RELATION_LABELS } from '../../components/Badge';
 
 const STANDARD_RELATIONS = [
   'relates-to',
@@ -29,6 +30,8 @@ const STANDARD_RELATIONS = [
   'superseded-by',
   'governs',
   'blocks',
+  'implements',
+  'references',
   'is_influence',
   'derives-from',
 ];
@@ -198,14 +201,24 @@ export const LinksPage: React.FC = () => {
                   classNames={{
                     trigger: 'bg-white dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] rounded-xl min-h-9 shadow-2xs',
                     label: 'text-[10px] text-zinc-500',
-                    value: 'text-xs text-zinc-800 dark:text-zinc-200 font-mono',
+                    value: 'text-xs text-zinc-800 dark:text-zinc-200 font-medium',
                   }}
                 >
-                  {STANDARD_RELATIONS.map((r) => (
-                    <SelectItem key={r} textValue={r} className="font-mono text-xs">
-                      {r}
-                    </SelectItem>
-                  ))}
+                  {STANDARD_RELATIONS.map((r) => {
+                    const info = RELATION_LABELS[r];
+                    const label = info?.label || r;
+                    const desc = info?.desc || '';
+                    return (
+                      <SelectItem
+                        key={r}
+                        textValue={label}
+                        description={desc}
+                        className="text-xs"
+                      >
+                        <div className="font-medium text-zinc-800 dark:text-zinc-200">{label}</div>
+                      </SelectItem>
+                    );
+                  })}
                 </Select>
               </div>
 

@@ -39,9 +39,13 @@ export const Layout: React.FC = () => {
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.documentElement.setAttribute('data-theme', 'dark');
       localStorage.setItem('kb_theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+      document.documentElement.setAttribute('data-theme', 'light');
       localStorage.setItem('kb_theme', 'light');
     }
   }, [isDark]);

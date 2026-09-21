@@ -276,8 +276,8 @@ export const GitPage: React.FC = () => {
                 <div className="h-8 w-px bg-zinc-200 dark:bg-white/[0.08] hidden md:block" />
 
                 {/* Remote & Branch Inputs */}
-                <div className="flex items-center gap-2">
-                  <div className="w-24">
+                <div className="flex items-center gap-3">
+                  <div className="w-36 sm:w-44">
                     <Input
                       size="sm"
                       variant="bordered"
@@ -292,7 +292,7 @@ export const GitPage: React.FC = () => {
                       }}
                     />
                   </div>
-                  <div className="w-36">
+                  <div className="w-48 sm:w-64">
                     <Input
                       size="sm"
                       variant="bordered"
@@ -377,7 +377,16 @@ export const GitPage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <Tabs size="sm" variant="underlined">
+                <Tabs
+                  size="sm"
+                  variant="underlined"
+                  classNames={{
+                    tabList: 'gap-6 w-full relative rounded-none p-0 border-b border-zinc-200 dark:border-white/[0.08]',
+                    tab: 'max-w-fit px-0 h-10 text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 data-[selected=true]:text-zinc-900 dark:data-[selected=true]:text-white',
+                    cursor: 'bg-zinc-900 dark:bg-white',
+                    tabContent: 'text-zinc-500 group-data-[selected=true]:text-zinc-900 dark:text-zinc-400 dark:group-data-[selected=true]:text-white font-medium',
+                  }}
+                >
                   {/* Tab 1: Database Pending Export */}
                   <Tab
                     key="db-pending"

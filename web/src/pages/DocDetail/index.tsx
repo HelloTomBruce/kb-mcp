@@ -29,7 +29,7 @@ import { toast } from 'sonner';
 import { DocTypeInfo } from '../../types';
 import { MarkdownRenderer } from '../../components/MarkdownRenderer';
 import { DiffViewer } from '../../components/DiffViewer';
-import { TypeBadge, TagBadge, TYPE_LABELS } from '../../components/Badge';
+import { TypeBadge, TagBadge, TYPE_LABELS, RELATION_LABELS } from '../../components/Badge';
 import { useTranslation } from 'react-i18next';
 
 const STANDARD_RELATIONS = [
@@ -39,10 +39,10 @@ const STANDARD_RELATIONS = [
   'superseded-by',
   'governs',
   'blocks',
+  'implements',
+  'references',
   'is_influence',
   'derives-from',
-  'implements',
-  'tests',
 ];
 
 const DOC_TYPES = [
@@ -368,7 +368,9 @@ export const DocDetailPage: React.FC = () => {
           variant="underlined"
           classNames={{
             tabList: 'gap-6 w-full relative rounded-none p-0 border-b border-zinc-200 dark:border-white/[0.08]',
-            tab: 'max-w-fit px-0 h-10 text-xs font-medium',
+            tab: 'max-w-fit px-0 h-10 text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 data-[selected=true]:text-zinc-900 dark:data-[selected=true]:text-white',
+            cursor: 'bg-zinc-900 dark:bg-white',
+            tabContent: 'text-zinc-500 group-data-[selected=true]:text-zinc-900 dark:text-zinc-400 dark:group-data-[selected=true]:text-white font-medium',
           }}
         >
           <Tab
@@ -624,7 +626,7 @@ export const DocDetailPage: React.FC = () => {
                 {doc?.id}
               </span>
 
-              <div className="w-48">
+              <div className="w-56">
                 <Select
                   size="sm"
                   aria-label="Relation Type"
@@ -634,14 +636,24 @@ export const DocDetailPage: React.FC = () => {
                   disableAnimation
                   classNames={{
                     trigger: 'bg-zinc-50 dark:bg-zinc-900/60 border-zinc-200 dark:border-white/[0.08] rounded-xl min-h-9',
-                    value: 'text-xs text-zinc-800 dark:text-zinc-200 font-mono',
+                    value: 'text-xs text-zinc-800 dark:text-zinc-200 font-medium',
                   }}
                 >
-                  {STANDARD_RELATIONS.map((r) => (
-                    <SelectItem key={r} textValue={r} className="font-mono text-xs">
-                      {r}
-                    </SelectItem>
-                  ))}
+                  {STANDARD_RELATIONS.map((r) => {
+                    const info = RELATION_LABELS[r];
+                    const label = info?.label || r;
+                    const desc = info?.desc || '';
+                    return (
+                      <SelectItem
+                        key={r}
+                        textValue={label}
+                        description={desc}
+                        className="text-xs"
+                      >
+                        <div className="font-medium text-zinc-800 dark:text-zinc-200">{label}</div>
+                      </SelectItem>
+                    );
+                  })}
                 </Select>
               </div>
 
