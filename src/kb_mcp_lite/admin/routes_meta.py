@@ -906,7 +906,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_all_types, get_custom_types
 
             all_types = get_all_types(store)
-            custom_types = get_custom_types()
+            custom_types = get_custom_types(store)
             total_docs = sum(t.get("doc_count", 0) for t in all_types)
             return render(
                 request,
@@ -928,7 +928,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_all_types, get_custom_types
 
             all_types = get_all_types(store)
-            custom_types = get_custom_types()
+            custom_types = get_custom_types(store)
             total_docs = sum(t.get("doc_count", 0) for t in all_types)
             return JSONResponse(
                 {
@@ -957,26 +957,24 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         if not re.match(r"^[a-z0-9_\-]+$", raw_name):
             return json_error("类型标识符只能包含小写字母、数字、短横线和下划线", status_code=400)
 
-        from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_custom_types, save_custom_types
+        from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_custom_types
 
         builtin_names = {t["name"] for t in BUILTIN_TYPES}
         if raw_name in builtin_names:
             return json_error(f"'{raw_name}' 为系统内置类型，无需重复创建", status_code=409)
 
-        custom_types = get_custom_types()
-        if any(t.get("name") == raw_name for t in custom_types):
-            return json_error(f"自定义类型 '{raw_name}' 已存在", status_code=409)
+        with open_store(app) as store:
+            custom_types = get_custom_types(store)
+            if any(t.get("name") == raw_name for t in custom_types):
+                return json_error(f"自定义类型 '{raw_name}' 已存在", status_code=409)
 
-        new_entry = {
-            "name": raw_name,
-            "label": label,
-            "description": description,
-            "color": color,
-        }
-        custom_types.append(new_entry)
-        save_custom_types(custom_types)
-
-        return JSONResponse({"ok": True, "type": new_entry}, status_code=201)
+            new_entry = store.save_custom_type(
+                name=raw_name,
+                label=label,
+                description=description,
+                color=color,
+            )
+            return JSONResponse({"ok": True, "type": new_entry}, status_code=201)
 
     @app.put("/api/types/{type_name}")
     def api_types_update(type_name: str, payload: dict[str, Any]) -> JSONResponse:
@@ -992,38 +990,19 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
         description = str(payload.get("description", "")).strip()
         color = str(payload.get("color", "")).strip() or "#64748b"
 
-        from kb_mcp_lite.admin._helpers import get_custom_types, save_custom_types
-
-        custom_types = get_custom_types()
-        found = False
-        updated_item: dict[str, Any] = {}
-
-        for t in custom_types:
-            if t.get("name") == type_name:
-                t["label"] = label
-                t["description"] = description
-                t["color"] = color
-                found = True
-                updated_item = t
-                break
-
-        if not found:
-            override = {
-                "name": type_name,
-                "label": label,
-                "description": description,
-                "color": color,
-            }
-            custom_types.append(override)
-            updated_item = override
-
-        save_custom_types(custom_types)
-        return JSONResponse({"ok": True, "type": updated_item})
+        with open_store(app) as store:
+            updated_item = store.save_custom_type(
+                name=type_name,
+                label=label,
+                description=description,
+                color=color,
+            )
+            return JSONResponse({"ok": True, "type": updated_item})
 
     @app.delete("/api/types/{type_name}")
     def api_types_delete(type_name: str) -> JSONResponse:
         type_name = type_name.strip().lower()
-        from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_custom_types, save_custom_types
+        from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_custom_types
 
         builtin_names = {t["name"] for t in BUILTIN_TYPES}
         if type_name in builtin_names:
@@ -1042,10 +1021,9 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                     status_code=400,
                 )
 
-        custom_types = get_custom_types()
-        new_list = [t for t in custom_types if t.get("name") != type_name]
-        if len(new_list) == len(custom_types):
-            return json_error(f"自定义类型 '{type_name}' 不存在", status_code=404)
+            custom_types = get_custom_types(store)
+            if not any(t.get("name") == type_name for t in custom_types):
+                return json_error(f"自定义类型 '{type_name}' 不存在", status_code=404)
 
-        save_custom_types(new_list)
-        return JSONResponse({"ok": True, "deleted": type_name})
+            store.delete_custom_type(type_name)
+            return JSONResponse({"ok": True, "deleted": type_name})

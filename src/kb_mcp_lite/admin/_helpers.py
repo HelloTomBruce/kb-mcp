@@ -86,7 +86,12 @@ DOC_TYPES = [t["name"] for t in BUILTIN_TYPES]
 SEARCH_MODES = ["lexical", "fuzzy", "semantic", "hybrid"]
 
 
-def get_custom_types() -> list[dict[str, Any]]:
+def get_custom_types(store: SqliteStore | None = None) -> list[dict[str, Any]]:
+    if store is not None:
+        db_types = store.list_custom_types()
+        if db_types:
+            return db_types
+
     from kb_mcp_lite.config import load_config
 
     cfg = load_config()
@@ -96,7 +101,27 @@ def get_custom_types() -> list[dict[str, Any]]:
     return []
 
 
-def save_custom_types(custom_types: list[dict[str, Any]]) -> None:
+def save_custom_types(custom_types: list[dict[str, Any]], store: SqliteStore | None = None) -> None:
+    if store is not None:
+        # Get existing custom types to detect deletions if a full list is provided
+        existing = {t["name"] for t in store.list_custom_types()}
+        current_names = {t["name"] for t in custom_types if "name" in t}
+        # Delete removed
+        for name in existing - current_names:
+            store.delete_custom_type(name)
+        # Upsert remaining
+        for t in custom_types:
+            name = str(t.get("name", "")).strip()
+            if not name:
+                continue
+            store.save_custom_type(
+                name=name,
+                label=str(t.get("label", name)),
+                description=str(t.get("description", "")),
+                color=str(t.get("color", "#64748b")),
+            )
+        return
+
     import yaml
 
     from kb_mcp_lite.config import config_path, load_config
@@ -111,8 +136,8 @@ def save_custom_types(custom_types: list[dict[str, Any]]) -> None:
 def get_all_types(store: SqliteStore | None = None) -> list[dict[str, Any]]:
     # Start with built-in types
     type_map: dict[str, dict[str, Any]] = {t["name"]: dict(t) for t in BUILTIN_TYPES}
-    # Merge custom types from config
-    for ct in get_custom_types():
+    # Merge custom types from vault store or config
+    for ct in get_custom_types(store):
         name = str(ct.get("name", "")).strip()
         if not name:
             continue

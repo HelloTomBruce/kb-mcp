@@ -471,3 +471,37 @@ def test_git_diff_api(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert "diff" in payload
     assert "pending_diffs" in payload
+
+
+def test_custom_types_vault_isolation(tmp_path: Path) -> None:
+    store1 = make_store(tmp_path / "vault1")
+    store2 = make_store(tmp_path / "vault2")
+
+    client1 = TestClient(create_app(store=store1))
+    client2 = TestClient(create_app(store=store2))
+
+    # Add custom type in vault1
+    res1 = client1.post(
+        "/api/types",
+        json={"name": "v1_only", "label": "V1 Type", "color": "#112233"},
+    )
+    assert res1.status_code == 201
+
+    # Check vault1 has v1_only
+    list1 = client1.get("/api/types").json()
+    assert any(t["name"] == "v1_only" for t in list1["types"])
+
+    # Check vault2 DOES NOT have v1_only
+    list2 = client2.get("/api/types").json()
+    assert not any(t["name"] == "v1_only" for t in list2["types"])
+
+    # Add custom type in vault2
+    res2 = client2.post(
+        "/api/types",
+        json={"name": "v2_only", "label": "V2 Type", "color": "#445566"},
+    )
+    assert res2.status_code == 201
+
+    # Check vault2 has v2_only and vault1 does not
+    assert any(t["name"] == "v2_only" for t in client2.get("/api/types").json()["types"])
+    assert not any(t["name"] == "v2_only" for t in client1.get("/api/types").json()["types"])

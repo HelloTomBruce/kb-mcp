@@ -925,6 +925,89 @@ class SqliteStore(MaintenanceMixin, SearchMixin, VersioningMixin, EmbeddingMixin
         rows = self._conn.execute(sql).fetchall()
         return [self._row_to_doc(r) for r in rows]
 
+    # ── Custom Types (Vault-scoped) ──────────────────────────────────
+
+    def list_custom_types(self) -> builtins.list[dict[str, Any]]:
+        """List all custom types defined in this vault."""
+        try:
+            rows = self._conn.execute(
+                "SELECT name, label, description, color, created_at, updated_at FROM custom_types ORDER BY rowid ASC"
+            ).fetchall()
+            return [
+                {
+                    "name": str(r["name"]),
+                    "label": str(r["label"]),
+                    "description": str(r["description"] or ""),
+                    "color": str(r["color"] or "#64748b"),
+                    "created_at": r["created_at"],
+                    "updated_at": r["updated_at"],
+                    "is_builtin": False,
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+    def get_custom_type(self, name: str) -> dict[str, Any] | None:
+        """Get a custom type definition by name."""
+        try:
+            row = self._conn.execute(
+                "SELECT name, label, description, color, created_at, updated_at FROM custom_types WHERE name = ?",
+                (name,),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "name": str(row["name"]),
+                "label": str(row["label"]),
+                "description": str(row["description"] or ""),
+                "color": str(row["color"] or "#64748b"),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "is_builtin": False,
+            }
+        except Exception:
+            return None
+
+    def save_custom_type(
+        self,
+        name: str,
+        label: str,
+        description: str = "",
+        color: str = "#64748b",
+    ) -> dict[str, Any]:
+        """Create or update a custom type definition in this vault."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%fZ")
+        self._conn.execute(
+            """
+            INSERT INTO custom_types (name, label, description, color, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                label = excluded.label,
+                description = excluded.description,
+                color = excluded.color,
+                updated_at = excluded.updated_at
+            """,
+            (name, label, description, color, now, now),
+        )
+        self._conn.commit()
+        return {
+            "name": name,
+            "label": label,
+            "description": description,
+            "color": color,
+            "is_builtin": False,
+        }
+
+    def delete_custom_type(self, name: str) -> bool:
+        """Delete a custom type definition from this vault."""
+        cursor = self._conn.execute(
+            "DELETE FROM custom_types WHERE name = ?",
+            (name,),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
 
 # Import make_id at the end to avoid circular import
 from kb_mcp_lite.schema import make_id
