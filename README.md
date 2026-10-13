@@ -151,7 +151,7 @@
 #### 25个内置工具
 | 工具名称 | 功能说明 | AI使用场景 |
 |---|---|---|
-| `kb_add` | 创建文档 (支持 `aliases`, `metadata`, `source`, `id`) | AI学习到新知识后，自动沉淀结构化事实到知识库 |
+| `kb_add` | 创建文档 (支持 `aliases`, `metadata`, `source`) | AI学习到新知识后，自动沉淀结构化事实到知识库 |
 | `kb_get` | 获取文档详情 (支持 `vault` 参数) | AI按需拉取完整内容或指定章节，节省上下文 Token |
 | `kb_update` | 更新文档 (支持 `aliases`, `metadata`, `source`) | 文档内容过时，AI自动更新补充 |
 | `kb_delete` | 软删除文档 | 废弃的文档，AI可以删除 |

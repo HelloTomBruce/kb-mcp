@@ -88,7 +88,6 @@ class KbAddInput(BaseModel):
     aliases: list[str] | None = None
     metadata: dict[str, Any] | None = None
     source: str | None = None
-    id: str | None = Field(default=None, min_length=1, max_length=512)
 
 
 class KbLinkInput(BaseModel):
@@ -559,7 +558,6 @@ def _make_server(vault: str | None = None) -> Any:
         aliases: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         source: str | None = None,
-        id: str | None = None,
     ) -> Any:
         """Create a new document.
 
@@ -574,10 +572,6 @@ def _make_server(vault: str | None = None) -> Any:
             aliases: Alternative IDs for this document (optional).
             metadata: Structured type-specific attributes dict (optional).
             source: Origin file path (optional, enables idempotent re-import).
-            id: Explicit document id (e.g. "reference/foo/bar"). When omitted,
-                the server auto-generates one from ``type`` and ``title``. Pass
-                this when the caller has a stable hierarchical id (multi-doc
-                imports, micro-app docs splits, etc.).
 
         Returns:
             {id: new_document_id, status: "created", hint: "Remember to link this document using kb_link."}.
@@ -591,24 +585,22 @@ def _make_server(vault: str | None = None) -> Any:
                 aliases=aliases,
                 metadata=metadata,
                 source=source,
-                id=id,
             )
         except PydanticValidationError as e:
             code, msg = _mcp_error(ValidationError(str(e)))
             raise RuntimeError(f"MCP error {code}: {msg}")
 
         logger.info(
-            "kb_add type=%r title=%r tags=%r aliases=%r metadata=%r source=%r id=%r",
+            "kb_add type=%r title=%r tags=%r aliases=%r metadata=%r source=%r",
             inp.type,
             inp.title,
             inp.tags,
             inp.aliases,
             inp.metadata,
             inp.source,
-            inp.id,
         )
         try:
-            doc_id = inp.id or make_id(inp.type, inp.title)
+            doc_id = make_id(inp.type, inp.title)
             doc = Document(
                 id=doc_id,
                 type=inp.type,

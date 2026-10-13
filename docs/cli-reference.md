@@ -378,7 +378,7 @@ These tools are available when `kb-mcp` is used as an MCP server. They mirror mo
 
 | Tool | Description |
 |------|-------------|
-| `kb_add` | Create document (supports `aliases`, `metadata`, `source`, `id`) |
+| `kb_add` | Create document (supports `aliases`, `metadata`, `source`) |
 | `kb_get` | Fetch document (supports `vault` param) |
 | `kb_update` | Patch document (supports `aliases`, `metadata`, `source`) |
 | `kb_delete` | Soft-delete |

@@ -261,6 +261,8 @@ class TestDiscovery:
             "kb_schedule_run",
             "kb_schedule_history",
         }
+        kb_add_tool = next(t for t in tools if t["name"] == "kb_add")
+        assert "id" not in kb_add_tool["inputSchema"]["properties"]
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +311,16 @@ class TestKbAdd:
         err = _extract_error(resp)
         assert err is not None, f"Expected validation error, got: {resp}"
         assert err[0] == -32602, f"Expected -32602, got {err[0]}"
+
+    def test_add_ignores_explicit_id(self, mcp_proc: subprocess.Popen) -> None:
+        """Explicit id is ignored; document id is always auto-generated from (type, title)."""
+        resp = _call_tool(
+            mcp_proc,
+            "kb_add",
+            {"type": "project", "title": "Auto Id Only", "id": "custom-id"},
+        )
+        data = _extract_result(resp)
+        assert data["id"] == "auto-id-only"
 
 
 # ---------------------------------------------------------------------------
