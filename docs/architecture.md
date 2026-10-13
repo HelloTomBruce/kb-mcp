@@ -218,7 +218,7 @@ Tasks auto-disable after 3 consecutive failures. Re-enable via `kb scheduler ena
 | Vector search | sqlite-vec (`vec0`) |
 | Embedding client | httpx (OpenAI-compatible) |
 | MCP server | FastMCP 1.x (stdio) |
-| Web admin | FastAPI + Jinja2 |
+| Web admin | FastAPI + React SPA (`web/`，构建产物托管于 `static/app/`) |
 | CLI | Click 8.x |
 | Data model | Pydantic v2 |
 | Markdown | python-frontmatter |

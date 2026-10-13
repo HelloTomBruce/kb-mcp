@@ -1,18 +1,17 @@
-"""Meta routes for the admin UI — overview, links, graph, imports, settings, vault."""
+"""Meta API routes for the admin UI — stats, links, graph, imports, vault, git, scheduler, types."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 import queue
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from kb_mcp_lite.admin import ApiLinkWrite
 from kb_mcp_lite.admin._helpers import (
@@ -33,8 +32,14 @@ from kb_mcp_lite.vault import (
 )
 
 
-def register_meta_routes(app: FastAPI, render: Any) -> None:
-    """Register meta/admin routes on the FastAPI app."""
+def register_meta_routes(app: FastAPI) -> None:
+    """Register meta/admin API routes on the FastAPI app."""
+
+    # ── Root → SPA ─────────────────────────────────────────────────────
+
+    @app.get("/")
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/app", status_code=302)
 
     # ── Health / Stats / Audit ─────────────────────────────────────────
 
@@ -153,24 +158,22 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
             default_color = "#536471"
             if root_id:
                 sub = store.subgraph(root_id, depth=depth)
-                doc_ids = sub["doc_ids"]
-                if doc_ids:
-                    ph = ",".join("?" for _ in doc_ids)
-                    doc_rows = store._conn.execute(
-                        f"SELECT id, title, type FROM documents WHERE id IN ({ph}) AND deleted_at IS NULL",
-                        doc_ids,
-                    ).fetchall()
-                else:
-                    doc_rows = []
+                doc_ids = [str(doc_id) for doc_id in cast("list[str]", sub["doc_ids"])]
+                doc_rows: list[Any] = []
+                for sub_id in doc_ids:
+                    try:
+                        doc = store.get(sub_id, include_deleted=False)
+                    except NotFoundError:
+                        continue
+                    doc_rows.append({"id": doc.id, "title": doc.title, "type": doc.type})
                 nodes = [
                     {
-                        "id": r["id"],
-                        "label": r["title"],
-                        "type": r["type"],
-                        "color": type_colors.get(r["type"], default_color),
-                        "url": f"/documents/{r['id']}",
+                        "id": doc["id"],
+                        "label": doc["title"],
+                        "type": doc["type"],
+                        "color": type_colors.get(doc["type"], default_color),
                     }
-                    for r in doc_rows
+                    for doc in doc_rows
                 ]
                 edges = sub["edges"]
             else:
@@ -182,7 +185,6 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                         "label": doc.title,
                         "type": doc.type,
                         "color": type_colors.get(doc.type, default_color),
-                        "url": f"/documents/{doc.id}",
                     }
                     for doc in active_docs
                 ]
@@ -191,189 +193,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                 ]
             return JSONResponse({"nodes": nodes, "edges": edges})
 
-    @app.get("/graph", response_class=HTMLResponse)
-    def graph_page(request: Request) -> HTMLResponse:
-        return render(request, "graph.html")
-
-    # ── Overview ───────────────────────────────────────────────────────
-
-    @app.get("/", response_class=HTMLResponse)
-    def overview(request: Request) -> Any:
-        if request.query_params.get("legacy") != "1":
-            from kb_mcp_lite.admin import STATIC_APP_DIR
-
-            if STATIC_APP_DIR.exists() and (STATIC_APP_DIR / "index.html").exists():
-                return RedirectResponse(url="/app", status_code=302)
-        with open_store(app) as store:
-            payload = overview_payload(store)
-            return render(
-                request,
-                "overview.html",
-                {
-                    "stats": payload["stats"],
-                    "type_counts": payload["type_counts"],
-                    "tag_counts": payload["tag_counts"],
-                    "recent_docs": payload["recent_docs"],
-                    "doctor_report": payload["doctor_report"],
-                    "embed_enabled": payload["embed_enabled"],
-                    "embed_dim": payload["embed_dim"],
-                    "db_path": str(store.path),
-                },
-            )
-
-    # ── Links HTML pages ───────────────────────────────────────────────
-
-    @app.get("/links", response_class=HTMLResponse)
-    def links_page(
-        request: Request,
-        doc_id: str = "",
-        rel: str = "",
-        page: int = 1,
-        per_page: int = 20,
-    ) -> HTMLResponse:
-        per_page = max(5, min(per_page, 100))
-        page = max(1, page)
-        with open_store(app) as store:
-            docs = store.list(limit=500)
-            links = list_links(store)
-            if doc_id:
-                links = [link for link in links if link.from_id == doc_id or link.to_id == doc_id]
-            if rel:
-                links = [link for link in links if link.rel == rel]
-            rel_options = sorted({link.rel for link in list_links(store)})
-
-            total = len(links)
-            total_pages = max(1, (total + per_page - 1) // per_page)
-            page = min(page, total_pages)
-            start = (page - 1) * per_page
-            end = start + per_page
-            paginated_links = links[start:end]
-
-            # Map doc_id to title for more friendly display
-            id_to_title = {doc.id: doc.title for doc in docs}
-
-            return render(
-                request,
-                "links.html",
-                {
-                    "links": paginated_links,
-                    "docs": docs,
-                    "id_to_title": id_to_title,
-                    "rel_options": rel_options,
-                    "filters": {"doc_id": doc_id, "rel": rel},
-                    "pagination": {
-                        "page": page,
-                        "per_page": per_page,
-                        "total": total,
-                        "total_pages": total_pages,
-                        "has_prev": page > 1,
-                        "has_next": page < total_pages,
-                        "prev_page": page - 1,
-                        "next_page": page + 1,
-                    },
-                },
-            )
-
-    @app.post("/links", response_class=HTMLResponse)
-    async def links_create(
-        from_id: str = Form(...),
-        to_id: str = Form(...),
-        rel: str = Form(default="relates-to"),
-    ) -> RedirectResponse:
-        with open_store(app) as store:
-            store.link(from_id.strip(), to_id.strip(), rel=rel.strip() or "relates-to")
-        return RedirectResponse(url="/links?created=1", status_code=303)
-
-    @app.post("/links/delete", response_class=HTMLResponse)
-    async def links_delete(
-        from_id: str = Form(...),
-        to_id: str = Form(...),
-        rel: str = Form(default=""),
-    ) -> RedirectResponse:
-        with open_store(app) as store:
-            store.unlink(from_id.strip(), to_id.strip(), rel=rel.strip() or None)
-        return RedirectResponse(url="/links?deleted=1", status_code=303)
-
     # ── Import / Export ─────────────────────────────────────────────────
-
-    from kb_mcp_lite.md_io import export_dir, import_dir
-
-    @app.get("/imports", response_class=HTMLResponse)
-    def imports_page(request: Request) -> HTMLResponse:
-        return render(
-            request,
-            "imports.html",
-            {
-                "import_report": None,
-                "export_report": None,
-                "errors": [],
-            },
-        )
-
-    @app.post("/imports", response_class=HTMLResponse)
-    async def imports_run(
-        request: Request,
-        archive: UploadFile = File(...),
-        dry_run: bool = Form(default=False),
-    ) -> HTMLResponse:
-        errors: list[str] = []
-        import_report = None
-        export_report = None
-        try:
-            with open_store(app) as store, tempfile.TemporaryDirectory() as tmp:
-                tmp_path = Path(tmp)
-                payload = await archive.read()
-                zip_path = tmp_path / (archive.filename or "import.zip")
-                zip_path.write_bytes(payload)
-                import zipfile
-
-                with zipfile.ZipFile(zip_path) as zf:
-                    zf.extractall(tmp_path / "vault")
-                import_report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
-        except (ValidationError, DuplicateError) as exc:
-            errors.append(str(exc))
-        except (NotFoundError, IntegrityError) as exc:
-            errors.append(str(exc))
-        return render(
-            request,
-            "imports.html",
-            {
-                "import_report": import_report,
-                "export_report": export_report,
-                "errors": errors,
-            },
-            status_code=400 if errors else 200,
-        )
-
-    @app.post("/exports", response_class=HTMLResponse)
-    def exports_run(request: Request) -> HTMLResponse:
-        errors: list[str] = []
-        import_report = None
-        export_report = None
-        try:
-            with open_store(app) as store:
-                export_home = Path(tempfile.mkdtemp(prefix="kb-mcp-export-"))
-                written = export_dir(store, export_home, force=True)
-                files = sorted(
-                    str(path.relative_to(export_home)) for path in export_home.rglob("*.md")
-                )
-                export_report = {
-                    "path": str(export_home),
-                    "written": written,
-                    "files": files[:20],
-                }
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as exc:
-            errors.append(str(exc))
-        return render(
-            request,
-            "imports.html",
-            {
-                "import_report": import_report,
-                "export_report": export_report,
-                "errors": errors,
-            },
-            status_code=400 if errors else 200,
-        )
 
     @app.post("/api/imports/upload")
     async def api_imports_upload(
@@ -393,7 +213,7 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                 with zipfile.ZipFile(zip_path) as zf:
                     zf.extractall(tmp_path / "vault")
                 report = import_dir(store, tmp_path / "vault", dry_run=dry_run)
-                return JSONResponse({"ok": True, "report": report})
+                return JSONResponse({"ok": True, "report": report.model_dump(mode="json")})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
@@ -422,35 +242,6 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                 )
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
-    # ── Settings ───────────────────────────────────────────────────────
-
-    @app.get("/settings", response_class=HTMLResponse)
-    def settings_page(request: Request) -> HTMLResponse:
-        with open_store(app) as store:
-            doctor_report = store.doctor()
-            embedder = getattr(store, "_embedder", None)
-            from kb_mcp_lite.config import config_path
-
-            cfg_path = config_path()
-            cfg_content = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
-            queue_status = store.embedding_queue_status()
-            return render(
-                request,
-                "settings.html",
-                {
-                    "doctor_report": doctor_report,
-                    "db_path": str(store.path),
-                    "embedder_enabled": bool(embedder and getattr(embedder, "enabled", False)),
-                    "embedder_dim": getattr(embedder, "dim", 0) if embedder else 0,
-                    "embed_queue": queue_status.get("counts", {}),
-                    "kb_home": os.environ.get("KB_MCP_HOME", ""),
-                    "version": schema_version(store),
-                    "audit_log": store.audit_log(limit=50),
-                    "config_path": str(cfg_path),
-                    "config_content": cfg_content,
-                },
-            )
 
     # ── Embed Queue ────────────────────────────────────────────────────
 
@@ -686,10 +477,6 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
 
     # ── Git Management ────────────────────────────────────────────────
 
-    @app.get("/git", response_class=HTMLResponse)
-    def page_git(request: Request) -> HTMLResponse:
-        return render(request, "git.html", {"active_page": "git"})
-
     @app.get("/api/git/status")
     def api_git_status() -> JSONResponse:
         mgr = VaultManager()
@@ -795,10 +582,6 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
 
     # ── Scheduler ──────────────────────────────────────────────────────
 
-    @app.get("/scheduler", response_class=HTMLResponse)
-    def page_scheduler(request: Request) -> HTMLResponse:
-        return render(request, "scheduler.html", {"active_page": "scheduler"})
-
     @app.get("/api/scheduler/status")
     def api_scheduler_status() -> JSONResponse:
         with open_store(app) as store:
@@ -899,28 +682,6 @@ def register_meta_routes(app: FastAPI, render: Any) -> None:
                 return json_error(str(e), status_code=500)
 
     # ── Document Types Management ──────────────────────────────────────
-
-    @app.get("/types", response_class=HTMLResponse)
-    def types_page(request: Request) -> HTMLResponse:
-        with open_store(app) as store:
-            from kb_mcp_lite.admin._helpers import BUILTIN_TYPES, get_all_types, get_custom_types
-
-            all_types = get_all_types(store)
-            custom_types = get_custom_types(store)
-            total_docs = sum(t.get("doc_count", 0) for t in all_types)
-            return render(
-                request,
-                "types.html",
-                {
-                    "types": all_types,
-                    "stats": {
-                        "total": len(all_types),
-                        "builtin": len(BUILTIN_TYPES),
-                        "custom": len(custom_types),
-                        "total_docs": total_docs,
-                    },
-                },
-            )
 
     @app.get("/api/types")
     def api_types_list() -> JSONResponse:

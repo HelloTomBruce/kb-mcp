@@ -1,3 +1,9 @@
+"""Tests for the admin console: SPA serving plus the /api/* JSON surface.
+
+The legacy Jinja2 SSR pages were removed; every former page-level test now
+asserts against the corresponding API endpoint.
+"""
+
 from __future__ import annotations
 
 import io
@@ -36,67 +42,24 @@ def make_store(tmp_path: Path) -> SqliteStore:
     return store
 
 
-def test_overview_renders(tmp_path: Path) -> None:
+def test_root_redirects_to_spa(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
 
-    # Root redirects to SPA when SPA exists
     res_root = client.get("/", follow_redirects=False)
     assert res_root.status_code == 302
-
-    # Legacy view renders old template
-    response = client.get("/?legacy=1")
-    assert response.status_code == 200
-    assert "有效文档" in response.text
-    assert "Sample Project" in response.text
+    assert res_root.headers["location"] == "/app"
 
 
-def test_document_create_and_update(tmp_path: Path) -> None:
+def test_search_and_import_export_api(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
 
-    create_response = client.post(
-        "/documents",
-        data={
-            "id": "",
-            "type": "faq",
-            "title": "How do we ship?",
-            "tags": "release, process",
-            "source": "",
-            "body": "Run tests first.",
-        },
-        follow_redirects=False,
-    )
-
-    assert create_response.status_code == 303
-    created_id = "how-do-we-ship"
-    assert store.get(created_id).title == "How do we ship?"
-
-    update_response = client.post(
-        f"/documents/{created_id}",
-        data={
-            "title": "How do we ship safely?",
-            "tags": "release,process",
-            "source": "docs/release.md",
-            "body": "Run tests and verify migrations.",
-            "action": "save",
-        },
-        follow_redirects=False,
-    )
-
-    assert update_response.status_code == 303
-    updated_doc = store.get(created_id)
-    assert updated_doc.title == "How do we ship safely?"
-    assert updated_doc.source == "docs/release.md"
-
-
-def test_search_lab_and_import_export(tmp_path: Path) -> None:
-    store = make_store(tmp_path)
-    client = TestClient(create_app(store=store))
-
-    search_response = client.get("/search", params={"query": "SQLite", "mode": "hybrid"})
+    search_response = client.get("/api/search", params={"query": "SQLite", "mode": "hybrid"})
     assert search_response.status_code == 200
-    assert "Sample Project" in search_response.text
+    search_payload = search_response.json()
+    assert search_payload["count"] >= 1
+    assert any(hit["doc"]["id"] == "proj/sample" for hit in search_payload["hits"])
 
     archive_buffer = io.BytesIO()
     with zipfile.ZipFile(archive_buffer, "w") as zf:
@@ -112,18 +75,20 @@ def test_search_lab_and_import_export(tmp_path: Path) -> None:
     archive_buffer.seek(0)
 
     import_response = client.post(
-        "/imports",
+        "/api/imports/upload",
         files={"archive": ("vault.zip", archive_buffer.getvalue(), "application/zip")},
         data={},
     )
     assert import_response.status_code == 200
-    assert "Imported Project" not in import_response.text
+    assert import_response.json()["ok"] is True
     # Now filename = id: the zip contains "entry.md" → id = "entry"
     assert store.get("entry").title == "Imported Project"
 
-    export_response = client.post("/exports")
+    export_response = client.get("/api/exports/download")
     assert export_response.status_code == 200
-    assert "已写入" in export_response.text
+    assert export_response.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(export_response.content)) as zf:
+        assert len(zf.namelist()) >= 1
 
 
 def test_admin_json_api(tmp_path: Path) -> None:
@@ -152,50 +117,6 @@ def test_admin_json_api(tmp_path: Path) -> None:
     links_payload = links_response.json()
     assert links_payload["count"] == 1
     assert links_payload["items"][0]["to_id"] == "proj/sample"
-
-
-def test_spa_router_waits_for_external_scripts(tmp_path: Path) -> None:
-    store = make_store(tmp_path)
-    client = TestClient(create_app(store=store))
-
-    response = client.get("/static/spa_router.js")
-
-    assert response.status_code == 200
-    assert "async executeScripts(scripts)" in response.text
-    assert "newScript.async = false" in response.text
-
-
-def test_links_page_and_link_mutation(tmp_path: Path) -> None:
-    store = make_store(tmp_path)
-    client = TestClient(create_app(store=store))
-
-    page_response = client.get("/links")
-    assert page_response.status_code == 200
-    assert "关系列表" in page_response.text
-
-    create_response = client.post(
-        "/links",
-        data={
-            "from_id": "proj/sample",
-            "to_id": "lesson/failure-mode",
-            "rel": "references",
-        },
-        follow_redirects=False,
-    )
-    assert create_response.status_code == 303
-    assert any(link.rel == "references" for link in store.outlinks("proj/sample"))
-
-    delete_response = client.post(
-        "/links/delete",
-        data={
-            "from_id": "proj/sample",
-            "to_id": "lesson/failure-mode",
-            "rel": "references",
-        },
-        follow_redirects=False,
-    )
-    assert delete_response.status_code == 303
-    assert not any(link.rel == "references" for link in store.outlinks("proj/sample"))
 
 
 def test_admin_json_write_api(tmp_path: Path) -> None:
@@ -262,37 +183,12 @@ def test_admin_json_write_api(tmp_path: Path) -> None:
     )
     assert unlink_response.status_code == 200
     assert unlink_response.json()["removed"] == 1
+    assert not any(link.rel == "references" for link in store.outlinks("proj/sample"))
 
 
-def test_flash_feedback_and_history_render(tmp_path: Path) -> None:
+def test_scheduler_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
-
-    create_response = client.post(
-        "/documents",
-        data={
-            "id": "",
-            "type": "faq",
-            "title": "Flash doc",
-            "tags": "ui",
-            "source": "",
-            "body": "hello",
-        },
-        follow_redirects=True,
-    )
-    assert create_response.status_code == 200
-    assert "Document created" in create_response.text
-    assert "版本历史" in create_response.text
-
-
-def test_scheduler_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = make_store(tmp_path)
-    client = TestClient(create_app(store=store))
-
-    # Page render
-    res = client.get("/scheduler")
-    assert res.status_code == 200
-    assert "调度管理" in res.text
 
     # Status API
     status_res = client.get("/api/scheduler/status")
@@ -317,15 +213,9 @@ def test_scheduler_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert run_res.json()["task_name"] == "auto-reindex"
 
 
-def test_settings_page_and_embed_api(tmp_path: Path) -> None:
+def test_embed_api(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
-
-    # Page render
-    res = client.get("/settings")
-    assert res.status_code == 200
-    assert "设置与健康" in res.text
-    assert "嵌入队列" in res.text
 
     # Embed status API
     status_res = client.get("/api/embed/status")
@@ -344,20 +234,14 @@ def test_settings_page_and_embed_api(tmp_path: Path) -> None:
     assert "retried" in retry_res.json()
 
 
-def test_types_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_types_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Use isolated config path in tmp_path
     monkeypatch.setenv("KB_MCP_CONFIG", str(tmp_path / "config.yaml"))
 
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
 
-    # 1. Page render
-    res = client.get("/types")
-    assert res.status_code == 200
-    assert "文档类型管理" in res.text
-    assert "项目/规划" in res.text
-
-    # 2. List API
+    # 1. List API
     list_res = client.get("/api/types")
     assert list_res.status_code == 200
     list_data = list_res.json()
@@ -365,7 +249,7 @@ def test_types_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert list_data["stats"]["builtin"] >= 9
     assert any(t["name"] == "project" for t in list_data["types"])
 
-    # 3. Create custom type
+    # 2. Create custom type
     create_res = client.post(
         "/api/types",
         json={
@@ -392,7 +276,7 @@ def test_types_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert builtin_dup.status_code == 409
 
-    # 4. Update custom type
+    # 3. Update custom type
     update_res = client.put(
         "/api/types/requirement",
         json={
@@ -405,17 +289,17 @@ def test_types_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert update_res.json()["ok"] is True
     assert update_res.json()["type"]["label"] == "产品需求规格"
 
-    # 5. Delete built-in type forbidden
+    # 4. Delete built-in type forbidden
     del_builtin_res = client.delete("/api/types/project")
     assert del_builtin_res.status_code == 400
 
-    # 5.1 Delete custom type with active documents forbidden
+    # 4.1 Delete custom type with active documents forbidden
     store.add(Document(id="req-1", type="requirement", title="Auth Requirement"))
     del_in_use_res = client.delete("/api/types/requirement")
     assert del_in_use_res.status_code == 400
     assert "正在使用" in del_in_use_res.json()["error"]
 
-    # 6. Delete custom type succeeds once documents are removed
+    # 5. Delete custom type succeeds once documents are removed
     store.delete("req-1")
     del_custom_res = client.delete("/api/types/requirement")
     assert del_custom_res.status_code == 200
@@ -423,26 +307,16 @@ def test_types_page_and_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert del_custom_res.json()["deleted"] == "requirement"
 
 
-def test_type_display_labels_in_ui(tmp_path: Path) -> None:
+def test_type_display_labels_in_api(tmp_path: Path) -> None:
     store = make_store(tmp_path)
     client = TestClient(create_app(store=store))
 
-    # Check documents list table renders type display name
-    docs_res = client.get("/documents")
-    assert docs_res.status_code == 200
-    assert "项目/规划" in docs_res.text
-    assert "经验复盘" in docs_res.text
-
-    # Check search page dropdown options
-    search_res = client.get("/search")
-    assert search_res.status_code == 200
-    assert "项目/规划 (project)" in search_res.text
-    assert "经验复盘 (lesson)" in search_res.text
-
-    # Check document detail page
-    detail_res = client.get("/documents/proj/sample")
-    assert detail_res.status_code == 200
-    assert "项目/规划 (project)" in detail_res.text
+    # Types API exposes localized display labels for the SPA
+    types_res = client.get("/api/types")
+    assert types_res.status_code == 200
+    types = {t["name"]: t for t in types_res.json()["types"]}
+    assert types["project"]["label"] == "项目/规划"
+    assert types["lesson"]["label"] == "经验复盘"
 
 
 def test_spa_routes(tmp_path: Path) -> None:
@@ -459,6 +333,24 @@ def test_spa_routes(tmp_path: Path) -> None:
     sub_res = client.get("/app/docs")
     assert sub_res.status_code == 200
     assert "kb-mcp Console" in sub_res.text
+
+
+def test_graph_api(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    client = TestClient(create_app(store=store))
+
+    # Full graph
+    full_res = client.get("/api/graph")
+    assert full_res.status_code == 200
+    payload = full_res.json()
+    assert len(payload["nodes"]) == 2
+    assert len(payload["edges"]) == 1
+
+    # Rooted subgraph
+    sub_res = client.get("/api/graph", params={"root_id": "proj/sample", "depth": 1})
+    assert sub_res.status_code == 200
+    sub_payload = sub_res.json()
+    assert any(node["id"] == "proj/sample" for node in sub_payload["nodes"])
 
 
 def test_git_diff_api(tmp_path: Path) -> None:

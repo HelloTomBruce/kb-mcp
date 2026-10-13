@@ -7,7 +7,6 @@ from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -83,7 +82,6 @@ BUILTIN_TYPES: list[dict[str, Any]] = [
 ]
 
 DOC_TYPES = [t["name"] for t in BUILTIN_TYPES]
-SEARCH_MODES = ["lexical", "fuzzy", "semantic", "hybrid"]
 
 
 def get_custom_types(store: SqliteStore | None = None) -> list[dict[str, Any]]:
@@ -291,25 +289,6 @@ def patch_document(
     return store.update(doc_id, **fields)
 
 
-def doc_row(store: SqliteStore, doc: Document) -> dict[str, Any]:
-    return {
-        "doc": doc,
-        "outlinks": len(store.outlinks(doc.id)),
-        "backlinks": len(store.backlinks(doc.id)),
-    }
-
-
-def doc_form_data(doc: Document) -> dict[str, Any]:
-    return {
-        "id": doc.id,
-        "type": doc.type,
-        "title": doc.title,
-        "tags": ", ".join(doc.tags),
-        "source": doc.source or "",
-        "body": doc.body,
-    }
-
-
 def count_links(store: SqliteStore) -> int:
     return int(store._conn.execute("SELECT COUNT(*) FROM links").fetchone()[0])
 
@@ -341,10 +320,6 @@ def serialize_hit(hit: SearchHit) -> dict[str, Any]:
 
 def json_error(message: str, *, status_code: int = 400) -> JSONResponse:
     return JSONResponse({"ok": False, "error": message}, status_code=status_code)
-
-
-def flash_url(base: str, kind: str, message: str) -> str:
-    return f"{base}?{urlencode({'flash': kind, 'message': message})}"
 
 
 def overview_payload(store: SqliteStore) -> dict[str, Any]:
@@ -403,14 +378,10 @@ def schema_version(store: SqliteStore) -> str:
 __all__ = [
     "BUILTIN_TYPES",
     "DOC_TYPES",
-    "SEARCH_MODES",
     "count_links",
     "create_default_store",
     "create_document",
-    "doc_form_data",
-    "doc_row",
     "filtered_documents",
-    "flash_url",
     "get_all_types",
     "get_custom_types",
     "get_doc_type_names",

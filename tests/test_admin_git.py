@@ -25,18 +25,6 @@ def make_store(tmp_path: Path) -> SqliteStore:
     return store
 
 
-def test_git_page_renders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("KB_MCP_HOME", str(tmp_path / "kb_home"))
-    store = make_store(tmp_path)
-    client = TestClient(create_app(store=store))
-
-    response = client.get("/git")
-    assert response.status_code == 200
-    assert "Git" in response.text
-    assert "提交历史" in response.text
-    assert "拉取更新" in response.text
-
-
 def test_api_git_status_uninitialized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KB_MCP_HOME", str(tmp_path / "kb_home"))
     vm = VaultManager(tmp_path / "kb_home")
