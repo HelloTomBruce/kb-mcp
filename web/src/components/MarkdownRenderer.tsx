@@ -1,7 +1,9 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeKatex from 'rehype-katex';
 
 interface MarkdownRendererProps {
   content: string;
@@ -12,8 +14,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   return (
     <div className={`prose prose-slate dark:prose-invert max-w-none ${className}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeHighlight, rehypeKatex]}
         components={{
           h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 pb-2">{children}</h1>,
           h2: ({ children }) => <h2 className="text-xl font-semibold mt-5 mb-3 text-slate-900 dark:text-slate-100">{children}</h2>,
