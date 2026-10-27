@@ -1,3 +1,14 @@
+# kb-mcp v0.9.1 Release Notes
+
+## What's changed
+
+- **Git Sync & Export Consistency Fixes**:
+  - **Frontmatter Collection Normalization**: Standardized unordered metadata comparison (`links` sorted by `to` & `rel`, `tags`, `aliases`, and ISO/datetime `created_at`) in `_same_export_content`. Eliminates false-positive "database modified" diffs in Git sync view caused solely by item ordering differences after `git pull` or branch checkout.
+  - **Incremental Export Content Fallback**: In `export_dir(incremental=True)`, documents whose disk `mtime` is newer or equal to `doc.updated_at` (e.g. following a `git pull`) are now verified against actual rendered content instead of being unconditionally skipped, preventing unsynced pending changes from getting stuck.
+  - Added unit test coverage for list-ordering invariance and incremental export fallback.
+
+---
+
 # kb-mcp v0.9.0 Release Notes
 
 ## What's changed
