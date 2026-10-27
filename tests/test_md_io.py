@@ -872,6 +872,69 @@ class TestPendingExport:
         # tech/x is clean; reference/x's file belongs to the live sibling.
         assert pending.total == 0, pending
 
+    def test_links_and_tags_order_difference_not_reported_as_modified(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """Differences in links or tags order in Markdown frontmatter should not be
+        flagged as pending export modifications."""
+        store.add(
+            Document(id="proj/a", type="project", title="A", body="body a", tags=["t2", "t1"])
+        )
+        store.add(Document(id="proj/b", type="project", title="B", body="body b"))
+        store.add(Document(id="proj/c", type="project", title="C", body="body c"))
+        store.link("proj/a", "proj/b", rel="relates-to")
+        store.link("proj/a", "proj/c", rel="references")
+
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=False)
+
+        # Manually alter the file's link order and tag order on disk
+        doc_file = out / "a.md"
+        assert doc_file.exists()
+        import frontmatter
+
+        post = frontmatter.loads(doc_file.read_text(encoding="utf-8"))
+        if "links" in post.metadata and isinstance(post.metadata["links"], list):
+            post.metadata["links"].reverse()
+        if "tags" in post.metadata and isinstance(post.metadata["tags"], list):
+            post.metadata["tags"].reverse()
+        doc_file.write_text(frontmatter.dumps(post), encoding="utf-8")
+
+        pending = pending_export(store, out)
+        assert pending.total == 0, f"Expected 0 pending export, got: {pending}"
+
+    def test_incremental_export_exports_even_if_mtime_is_newer_when_content_differs(
+        self, tmp_path: Path, store: SqliteStore
+    ) -> None:
+        """If on-disk file was touched (e.g. git pull/checkout) so mtime >= doc.updated_at,
+        but content actually differs from store, incremental export must still export it."""
+        store.add(Document(id="proj/x", type="project", title="X", body="x v1"))
+        out = tmp_path / "out"
+        export_dir(store, out, force=True, incremental=False)
+
+        # Simulate git checkout/touch setting file mtime to the future
+        doc_file = out / "x.md"
+        import time
+        import os
+
+        future_mtime = time.time() + 1000
+        os.utime(doc_file, (future_mtime, future_mtime))
+
+        # Update document in store, but mock updated_at to be older than mtime
+        store.update("proj/x", body="x v2")
+        with store._txn() as cur:
+            cur.execute(
+                "UPDATE documents SET updated_at = '2026-01-01T00:00:00+00:00' WHERE id = 'proj/x'"
+            )
+
+        assert pending_export(store, out).modified == ["proj/x"]
+
+        # Incremental export should not skip it despite updated_at <= mtime
+        written = export_dir(store, out, force=True, incremental=True)
+        assert written == 1
+        assert pending_export(store, out).total == 0
+        assert "x v2" in doc_file.read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # Path-traversal guard (NFR-S-3) — direct test with ../../../etc/passwd

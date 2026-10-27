@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
+from collections.abc import Mapping
 
 import frontmatter
 
@@ -535,15 +536,21 @@ def export_dir(store: Store, dir: Path, *, force: bool = False, incremental: boo
     live_docs = [d for d in all_docs if d.deleted_at is None]
     docs = sorted(live_docs, key=lambda d: d.id)
     deleted_docs = [d for d in all_docs if d.deleted_at is not None]
-    # 增量导出过滤：只导出更新时间晚于对应文件修改时间的文档
+    # 增量导出过滤：只导出更新时间晚于对应文件修改时间的文档，或内容与磁盘不一致的文档
     if incremental:
         filtered = []
         for doc in docs:
             candidate = _export_candidate(base, doc)
-            if candidate.exists():
+            if candidate.is_file():
                 mtime = datetime.fromtimestamp(candidate.stat().st_mtime, tz=timezone.utc)
                 if doc.updated_at <= mtime:
-                    continue
+                    try:
+                        on_disk = candidate.read_text(encoding="utf-8")
+                        rendered = render_document(doc, outlinks=store.outlinks(doc.id))
+                        if _same_export_content(on_disk, rendered):
+                            continue
+                    except Exception:
+                        pass
             filtered.append(doc)
         docs = filtered
 
@@ -718,8 +725,71 @@ def pending_export(store: Store, dir: Path) -> PendingExport:
 _VOLATILE_FRONTMATTER_KEYS = frozenset({"source", "updated_at"})
 
 
+def _normalize_frontmatter_for_comparison(fm: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize frontmatter dictionary for content comparison.
+
+    Strips volatile fields and normalizes unordered collections
+    (links, tags, aliases) and scalar types so that semantic equivalence
+    is respected.
+    """
+    norm = dict(fm)
+    for key in _VOLATILE_FRONTMATTER_KEYS:
+        norm.pop(key, None)
+
+    # 1. Links: set-like comparison (sorted by (to, rel))
+    raw_links = norm.get("links")
+    if raw_links:
+        if isinstance(raw_links, list):
+            norm["links"] = sorted(
+                raw_links,
+                key=lambda x: (
+                    str(x.get("to", "")) if isinstance(x, dict) else str(x),
+                    str(x.get("rel", "")) if isinstance(x, dict) else "",
+                ),
+            )
+        else:
+            norm.pop("links", None)
+    else:
+        norm.pop("links", None)
+
+    # 2. Tags: set-like comparison
+    raw_tags = norm.get("tags")
+    if raw_tags:
+        if isinstance(raw_tags, list):
+            norm["tags"] = sorted(str(t) for t in raw_tags)
+        else:
+            norm["tags"] = [str(raw_tags)]
+    else:
+        norm.pop("tags", None)
+
+    # 3. Aliases: set-like comparison
+    raw_aliases = norm.get("aliases")
+    if raw_aliases:
+        if isinstance(raw_aliases, list):
+            norm["aliases"] = sorted(str(a) for a in raw_aliases)
+        else:
+            norm["aliases"] = [str(raw_aliases)]
+    else:
+        norm.pop("aliases", None)
+
+    # 4. Metadata: empty dict matches None or absent
+    if not norm.get("metadata"):
+        norm.pop("metadata", None)
+
+    # 5. created_at: datetime object or ISO string normalization
+    if "created_at" in norm and norm["created_at"] is not None:
+        cat = norm["created_at"]
+        if isinstance(cat, datetime):
+            norm["created_at"] = cat.isoformat()
+        else:
+            norm["created_at"] = str(cat)
+
+    return norm
+
+
 def _same_export_content(on_disk: str, rendered: str) -> bool:
-    """Compare exported Markdown, ignoring volatile frontmatter keys.
+    """Compare exported Markdown, ignoring volatile frontmatter keys and
+    order of unordered collections (links, tags, aliases).
 
     Both sides are parsed and compared as logical content (frontmatter
     minus :data:`_VOLATILE_FRONTMATTER_KEYS`, plus the body); falls back
@@ -730,10 +800,9 @@ def _same_export_content(on_disk: str, rendered: str) -> bool:
         fm_rendered, body_rendered = parse_frontmatter(rendered)
     except Exception:
         return on_disk == rendered
-    for key in _VOLATILE_FRONTMATTER_KEYS:
-        fm_disk.pop(key, None)  # type: ignore[misc]
-        fm_rendered.pop(key, None)  # type: ignore[misc]
-    return fm_disk == fm_rendered and body_disk == body_rendered
+    norm_disk = _normalize_frontmatter_for_comparison(fm_disk)
+    norm_rendered = _normalize_frontmatter_for_comparison(fm_rendered)
+    return norm_disk == norm_rendered and body_disk == body_rendered
 
 
 __all__ = [
