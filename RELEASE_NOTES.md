@@ -1,3 +1,16 @@
+# kb-mcp v0.9.2 Release Notes
+
+## What's changed
+
+- **MCP Protocol Layer Hardening**:
+  - **initialize Handshake**: the server now delivers usage `instructions` (which MCP clients inject into the model context) and reports its real package version in `serverInfo.version` — previously the mcp SDK's own version was reported by mistake.
+  - **Structured Tool Errors**: all tools return machine-readable errors as `isError=true` with a JSON payload `{"error": {"code": <int>, "message": <str>}}` (parse from the first `{` in the text). Mapped codes: `-32602` validation, `-32004` not found, `-32005` duplicate, `-32603` internal.
+  - **VaultError Mapping**: unknown vault names now return a structured `-32004` error naming the vault (previously unstructured text), covering `kb_search` / `kb_get` / `kb_list` / `kb_diff_check` / `kb_query_relations`.
+  - **pydantic ≥ 2.14 compatibility**: the error channel is now raise-based so behavior is identical across dependency combinations — under pydantic 2.14 FastMCP builds output models even for `-> Any` tools, which broke the previous `CallToolResult` return path (seen on the Python 3.10 CI matrix).
+  - e2e tests now assert the handshake contract (serverInfo name/version, non-empty instructions) and the error-code mapping; verified on Python 3.10 + pydantic 2.14 and Python 3.11 + pydantic 2.13.
+
+---
+
 # kb-mcp v0.9.1 Release Notes
 
 ## What's changed
