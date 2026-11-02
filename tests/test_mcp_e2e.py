@@ -136,13 +136,17 @@ def _extract_error(resp: dict[str, Any]) -> tuple[int, str] | None:
     if not result.get("isError"):
         return None
     text = result.get("content", [{}])[0].get("text", "")
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict) and "error" in parsed:
-            err = parsed["error"]
-            return (int(err["code"]), str(err["message"]))
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        pass
+    # The SDK prefixes the payload with "Error executing tool X: ", so the
+    # JSON payload starts at the first "{".
+    brace = text.find("{")
+    if brace >= 0:
+        try:
+            parsed = json.loads(text[brace:])
+            if isinstance(parsed, dict) and "error" in parsed:
+                err = parsed["error"]
+                return (int(err["code"]), str(err["message"]))
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            pass
     # Legacy text format: "MCP error <code>: <msg>"
     import re
 
