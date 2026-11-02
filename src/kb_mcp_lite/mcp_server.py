@@ -43,6 +43,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as PydanticValidationError
 
+from kb_mcp_lite import __version__
 from kb_mcp_lite.md_io import render_document
 from kb_mcp_lite.schema import (
     Document,
@@ -54,7 +55,7 @@ from kb_mcp_lite.schema import (
     make_id,
 )
 from kb_mcp_lite.store.sqlite import SqliteStore
-from kb_mcp_lite.vault import VaultManager
+from kb_mcp_lite.vault import VaultError, VaultManager, VaultNotFoundError
 
 # ---------------------------------------------------------------------------
 # Pydantic input models (architecture.md § 4.4)
@@ -186,10 +187,14 @@ def _mcp_error(exc: Exception) -> tuple[int, str]:
         return -32602, str(exc)
     if isinstance(exc, NotFoundError):
         return -32004, str(exc)
+    if isinstance(exc, VaultNotFoundError):
+        return -32004, str(exc)
     if isinstance(exc, DuplicateError):
         return -32005, str(exc)
     if isinstance(exc, IntegrityError):
         return -32603, str(exc)
+    if isinstance(exc, VaultError):
+        return -32603, f"vault error: {exc}"
     return -32603, f"internal error: {exc}"
 
 
@@ -331,6 +336,22 @@ _DOC_TEMPLATES: dict[str, str] = {
 _DEFAULT_DOC_TEMPLATE = _DOC_TEMPLATES["decision"]
 _HELP_DOCS = ("architecture", "cli-reference", "quickstart")
 
+# Sent in the initialize handshake response; clients inject it into the
+# model context, so it must stay short and pointer-style.
+_SERVER_INSTRUCTIONS = (
+    "A structured knowledge base: Markdown documents of typed models "
+    "(decision, project, lesson, glossary, person, faq, api, runbook, "
+    "release) with version history, typed graph edges, and hybrid "
+    "BM25+vector search.\n"
+    "Typical flow: kb_search to find, kb_get to read, kb_add / kb_update "
+    "to write, kb_link to connect, kb_query_relations / kb_impact to "
+    "traverse the graph, kb_doctor to check health. Edge types must come "
+    "from the kb_rel_spec vocabulary.\n"
+    "For a full tour run the 'onboarding' prompt or read "
+    "kb://help/quickstart. Tool errors return isError=true with JSON text "
+    '{"error": {"code": <int>, "message": <str>}}.'
+)
+
 
 # ---------------------------------------------------------------------------
 # Store factory
@@ -360,12 +381,38 @@ def _make_server(vault: str | None = None) -> Any:
     """
     try:
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import CallToolResult, TextContent
     except ImportError as e:  # pragma: no cover
         raise RuntimeError("mcp package not installed; run: pip install mcp") from e
 
-    mcp = FastMCP("kb-mcp")
+    mcp = FastMCP("kb-mcp", instructions=_SERVER_INSTRUCTIONS)
+    # Left unset, serverInfo reports the *mcp SDK's* own package version,
+    # not this server's (read at connection time, so setting it here works).
+    mcp._mcp_server.version = __version__
     store = _create_store(vault)
     logger = _setup_logging()
+
+    def _error_result(exc: Exception, tool: str) -> Any:
+        """Build a structured error tool result for a kb exception.
+
+        FastMCP converts raised exceptions into plain-text isError results
+        and JSON-RPC error codes never reach the wire, so the mapped code
+        travels as JSON in the error text instead.
+        """
+        code, msg = _mcp_error(exc)
+        logger.exception("%s failed: %s", tool, msg)
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {"error": {"code": code, "message": msg}},
+                        ensure_ascii=False,
+                    ),
+                )
+            ],
+            isError=True,
+        )
 
     # ---- kb_search --------------------------------------------------------
 
@@ -411,8 +458,7 @@ def _make_server(vault: str | None = None) -> Any:
                 vault=vault,
             )
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_search")
 
         logger.info(
             "kb_search query=%r type=%r tags=%r limit=%d mode=%r rrf_k=%d rerank=%s vault=%r",
@@ -491,10 +537,8 @@ def _make_server(vault: str | None = None) -> Any:
             finally:
                 if inp.vault:
                     target_store.close()
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_search failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError, VaultError) as e:
+            return _error_result(e, "kb_search")
 
     # ---- kb_get -----------------------------------------------------------
 
@@ -518,8 +562,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbGetInput(id=id, section=section, vault=vault)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_get")
 
         logger.info("kb_get id=%r section=%r vault=%r", inp.id, inp.section, inp.vault)
         try:
@@ -542,10 +585,8 @@ def _make_server(vault: str | None = None) -> Any:
             finally:
                 if inp.vault:
                     target_store.close()
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_get failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError, VaultError) as e:
+            return _error_result(e, "kb_get")
 
     # ---- kb_add -----------------------------------------------------------
 
@@ -587,8 +628,7 @@ def _make_server(vault: str | None = None) -> Any:
                 source=source,
             )
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_add")
 
         logger.info(
             "kb_add type=%r title=%r tags=%r aliases=%r metadata=%r source=%r",
@@ -618,9 +658,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "agent_instruction": f"Please immediately call 'kb_link' to associate this new document '{stored_id}' with the project it belongs to (e.g. 'proj/xxx') or other related documents.",
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_add failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_add")
 
     # ---- kb_link ----------------------------------------------------------
 
@@ -643,8 +681,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbLinkInput(from_id=from_id, to_id=to_id, rel=rel)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_link")
 
         logger.info("kb_link from=%r to=%r rel=%r", inp.from_id, inp.to_id, inp.rel)
         try:
@@ -656,9 +693,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "rel": link.rel,
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_link failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_link")
 
     # ---- kb_list ----------------------------------------------------------
 
@@ -694,8 +729,7 @@ def _make_server(vault: str | None = None) -> Any:
                 vault=vault,
             )
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_list")
 
         logger.info(
             "kb_list type=%r tags=%r limit=%d offset=%d include_deleted=%s vault=%r",
@@ -732,10 +766,8 @@ def _make_server(vault: str | None = None) -> Any:
             finally:
                 if inp.vault:
                     target_store.close()
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_list failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError, VaultError) as e:
+            return _error_result(e, "kb_list")
 
     # ---- kb_update --------------------------------------------------------
 
@@ -778,8 +810,7 @@ def _make_server(vault: str | None = None) -> Any:
                 source=source,
             )
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_update")
 
         fields: dict[str, object] = {}
         if inp.title is not None:
@@ -796,17 +827,14 @@ def _make_server(vault: str | None = None) -> Any:
             fields["source"] = inp.source
 
         if not fields:
-            code, msg = _mcp_error(ValidationError("update requires at least one field"))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError("update requires at least one field"), "kb_update")
 
         logger.info("kb_update id=%r fields=%s", inp.id, sorted(fields.keys()))
         try:
             doc = store.update(inp.id, **fields)
             return {"ok": True, "id": doc.id, "updated_at": doc.updated_at.isoformat()}
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_update failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_update")
 
     # ---- kb_delete --------------------------------------------------------
 
@@ -826,17 +854,14 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbDeleteInput(id=id)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_delete")
 
         logger.info("kb_delete id=%r", inp.id)
         try:
             store.delete(inp.id)
             return {"ok": True, "id": inp.id}
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_delete failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_delete")
 
     # ---- kb_unlink --------------------------------------------------------
 
@@ -862,8 +887,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbUnlinkInput(from_id=from_id, to_id=to_id, rel=rel)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_unlink")
 
         logger.info("kb_unlink from=%r to=%r rel=%r", inp.from_id, inp.to_id, inp.rel)
         try:
@@ -876,9 +900,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "rel": inp.rel,
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_unlink failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_unlink")
 
     # ---- kb_history -------------------------------------------------------
 
@@ -900,17 +922,14 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbHistoryInput(id=id, limit=limit)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_history")
 
         logger.info("kb_history id=%r limit=%d", inp.id, inp.limit)
         try:
             history = store.document_history(inp.id, limit=inp.limit)
             return {"history": history, "count": len(history)}
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_history failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_history")
 
     # ---- kb_restore -------------------------------------------------------
 
@@ -932,8 +951,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbRestoreInput(id=id, version=version)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_restore")
 
         logger.info("kb_restore id=%r version=%r", inp.id, inp.version)
         try:
@@ -945,9 +963,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "restored_at": doc.updated_at.isoformat(),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_restore failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_restore")
 
     # ---- kb_diff ----------------------------------------------------------
 
@@ -971,17 +987,14 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbDiffInput(id=id, version_a=version_a, version_b=version_b)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_diff")
 
         logger.info("kb_diff id=%r a=%d b=%d", inp.id, inp.version_a, inp.version_b)
         try:
             result = store.diff(inp.id, inp.version_a, inp.version_b)
             return result
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_diff failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_diff")
 
     # ---- kb_restore_deleted -----------------------------------------------
 
@@ -998,8 +1011,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbRestoreInput(id=id)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_restore_deleted")
 
         logger.info("kb_restore_deleted id=%r", inp.id)
         try:
@@ -1010,9 +1022,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "restored_at": doc.updated_at.isoformat(),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_restore_deleted failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_restore_deleted")
 
     # ---- kb_doctor --------------------------------------------------------
 
@@ -1028,9 +1038,7 @@ def _make_server(vault: str | None = None) -> Any:
             report = store.doctor()
             return report.model_dump(mode="json")
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_doctor failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_doctor")
 
     # ---- kb_similar -------------------------------------------------------
 
@@ -1048,8 +1056,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbSimilarInput(id=id, limit=limit)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_similar")
 
         logger.info("kb_similar id=%r limit=%d", inp.id, inp.limit)
         try:
@@ -1068,9 +1075,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": len(similar),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_similar failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_similar")
 
     # ---- kb_duplicates ----------------------------------------------------
 
@@ -1089,8 +1094,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbDuplicatesInput(threshold=threshold, limit=limit)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_duplicates")
 
         logger.info("kb_duplicates threshold=%r limit=%d", inp.threshold, inp.limit)
         try:
@@ -1103,9 +1107,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": len(pairs),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_duplicates failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_duplicates")
 
     # ---- kb_embed_status / kb_embed_retry ---------------------------------
 
@@ -1126,9 +1128,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             return store.embedding_status()
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_embed_status failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_embed_status")
 
     @mcp.tool()
     def kb_embed_retry(doc_id: str | None = None) -> Any:
@@ -1156,9 +1156,7 @@ def _make_server(vault: str | None = None) -> Any:
             moved = store.retry_embedding(doc_id=doc_id)
             return {"ok": True, "retried": moved, "doc_id": doc_id}
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_embed_retry failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_embed_retry")
 
     # ---- kb_diff_check ----------------------------------------------------
 
@@ -1178,8 +1176,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbDiffCheckInput(cwd=cwd, vault=vault)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_diff_check")
 
         logger.info("kb_diff_check cwd=%r vault=%r", inp.cwd, inp.vault)
         try:
@@ -1190,10 +1187,8 @@ def _make_server(vault: str | None = None) -> Any:
             finally:
                 if inp.vault:
                     target_store.close()
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_diff_check failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError, VaultError) as e:
+            return _error_result(e, "kb_diff_check")
 
     # ---- kb_query_relations -----------------------------------------------
 
@@ -1234,8 +1229,7 @@ def _make_server(vault: str | None = None) -> Any:
                 vault=vault,
             )
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_query_relations")
 
         logger.info(
             "kb_query_relations start=%r target=%r rel=%r dir=%r type=%r depth=%d",
@@ -1274,10 +1268,8 @@ def _make_server(vault: str | None = None) -> Any:
             finally:
                 if inp.vault:
                     target_store.close()
-        except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_query_relations failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+        except (ValidationError, NotFoundError, DuplicateError, IntegrityError, VaultError) as e:
+            return _error_result(e, "kb_query_relations")
 
     # ---- kb_impact (v0.8 特性 #6) ------------------------------------------
 
@@ -1303,8 +1295,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbImpactInput(doc_id=doc_id, max_depth=max_depth, max_results=max_results)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_impact")
         logger.info("kb_impact doc_id=%r max_depth=%d", inp.doc_id, inp.max_depth)
         try:
             from kb_mcp_lite.relations import ImpactAnalyzer
@@ -1332,9 +1323,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": len(nodes),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_impact failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_impact")
 
     # ---- kb_decision_chain (v0.8 特性 #6) ----------------------------------
 
@@ -1356,8 +1345,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbDecisionChainInput(decision_id=decision_id)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_decision_chain")
         logger.info("kb_decision_chain decision_id=%r", inp.decision_id)
         try:
             from kb_mcp_lite.relations import supersession_chain
@@ -1369,9 +1357,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": len(chain),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_decision_chain failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_decision_chain")
 
     # ---- kb_rel_spec (v0.8 特性 #6) ----------------------------------------
 
@@ -1391,8 +1377,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbRelSpecInput(rel_name=rel_name)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_rel_spec")
         logger.info("kb_rel_spec rel_name=%r", inp.rel_name)
         try:
             from kb_mcp_lite.relations import STANDARD_RELATIONS, get_relation_spec
@@ -1426,9 +1411,7 @@ def _make_server(vault: str | None = None) -> Any:
                     "count": len(STANDARD_RELATIONS),
                 }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_rel_spec failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_rel_spec")
 
     # ---- kb_expand (v0.8 特性 #5) ------------------------------------------
 
@@ -1451,8 +1434,7 @@ def _make_server(vault: str | None = None) -> Any:
         try:
             inp = KbExpandInput(doc_id=doc_id, depth=depth, max_neighbors=max_neighbors)
         except PydanticValidationError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_expand")
         logger.info("kb_expand doc_id=%r depth=%d", inp.doc_id, inp.depth)
         try:
             # Verify doc exists
@@ -1504,9 +1486,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": min(len(neighbors), inp.max_neighbors),
             }
         except (ValidationError, NotFoundError, DuplicateError, IntegrityError) as e:
-            code, msg = _mcp_error(e)
-            logger.exception("kb_expand failed: %s", msg)
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(e, "kb_expand")
 
     # ---- kb_schedule_list (v0.8 特性 #7) -----------------------------------
 
@@ -1529,7 +1509,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": len(TASK_REGISTRY),
             }
         except Exception as e:
-            raise RuntimeError(f"MCP error: {e}")
+            return _error_result(e, "kb_schedule_list")
 
     # ---- kb_schedule_status (v0.8 特性 #7) ---------------------------------
 
@@ -1549,7 +1529,7 @@ def _make_server(vault: str | None = None) -> Any:
             scheduler = TaskScheduler(store, config)
             return scheduler.get_status()
         except Exception as e:
-            raise RuntimeError(f"MCP error: {e}")
+            return _error_result(e, "kb_schedule_status")
 
     # ---- kb_schedule_run (v0.8 特性 #7) ------------------------------------
 
@@ -1580,10 +1560,9 @@ def _make_server(vault: str | None = None) -> Any:
                 "error": run.error,
             }
         except ValueError as e:
-            code, msg = _mcp_error(ValidationError(str(e)))
-            raise RuntimeError(f"MCP error {code}: {msg}")
+            return _error_result(ValidationError(str(e)), "kb_schedule_run")
         except Exception as e:
-            raise RuntimeError(f"MCP error: {e}")
+            return _error_result(e, "kb_schedule_run")
 
     # ---- kb_schedule_history (v0.8 特性 #7) ---------------------------------
 
@@ -1615,7 +1594,7 @@ def _make_server(vault: str | None = None) -> Any:
                 "count": len(rows),
             }
         except Exception as e:
-            raise RuntimeError(f"MCP error: {e}")
+            return _error_result(e, "kb_schedule_history")
 
     # ---- Resources -------------------------------------------------------
 

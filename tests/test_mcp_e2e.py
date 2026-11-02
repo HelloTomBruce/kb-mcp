@@ -5,8 +5,8 @@ and asserts tool outputs. No mocks.
 
 MCP protocol note: tool execution errors are returned as
 ``{"result": {"isError": true, "content": [{"text": "..."}]}}``,
-NOT as JSON-RPC ``{"error": {"code": ...}}``. The error code is embedded
-in the text as ``MCP error <code>: <message>``. This matches the MCP
+NOT as JSON-RPC ``{"error": {"code": ...}}``. The error text is JSON:
+``{"error": {"code": <int>, "message": <str>}}``. This matches the MCP
 specification — JSON-RPC errors are for protocol-level issues, not
 application-level tool failures.
 """
@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 
+from kb_mcp_lite import __version__
 from kb_mcp_lite.md_io import parse_frontmatter
 
 # ---------------------------------------------------------------------------
@@ -125,7 +126,7 @@ def _extract_error(resp: dict[str, Any]) -> tuple[int, str] | None:
     """Extract (code, message) from an MCP tool error response.
 
     Returns None if the response is not an error.
-    The error text format is: ``Error executing tool X: MCP error <code>: <msg>``
+    The error text is JSON: ``{"error": {"code": <int>, "message": <str>}}``.
     """
     if "result" not in resp:
         # JSON-RPC level error
@@ -135,7 +136,14 @@ def _extract_error(resp: dict[str, Any]) -> tuple[int, str] | None:
     if not result.get("isError"):
         return None
     text = result.get("content", [{}])[0].get("text", "")
-    # Parse "MCP error <code>: <msg>" from the text
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and "error" in parsed:
+            err = parsed["error"]
+            return (int(err["code"]), str(err["message"]))
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        pass
+    # Legacy text format: "MCP error <code>: <msg>"
     import re
 
     m = re.search(r"MCP error (-?\d+):\s*(.+)", text)
@@ -199,6 +207,10 @@ def mcp_proc(tmp_db: Path) -> Iterator[subprocess.Popen]:
         )
         init_resp = _recv_until_id(proc, rid)
         assert "result" in init_resp, f"initialize failed: {init_resp}"
+        init_result = init_resp["result"]
+        assert init_result["serverInfo"]["name"] == "kb-mcp", init_result["serverInfo"]
+        assert init_result["serverInfo"]["version"] == __version__, init_result["serverInfo"]
+        assert init_result.get("instructions"), "initialize must carry server instructions"
 
         # notifications/initialized
         _send(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -391,6 +403,14 @@ class TestKbSearch:
         err = _extract_error(resp)
         assert err is not None, f"Expected validation error, got: {resp}"
         assert err[0] == -32602, f"Expected -32602, got {err[0]}"
+
+    def test_search_unknown_vault_maps_not_found(self, mcp_proc: subprocess.Popen) -> None:
+        """Unknown vault name returns structured -32004 (VaultNotFoundError)."""
+        resp = _call_tool(mcp_proc, "kb_search", {"query": "hello", "vault": "no-such-vault"})
+        err = _extract_error(resp)
+        assert err is not None, f"Expected vault not-found error, got: {resp}"
+        assert err[0] == -32004, f"Expected -32004, got {err[0]}"
+        assert "no-such-vault" in err[1], f"Message should name the vault, got: {err[1]}"
 
 
 # ---------------------------------------------------------------------------
